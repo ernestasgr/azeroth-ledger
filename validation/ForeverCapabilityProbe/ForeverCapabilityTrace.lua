@@ -50,6 +50,28 @@ local function safeString(value)
     return result:sub(1, 240)
 end
 
+local function safeArguments(...)
+    local arguments = {}
+    for index = 1, select("#", ...) do
+        arguments[index] = safeString(select(index, ...))
+    end
+    return arguments
+end
+
+local function appendTrace(scenario, event, arguments)
+    local traces = ForeverCapabilityProbeDB.traces or {}
+    ForeverCapabilityProbeDB.traces = traces
+    traces[#traces + 1] = {
+        scenario = scenario,
+        elapsed = GetTime(),
+        event = event,
+        arguments = arguments,
+    }
+    if #traces > 500 then
+        table.remove(traces, 1)
+    end
+end
+
 local frame = CreateFrame("Frame")
 for _, event in ipairs(events) do
     local ok = pcall(frame.RegisterEvent, frame, event)
@@ -64,21 +86,27 @@ frame:SetScript("OnEvent", function(_, event, ...)
         return
     end
 
-    local arguments = {}
-    for index = 1, select("#", ...) do
-        arguments[index] = safeString(select(index, ...))
-    end
+    appendTrace(scenario, event, safeArguments(...))
 
-    local traces = ForeverCapabilityProbeDB.traces or {}
-    ForeverCapabilityProbeDB.traces = traces
-    traces[#traces + 1] = {
-        scenario = scenario,
-        elapsed = GetTime(),
-        event = event,
-        arguments = arguments,
-    }
-    if #traces > 500 then
-        table.remove(traces, 1)
+    if event == "LOOT_OPENED" and type(GetNumLootItems) == "function" then
+        local countOk, slotCount = pcall(GetNumLootItems)
+        if countOk and type(slotCount) == "number" then
+            for slot = 1, slotCount do
+                local linkOk, link = pcall(GetLootSlotLink, slot)
+                local sourceOk, sources = pcall(function()
+                    return safeArguments(GetLootSourceInfo(slot))
+                end)
+                local arguments = { tostring(slot), linkOk and safeString(link) or "<link inaccessible>" }
+                if sourceOk then
+                    for _, source in ipairs(sources) do
+                        arguments[#arguments + 1] = source
+                    end
+                else
+                    arguments[#arguments + 1] = "<source inaccessible>"
+                end
+                appendTrace(scenario, "LOOT_SOURCE_SLOT", arguments)
+            end
+        end
     end
 end)
 

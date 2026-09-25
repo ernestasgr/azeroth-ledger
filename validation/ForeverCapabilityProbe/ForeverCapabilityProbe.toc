@@ -6,3 +6,4 @@
 
 ForeverCapabilityProbe.lua
 ForeverCapabilityTrace.lua
+ForeverCapabilityUI.lua

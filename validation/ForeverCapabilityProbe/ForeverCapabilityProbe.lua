@@ -3,6 +3,8 @@
 ---@field traces? ForeverCapabilityTraceRecord[]
 ---@field traceScenario? string
 ---@field snapshots? ForeverCapabilityBagSnapshot[]
+---@field uiEnabled? boolean
+---@field tooltipEnabled? boolean
 
 ---@type ForeverCapabilityProbeState
 ForeverCapabilityProbeDB = type(ForeverCapabilityProbeDB) == "table" and ForeverCapabilityProbeDB or {}
