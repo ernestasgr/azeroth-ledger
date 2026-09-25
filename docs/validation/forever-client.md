@@ -31,7 +31,7 @@ Two subsequent ordinary corpse-loot traces were saved on build 70009. The raw Sa
 
 The user also ran `/dump` on build 70009: `Settings.RegisterVerticalLayoutCategory`, `Settings.RegisterAddOnCategory`, `TooltipDataProcessor.AddTooltipPostCall`, `DressUpItemLink`, and `GetLootSourceInfo` each returned `function`. This confirms availability by name only; registration, callbacks, preview and usable source values require the live checks below.
 
-The probe then registered an in-game AddOns Settings category and item tooltip post-call hook without error. The user switched the probe checkbox off, reloaded, observed that it stayed off in the Settings menu, then switched it back on; `/fpu status` subsequently reported `true`, as expected. This passes the category, checkbox binding and reload-persistence check. Item tooltip rendering and dressing-room preview remain untested.
+The probe then registered an in-game AddOns Settings category and item tooltip post-call hook without error. The user switched the probe checkbox off, reloaded, observed that it stayed off in the Settings menu, then switched it back on; `/fpu status` subsequently reported `true`, as expected. With the probe tooltip line enabled, the user hovered a bag item twice and a chat-linked item; each tooltip showed exactly one `Forever capability probe` line and no Lua error appeared. Ctrl-clicking a wearable item opened the native dressing room and displayed it. These pass the tested Settings, item tooltip and basic wearable-preview cases on build 70009. Uncached items, repeated asynchronous tooltip rebuilds, non-wearable previews and other native UI edge cases remain untested.
 
 ## Prepare the run
 
