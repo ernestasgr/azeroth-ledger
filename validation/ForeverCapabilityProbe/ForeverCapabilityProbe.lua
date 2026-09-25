@@ -2,6 +2,7 @@
 ---@field marker? string
 ---@field traces? ForeverCapabilityTraceRecord[]
 ---@field traceScenario? string
+---@field snapshots? ForeverCapabilityBagSnapshot[]
 
 ---@type ForeverCapabilityProbeState
 ForeverCapabilityProbeDB = type(ForeverCapabilityProbeDB) == "table" and ForeverCapabilityProbeDB or {}

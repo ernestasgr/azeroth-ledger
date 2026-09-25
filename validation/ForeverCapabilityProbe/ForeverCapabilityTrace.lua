@@ -4,6 +4,12 @@
 ---@field event string
 ---@field arguments string[]
 
+---@class ForeverCapabilityBagSnapshot
+---@field scenario string
+---@field label string
+---@field elapsed number
+---@field quantities table<string, number>
+
 local events = {
     "BAG_UPDATE",
     "BAG_UPDATE_DELAYED",
@@ -25,7 +31,6 @@ local events = {
     "PLAYERBANKSLOTS_CHANGED",
     "PLAYER_EQUIPMENT_CHANGED",
     "PLAYER_MONEY",
-    "PLAYERREAGENTBANKSLOTS_CHANGED",
     "QUEST_TURNED_IN",
     "QUEST_LOOT_RECEIVED",
     "TRADE_ACCEPT_UPDATE",
@@ -77,19 +82,67 @@ frame:SetScript("OnEvent", function(_, event, ...)
     end
 end)
 
+local function captureBags(label)
+    if not C_Container or not C_Container.GetContainerNumSlots or not C_Container.GetContainerItemInfo then
+        print("Forever trace bag API unavailable")
+        return
+    end
+
+    local quantities = {}
+    for bag = 0, 4 do
+        local slotsOk, slots = pcall(C_Container.GetContainerNumSlots, bag)
+        if slotsOk and type(slots) == "number" then
+            for slot = 1, slots do
+                local itemOk, itemID, stackCount = pcall(function()
+                    local item = C_Container.GetContainerItemInfo(bag, slot)
+                    if item then
+                        return item.itemID, item.stackCount
+                    end
+                end)
+                if itemOk and type(itemID) == "number" and type(stackCount) == "number" then
+                    local key = tostring(itemID)
+                    quantities[key] = (quantities[key] or 0) + stackCount
+                end
+            end
+        end
+    end
+
+    local snapshots = ForeverCapabilityProbeDB.snapshots or {}
+    ForeverCapabilityProbeDB.snapshots = snapshots
+    snapshots[#snapshots + 1] = {
+        scenario = ForeverCapabilityProbeDB.traceScenario or "<stopped>",
+        label = label,
+        elapsed = GetTime(),
+        quantities = quantities,
+    }
+    local itemKinds = 0
+    for _ in pairs(quantities) do
+        itemKinds = itemKinds + 1
+    end
+    print("Forever trace bag snapshot:", label, "items:", itemKinds)
+end
+
 SLASH_FOREVERCAPABILITYTRACE1 = "/fpt"
 SlashCmdList.FOREVERCAPABILITYTRACE = function(message)
     local scenario = message:match("^start%s+([%w_-]+)$")
+    local snapshotLabel = message:match("^snap%s+([%w_-]+)$")
     if scenario then
         ForeverCapabilityProbeDB.traceScenario = scenario
         print("Forever trace started:", scenario)
+    elseif snapshotLabel then
+        captureBags(snapshotLabel)
     elseif message == "stop" then
         ForeverCapabilityProbeDB.traceScenario = nil
         print("Forever trace stopped; records:", #(ForeverCapabilityProbeDB.traces or {}))
+    elseif message == "clear" then
+        ForeverCapabilityProbeDB.traceScenario = nil
+        ForeverCapabilityProbeDB.traces = {}
+        ForeverCapabilityProbeDB.snapshots = {}
+        print("Forever trace records cleared")
     elseif message == "status" then
         print("Forever trace scenario:", ForeverCapabilityProbeDB.traceScenario or "<stopped>")
         print("Forever trace records:", #(ForeverCapabilityProbeDB.traces or {}))
     else
-        print("Forever trace: /fpt start <scenario>, /fpt stop, or /fpt status")
+        print("Forever trace: /fpt start <scenario>, /fpt snap <label>, /fpt stop, /fpt clear, or /fpt status")
     end
 end
