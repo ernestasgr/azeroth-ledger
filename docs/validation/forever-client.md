@@ -38,6 +38,8 @@ For a merchant purchase, item **4540** (`Tough Hunk of Bread`) was absent in the
 
 For an equipment move, the user equipped and then unequipped `Gardening Pants` (item **263409**). Bag snapshots showed quantity **1 → 0 → 1**; another item appeared in the bag during the equip swap and disappeared on return. `PLAYER_EQUIPMENT_CHANGED` reported slot **7** on both moves, alongside `UNIT_INVENTORY_CHANGED` and bag updates. No receipt message appeared. This supports treating equip and unequip as ownership movement, without a new acquisition.
 
+For a bank transfer, the user deposited and withdrew one `Ragged Leather Belt` (item **1369**) while the bank was open. Saved snapshots showed its bag quantity **1 → 0 → 1** and aggregate bank quantity **0 → 1 → 0**. Both moves produced `BAG_UPDATE` for containers **0**, **-1**, and **6**, followed by `BAG_UPDATE_DELAYED`; neither move produced a loot receipt. `BANKFRAME_OPENED` and `BANKFRAME_CLOSED` bracketed the session. The bank scanner saw **32** slots at **-1** and **48** at **6** while open. After closing, container **6** reported **0** slots while **-1** still reported **32**; a closed-window scan must not be interpreted as a complete, fresh bank inventory. No Lua error was reported. The event trace also captured many unrelated `CHAT_MSG_TRADESKILLS` messages, so event count alone is not a useful measure of action count. An alt relog with bank contents has not been tested.
+
 ## Current gate status
 
 | Gate | Build 70009 result |
@@ -49,11 +51,12 @@ For an equipment move, the user equipped and then unequipped `Gardening Pants` (
 | Merchant purchase and sale | Bread stack purchase and gray-item sales observed; failed purchase and buyback untested |
 | Equipment movement | Equip and unequip passed; no acquisition receipt observed |
 | Native Settings, item tooltip and wearable dressing room | Passed for tested basic cases; uncached/rebuild and non-wearable edges untested |
-| Crafting, trade, mail and bank transfer | Unrun: access unavailable to this character in this session |
+| Bank transfer | One-item deposit and withdrawal passed; closed-bank container 6 became unreadable; alt relog untested |
+| Crafting, trade and mail | Unrun |
 
-The user confirmed that no crafting, trade, mail or bank scenario was accessible at the end of this session. Before closing the ticket, use the trace recipe below on a character that can perform each of those four actions; capture a successful acquisition and a cancellation/open-without-taking or internal-transfer control where applicable. Also check a fixed quest reward, failed vendor purchase, buyback, multi-source loot, uncached item callback, and the remaining native UI edge cases. Record `GetLocale()` with each subsequent run and do not generalize these English-language traces to other locales without a localized check.
+The user initially reported no access to crafting, trade, mail or a bank, but later reached a bank and completed the transfer above. Before closing the ticket, capture crafting, trade and mail on a character that can perform them, with a successful acquisition and a cancellation or open-without-taking control where applicable. Also check a fixed quest reward, failed vendor purchase, buyback, multi-source loot, uncached item callback, and the remaining native UI edge cases. Record `GetLocale()` with each subsequent run and do not generalize these English-language traces to other locales without a localized check.
 
-On a later session with bank access, the user ran `/dump` while the bank was open. On build 70009, `C_Container.GetContainerNumSlots(-1)` returned **32**; container indexes **5** and **6** initially returned **0**; `C_Bank` was a table. After the user bought additional bank space, index **6** returned **48** slots. The probe now supports `/fpt bank <label>` for aggregate snapshots of container `-1` and bank indexes `5`–`11`, with slot counts retained per container. Transfer and closed-bank behavior still require live results.
+On a later session with bank access, the user ran `/dump` while the bank was open. On build 70009, `C_Container.GetContainerNumSlots(-1)` returned **32**; container indexes **5** and **6** initially returned **0**; `C_Bank` was a table. After the user bought additional bank space, index **6** returned **48** slots. The probe supports `/fpt bank <label>` for aggregate snapshots of container `-1` and bank indexes `5`–`11`, with slot counts retained per container. The transfer and closed-bank results are recorded above.
 
 The user also ran `/dump` on build 70009: `Settings.RegisterVerticalLayoutCategory`, `Settings.RegisterAddOnCategory`, `TooltipDataProcessor.AddTooltipPostCall`, `DressUpItemLink`, and `GetLootSourceInfo` each returned `function`. This confirms availability by name only; registration, callbacks, preview and usable source values require the live checks below.
 
