@@ -1,0 +1,7 @@
+## Interface: 16001
+## Title: Forever Capability Probe
+## Notes: Temporary client validation for Azeroth Ledger
+## SavedVariables: ForeverCapabilityProbeDB
+## OptionalDeps: WoWUnit
+
+ForeverCapabilityProbe.lua
