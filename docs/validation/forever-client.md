@@ -8,6 +8,19 @@ On 25 September 2026, the local `World of Warcraft/_classic_beta_` installation'
 
 The temporary probe and upstream WoWUnit are now installed in that beta's AddOns directory. WoWUnit was copied from Jaliborc/WoWUnit commit `45f9273818f1377340d624172e7a7e9cc2f247a0`, whose TOC declares version 12.1. Installation is preparation, not a test pass.
 
+## Live results, 25 September 2026
+
+The user ran the probe in the target beta and reported these startup lines:
+
+```text
+Forever probe build: 1.60.1 70009 Sep 23 2026 16001
+Forever probe Lua: Lua 5.1 project: 1
+Forever probe marker: test-20260925
+Forever probe WoWUnit group registered
+```
+
+After `/reload`, `/fp status` again printed the same build, Lua, project and marker values. The user reported both `ForeverCapabilityProbeSmoke` tests passing in WoWUnit. An account SavedVariables file also contained `test-20260925`. This establishes a live reload restoration pass and a genuine in-client WoWUnit smoke pass on build 70009. Character-switch and full-restart restoration, event traces, and UI capabilities remain unrun or unreported.
+
 ## Prepare the run
 
 1. Check that `ForeverCapabilityProbe` and `WoWUnit` are visible and enabled at character selection. The probe's provisional TOC declares interface `16001`; if the client reports another interface, record it and update the probe TOC before testing.
