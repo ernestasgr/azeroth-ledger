@@ -27,6 +27,7 @@ Two subsequent ordinary corpse-loot traces were saved on build 70009. The raw Sa
 
 - In the first trace, `LOOT_OPENED(false, false)` preceded a receipt message for item 2672, bag updates, two `LOOT_CLOSED` events, then a receipt message for item 7074 and more bag updates. A receipt can therefore arrive after `LOOT_CLOSED`; the close event also repeated. The recorded chat messages identified the player but did not establish a corpse GUID.
 - In the second trace, `LOOT_OPENED(false, false)` was followed by two `LOOT_CLOSED` events and then two identical receipt messages for item 4865 (`Ruined Pelt`) at the same elapsed timestamp, with different chat line IDs. Bag updates followed. The user estimated the stack changed from five to six, but the starting count was uncertain. This is evidence of duplicate-looking receipt messages, not yet proof that one or two units entered the bags. A controlled before/after bag snapshot is needed before setting the reconciliation rule.
+- In a controlled third trace, bag snapshots showed item 4865 increasing from **6 to 8**, with every other recorded bag item total unchanged. One `CHAT_MSG_LOOT` reported `Ruined Pelt x2`. `LOOT_CLOSED` was again emitted twice before the receipt message, followed by bag updates. The snapshots and message agree on two acquired units for this case. The earlier two-message case remains ambiguous because it lacked a reliable starting bag count.
 
 ## Prepare the run
 
