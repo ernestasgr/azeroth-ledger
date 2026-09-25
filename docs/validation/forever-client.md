@@ -42,6 +42,8 @@ For a bank transfer, the user deposited and withdrew one `Ragged Leather Belt` (
 
 On a sending alt, the user mailed **3** `Refreshing Spring Water` (item **159**) to the level 1 character. The sender's bag snapshot showed **3 → 0**, with all other recorded item totals unchanged. `MAIL_SEND_SUCCESS` and `MAIL_SUCCESS` fired at the same elapsed time; money and bag updates followed. On the recipient, item 159 was already present at quantity **3**. Opening the mailbox and message without taking the attachment left it at **3**; taking the attachment raised it to **6**. `MAIL_SHOW` and `MAIL_INBOX_UPDATE` preceded the take. At the take, `MAIL_INBOX_UPDATE` and `MAIL_SUCCESS` fired, followed by one `CHAT_MSG_LOOT` receipt for x3; another `MAIL_INBOX_UPDATE` and `MAIL_SUCCESS` pair then preceded bag updates. Thus `MAIL_SUCCESS` is not one-per-acquisition in this case, and an unchanged item-kind count does not mean no acquisition. The sender's raw trace contains unrelated trade-skill chat; the probe now filters that event outside crafting scenarios for future runs. One attachment retrieval and the open-without-taking control passed; a separate stack quantity is covered by this x3 case, but other sender/attachment types remain untested.
 
+The user then crafted one `Bolt of Linen Cloth` (item **2996**). The before/after bag snapshots showed Linen Cloth (item **2589**) **2 → 0** and Bolt of Linen Cloth **absent → 1**. The trace recorded `TRADE_SKILL_ITEM_CRAFTED_RESULT` followed by a separate `CRAFT_RESULT_FIELDS` record with item ID **2996** and quantity **1**, then `CHAT_MSG_LOOT` and bag updates. This is a successful single-craft pass with no reported Lua error. A short batch and a cancelled craft remain untested.
+
 ## Current gate status
 
 | Gate | Build 70009 result |
@@ -56,9 +58,10 @@ On a sending alt, the user mailed **3** `Refreshing Spring Water` (item **159**)
 | Native Settings, item tooltip and wearable dressing room | Passed for tested basic cases; uncached/rebuild and non-wearable edges untested |
 | Bank transfer | One-item deposit and withdrawal passed; closed-bank container 6 became unreadable; alt relog untested |
 | Mail | Alt send and x3 retrieval passed; opening without taking left bags unchanged; `MAIL_SUCCESS` repeated |
-| Crafting and trade | Unrun; level 1 character has no learned profession |
+| Crafting | One Bolt of Linen Cloth craft passed with item ID/quantity payload and material/output bag deltas; batch and cancellation untested |
+| Trade | Unrun; no partner was available |
 
-The user initially reported no access to crafting, trade, mail or a bank, but later completed bank and mail cases. Before closing the ticket, capture crafting and trade on a character that can perform them, with a successful acquisition and a cancellation control where applicable. Also check a fixed quest reward, failed vendor purchase, buyback, multi-source loot, uncached item callback, and the remaining native UI edge cases. Record `GetLocale()` with each subsequent run and do not generalize these English-language traces to other locales without a localized check.
+The user initially reported no access to crafting, trade, mail or a bank, but later completed bank, mail and one single-craft case. Before closing the ticket, capture a short craft batch and a cancelled craft, plus trade on a character that can perform it, with a successful acquisition and cancellation control where applicable. Also check a fixed quest reward, failed vendor purchase, buyback, multi-source loot, uncached item callback, and the remaining native UI edge cases. Record `GetLocale()` with each subsequent run and do not generalize these English-language traces to other locales without a localized check.
 
 On a later session with bank access, the user ran `/dump` while the bank was open. On build 70009, `C_Container.GetContainerNumSlots(-1)` returned **32**; container indexes **5** and **6** initially returned **0**; `C_Bank` was a table. After the user bought additional bank space, index **6** returned **48** slots. The probe supports `/fpt bank <label>` for aggregate snapshots of container `-1` and bank indexes `5`–`11`, with slot counts retained per container. The transfer and closed-bank results are recorded above.
 
