@@ -48,6 +48,7 @@ On a sending alt, the user mailed **3** `Refreshing Spring Water` (item **159**)
 | --- | --- |
 | SavedVariables across reload, second character, return and restart | Passed |
 | Jaliborc WoWUnit smoke assertions | Passed |
+| Blizzard UI source from installed client | Exported and inspected on the tested installation; native C implementations are outside the export |
 | Ordinary corpse loot, item quantity and per-slot Creature source GUID | Passed for tested examples; duplicate-looking receipt case remains ambiguous |
 | Quest reward | Choice reward passed; fixed reward and cancellation untested |
 | Merchant purchase and sale | Bread stack purchase and gray-item sales observed; failed purchase and buyback untested |
@@ -64,6 +65,17 @@ On a later session with bank access, the user ran `/dump` while the bank was ope
 The user also ran `/dump` on build 70009: `Settings.RegisterVerticalLayoutCategory`, `Settings.RegisterAddOnCategory`, `TooltipDataProcessor.AddTooltipPostCall`, `DressUpItemLink`, and `GetLootSourceInfo` each returned `function`. This confirms availability by name only; registration, callbacks, preview and usable source values require the live checks below.
 
 The probe then registered an in-game AddOns Settings category and item tooltip post-call hook without error. The user switched the probe checkbox off, reloaded, observed that it stayed off in the Settings menu, then switched it back on; `/fpu status` subsequently reported `true`, as expected. With the probe tooltip line enabled, the user hovered a bag item twice and a chat-linked item; each tooltip showed exactly one `Forever capability probe` line and no Lua error appeared. Ctrl-clicking a wearable item opened the native dressing room and displayed it. These pass the tested Settings, item tooltip and basic wearable-preview cases on build 70009. Uncached items, repeated asynchronous tooltip rebuilds, non-wearable previews and other native UI edge cases remain untested.
+
+## Exact-installation Blizzard UI source
+
+The user enabled the client's login-screen console and ran `exportInterfaceFiles code` on the installed `_classic_beta_` client after reporting build 70009. It completed and created `_classic_beta_/BlizzardInterfaceCode/Interface/AddOns` with **4,413 files** on 25 September 2026. This is a local export from the tested installation, not a remote branch assumed to match it. The export contains files for multiple game types; its `.toc` load conditions must be read before treating a flavor-specific file as active. The native C API implementations are not present in the exported Lua, so source declarations still require runtime checks.
+
+- `Blizzard_APIDocumentationGenerated/ContainerDocumentation.lua` declares `C_Container.GetContainerItemInfo` as potentially returning nothing and defines `itemID`, `stackCount`, and `hyperlink` in `ContainerItemInfo`; both container lookups declare `SecretArguments = "AllowedWhenUntainted"`. The live bag and bank scans returned the item quantities above. No inaccessible value was reported by these traces, but the declaration prevents assuming every context is readable.
+- `Blizzard_APIDocumentationGenerated/MailInfoDocumentation.lua` declares `MAIL_SEND_SUCCESS`, `MAIL_INBOX_UPDATE`, and `MAIL_SUCCESS`; `MAIL_SUCCESS.itemID` is nullable. Both recipient `MAIL_SUCCESS` events in the saved x3 trace carried `nil`. `Blizzard_MailFrame/MailFrame.lua` calls `TakeInboxItem` on attachment click and reacts to `MAIL_SUCCESS`, consistent with the observed action sequence; the runtime trace supplies the actual quantity evidence.
+- `Blizzard_APIDocumentationGenerated/BankDocumentation.lua` declares `BANKFRAME_OPENED`, `BANKFRAME_CLOSED`, and `PLAYERBANKSLOTS_CHANGED` (slot payload), and several `C_Bank` functions carry the same secret-argument constraint. The tested transfer produced open/close and bag updates, but no `PLAYERBANKSLOTS_CHANGED`; consumers cannot require that event for a bank-bag transfer.
+- `Blizzard_Settings_Shared/Blizzard_Settings.lua` defines `Settings.RegisterVerticalLayoutCategory` and `Settings.RegisterAddOnCategory`; `Blizzard_SharedXMLGame/Tooltip/TooltipDataHandler.lua` defines `TooltipDataProcessor.AddTooltipPostCall`. The live probe exercised both paths. `Blizzard_UIPanels_Game/Mainline/DressUpFrames.lua` checks `C_Item.IsDressableItemByID` before `DressUpVisualLink`, then optionally tries housing preview and otherwise returns false. A wearable link passed in the live client; non-wearable runtime behavior remains untested.
+
+For reproducibility, SHA-256 of the exported `ContainerDocumentation.lua` was `dd3e4741d45720384f814d3f78ce975dab3951458ae894e728ed3aedc8ae56b3`; `MailInfoDocumentation.lua` was `31f7dd4a22380561b76fea1fbcc65a0ab49121a5b807fbccfd0474e902d47751`; `Blizzard_Settings.lua` was `76ab19d14675e4e3dcf4fb1b02af35898e253e254da3cfce0ef655eab475e293`. The full export remains local and outside the repository.
 
 ## Prepare the run
 
