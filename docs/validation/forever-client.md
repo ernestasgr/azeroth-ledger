@@ -34,6 +34,23 @@ The user then selected `Gardening Pants` from a choice-reward quest. `QUEST_LOOT
 
 For a merchant purchase, item **4540** (`Tough Hunk of Bread`) was absent in the first bag snapshot and present at quantity **5** in the second. During an open merchant session, `MERCHANT_UPDATE` and one `CHAT_MSG_LOOT` receipt reporting `x5` preceded the bag change and `PLAYER_MONEY`; no separate purchase-completion event was captured in this event set. Several unrelated bag item types disappeared earlier in the same trace, with a money and bag update before the bread receipt. The user confirmed they sold gray items before buying the bread. Sale and purchase must be correlated separately. The bread purchase is observed on build 70009; failed-purchase and buyback behavior remain untested because the sold items were unavailable for buyback in this run.
 
+For an equipment move, the user equipped and then unequipped `Gardening Pants` (item **263409**). Bag snapshots showed quantity **1 → 0 → 1**; another item appeared in the bag during the equip swap and disappeared on return. `PLAYER_EQUIPMENT_CHANGED` reported slot **7** on both moves, alongside `UNIT_INVENTORY_CHANGED` and bag updates. No receipt message appeared. This supports treating equip and unequip as ownership movement, without a new acquisition.
+
+## Current gate status
+
+| Gate | Build 70009 result |
+| --- | --- |
+| SavedVariables across reload, second character, return and restart | Passed |
+| Jaliborc WoWUnit smoke assertions | Passed |
+| Ordinary corpse loot, item quantity and per-slot Creature source GUID | Passed for tested examples; duplicate-looking receipt case remains ambiguous |
+| Quest reward | Choice reward passed; fixed reward and cancellation untested |
+| Merchant purchase and sale | Bread stack purchase and gray-item sales observed; failed purchase and buyback untested |
+| Equipment movement | Equip and unequip passed; no acquisition receipt observed |
+| Native Settings, item tooltip and wearable dressing room | Passed for tested basic cases; uncached/rebuild and non-wearable edges untested |
+| Crafting, trade, mail and bank transfer | Unrun: access unavailable to this character in this session |
+
+The user confirmed that no crafting, trade, mail or bank scenario was accessible at the end of this session. Before closing the ticket, use the trace recipe below on a character that can perform each of those four actions; capture a successful acquisition and a cancellation/open-without-taking or internal-transfer control where applicable. Also check a fixed quest reward, failed vendor purchase, buyback, multi-source loot, uncached item callback, and the remaining native UI edge cases. Record `GetLocale()` with each subsequent run and do not generalize these English-language traces to other locales without a localized check.
+
 The user also ran `/dump` on build 70009: `Settings.RegisterVerticalLayoutCategory`, `Settings.RegisterAddOnCategory`, `TooltipDataProcessor.AddTooltipPostCall`, `DressUpItemLink`, and `GetLootSourceInfo` each returned `function`. This confirms availability by name only; registration, callbacks, preview and usable source values require the live checks below.
 
 The probe then registered an in-game AddOns Settings category and item tooltip post-call hook without error. The user switched the probe checkbox off, reloaded, observed that it stayed off in the Settings menu, then switched it back on; `/fpu status` subsequently reported `true`, as expected. With the probe tooltip line enabled, the user hovered a bag item twice and a chat-linked item; each tooltip showed exactly one `Forever capability probe` line and no Lua error appeared. Ctrl-clicking a wearable item opened the native dressing room and displayed it. These pass the tested Settings, item tooltip and basic wearable-preview cases on build 70009. Uncached items, repeated asynchronous tooltip rebuilds, non-wearable previews and other native UI edge cases remain untested.
