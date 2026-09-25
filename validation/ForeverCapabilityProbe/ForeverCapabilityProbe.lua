@@ -3,6 +3,7 @@
 ---@field traces? ForeverCapabilityTraceRecord[]
 ---@field traceScenario? string
 ---@field snapshots? ForeverCapabilityBagSnapshot[]
+---@field bankSnapshots? ForeverCapabilityBankSnapshot[]
 ---@field uiEnabled? boolean
 ---@field tooltipEnabled? boolean
 
