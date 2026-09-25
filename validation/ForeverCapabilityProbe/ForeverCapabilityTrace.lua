@@ -43,8 +43,11 @@ local events = {
     "TRADE_ACCEPT_UPDATE",
     "TRADE_CLOSED",
     "TRADE_PLAYER_ITEM_CHANGED",
+    "TRADE_REQUEST_CANCEL",
     "TRADE_SHOW",
     "TRADE_TARGET_ITEM_CHANGED",
+    "TRADE_UPDATE",
+    "TRADE_SKILL_ITEM_CRAFTED_RESULT",
     "UNIT_INVENTORY_CHANGED",
     "ZONE_CHANGED_NEW_AREA",
 }
@@ -63,6 +66,16 @@ local function safeArguments(...)
         arguments[index] = safeString(select(index, ...))
     end
     return arguments
+end
+
+local function safeField(data, field)
+    local ok, value = pcall(function()
+        return data[field]
+    end)
+    if not ok then
+        return field .. "=<inaccessible>"
+    end
+    return field .. "=" .. safeString(value)
 end
 
 local function appendTrace(scenario, event, arguments)
@@ -98,6 +111,16 @@ frame:SetScript("OnEvent", function(_, event, ...)
     end
 
     appendTrace(scenario, event, safeArguments(...))
+
+    if event == "TRADE_SKILL_ITEM_CRAFTED_RESULT" then
+        local data = ...
+        local fields = { "itemID", "itemGUID", "quantity", "hyperlink", "operationID", "firstCraftReward", "isEnchant", "multicraft" }
+        local arguments = {}
+        for _, field in ipairs(fields) do
+            arguments[#arguments + 1] = safeField(data, field)
+        end
+        appendTrace(scenario, "CRAFT_RESULT_FIELDS", arguments)
+    end
 
     if event == "LOOT_OPENED" and type(GetNumLootItems) == "function" then
         local countOk, slotCount = pcall(GetNumLootItems)
