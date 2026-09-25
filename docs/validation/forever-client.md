@@ -40,6 +40,8 @@ For an equipment move, the user equipped and then unequipped `Gardening Pants` (
 
 For a bank transfer, the user deposited and withdrew one `Ragged Leather Belt` (item **1369**) while the bank was open. Saved snapshots showed its bag quantity **1 → 0 → 1** and aggregate bank quantity **0 → 1 → 0**. Both moves produced `BAG_UPDATE` for containers **0**, **-1**, and **6**, followed by `BAG_UPDATE_DELAYED`; neither move produced a loot receipt. `BANKFRAME_OPENED` and `BANKFRAME_CLOSED` bracketed the session. The bank scanner saw **32** slots at **-1** and **48** at **6** while open. After closing, container **6** reported **0** slots while **-1** still reported **32**; a closed-window scan must not be interpreted as a complete, fresh bank inventory. No Lua error was reported. The event trace also captured many unrelated `CHAT_MSG_TRADESKILLS` messages, so event count alone is not a useful measure of action count. An alt relog with bank contents has not been tested.
 
+On a sending alt, the user mailed **3** `Refreshing Spring Water` (item **159**) to the level 1 character. The sender's bag snapshot showed **3 → 0**, with all other recorded item totals unchanged. `MAIL_SEND_SUCCESS` and `MAIL_SUCCESS` fired at the same elapsed time; money and bag updates followed. On the recipient, item 159 was already present at quantity **3**. Opening the mailbox and message without taking the attachment left it at **3**; taking the attachment raised it to **6**. `MAIL_SHOW` and `MAIL_INBOX_UPDATE` preceded the take. At the take, `MAIL_INBOX_UPDATE` and `MAIL_SUCCESS` fired, followed by one `CHAT_MSG_LOOT` receipt for x3; another `MAIL_INBOX_UPDATE` and `MAIL_SUCCESS` pair then preceded bag updates. Thus `MAIL_SUCCESS` is not one-per-acquisition in this case, and an unchanged item-kind count does not mean no acquisition. The sender's raw trace contains unrelated trade-skill chat; the probe now filters that event outside crafting scenarios for future runs. One attachment retrieval and the open-without-taking control passed; a separate stack quantity is covered by this x3 case, but other sender/attachment types remain untested.
+
 ## Current gate status
 
 | Gate | Build 70009 result |
@@ -52,9 +54,10 @@ For a bank transfer, the user deposited and withdrew one `Ragged Leather Belt` (
 | Equipment movement | Equip and unequip passed; no acquisition receipt observed |
 | Native Settings, item tooltip and wearable dressing room | Passed for tested basic cases; uncached/rebuild and non-wearable edges untested |
 | Bank transfer | One-item deposit and withdrawal passed; closed-bank container 6 became unreadable; alt relog untested |
-| Crafting, trade and mail | Unrun |
+| Mail | Alt send and x3 retrieval passed; opening without taking left bags unchanged; `MAIL_SUCCESS` repeated |
+| Crafting and trade | Unrun; level 1 character has no learned profession |
 
-The user initially reported no access to crafting, trade, mail or a bank, but later reached a bank and completed the transfer above. Before closing the ticket, capture crafting, trade and mail on a character that can perform them, with a successful acquisition and a cancellation or open-without-taking control where applicable. Also check a fixed quest reward, failed vendor purchase, buyback, multi-source loot, uncached item callback, and the remaining native UI edge cases. Record `GetLocale()` with each subsequent run and do not generalize these English-language traces to other locales without a localized check.
+The user initially reported no access to crafting, trade, mail or a bank, but later completed bank and mail cases. Before closing the ticket, capture crafting and trade on a character that can perform them, with a successful acquisition and a cancellation control where applicable. Also check a fixed quest reward, failed vendor purchase, buyback, multi-source loot, uncached item callback, and the remaining native UI edge cases. Record `GetLocale()` with each subsequent run and do not generalize these English-language traces to other locales without a localized check.
 
 On a later session with bank access, the user ran `/dump` while the bank was open. On build 70009, `C_Container.GetContainerNumSlots(-1)` returned **32**; container indexes **5** and **6** initially returned **0**; `C_Bank` was a table. After the user bought additional bank space, index **6** returned **48** slots. The probe supports `/fpt bank <label>` for aggregate snapshots of container `-1` and bank indexes `5`–`11`, with slot counts retained per container. The transfer and closed-bank results are recorded above.
 
@@ -68,6 +71,8 @@ The probe then registered an in-game AddOns Settings category and item tooltip p
 2. The installed WoWUnit is a separate upstream copy at the commit noted above. Its TOC declares version 12.1 and interface 16001, but that declaration is not a client test.
 3. Use a disposable character or ordinary test items. Enable Lua error display (`/console scriptErrors 1`) and record the game build, locale, character/realm aliases, enabled addon versions, and test date. Redact account and character names in any shared trace.
 4. Capture the probe's startup chat lines. Also run `/dump GetBuildInfo()`, `/dump WOW_PROJECT_ID`, and `/dump _VERSION`. Record all return values. If `/dump` is unavailable, record the probe's build line and the exact error.
+
+To inspect the **exact installed build's** Blizzard UI source, enable the launcher option for additional game command-line arguments and add `-console`, restart the client, and open the console with `~` at login or character selection. Enter `exportInterfaceFiles code`; then inspect the resulting `_classic_beta_/BlizzardInterfaceCode` directory. Record the command's result and exported build before relying on the files. The in-game `/console` slash command is not the export route. Remove the temporary launcher argument afterward. This procedure is described in a [Blizzard UI forum reply](https://us.forums.blizzard.com/en/wow/t/are-there-any-commands-macro-lua-for-opening-generic-ui-elements-like-spellbook/812601/2); it has **not yet been verified** on build 70009.
 
 ## Persistence gate
 

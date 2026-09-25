@@ -93,6 +93,10 @@ frame:SetScript("OnEvent", function(_, event, ...)
         return
     end
 
+    if event == "CHAT_MSG_TRADESKILLS" and not scenario:match("^craft") then
+        return
+    end
+
     appendTrace(scenario, event, safeArguments(...))
 
     if event == "LOOT_OPENED" and type(GetNumLootItems) == "function" then
