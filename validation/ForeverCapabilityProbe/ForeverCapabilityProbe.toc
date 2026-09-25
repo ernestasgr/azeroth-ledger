@@ -5,3 +5,4 @@
 ## OptionalDeps: WoWUnit
 
 ForeverCapabilityProbe.lua
+ForeverCapabilityTrace.lua

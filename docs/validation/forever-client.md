@@ -19,7 +19,7 @@ Forever probe marker: test-20260925
 Forever probe WoWUnit group registered
 ```
 
-After `/reload`, `/fp status` again printed the same build, Lua, project and marker values. The user reported both `ForeverCapabilityProbeSmoke` tests passing in WoWUnit. An account SavedVariables file also contained `test-20260925`. This establishes a live reload restoration pass and a genuine in-client WoWUnit smoke pass on build 70009. Character-switch and full-restart restoration, event traces, and UI capabilities remain unrun or unreported.
+After `/reload`, `/fp status` again printed the same build, Lua, project and marker values. The user reported both `ForeverCapabilityProbeSmoke` tests passing in WoWUnit. An account SavedVariables file also contained `test-20260925`. On a second character on the same account, the probe again showed the marker. It remained present after returning to the first character and after exiting and restarting the client completely. The user reported no Lua error popup during these checks. This passes the live reload, cross-character and full-restart SavedVariables gates, and the genuine in-client WoWUnit smoke gate, on build 70009. Acquisition event traces and native UI capabilities remain unrun or unreported.
 
 ## Prepare the run
 
@@ -58,6 +58,8 @@ For each row, capture the relevant event trace with payloads and sequence, one s
 | Location | Discover one item outdoors and one inside a dungeon | Compare stable map/instance identifiers with localized names |
 
 Use `/eventtrace` if present; otherwise use a temporary event logger that records event names, argument types/values, timestamps and inventory snapshots. Some payloads may reject inspection; record the error rather than coercing a secret value. An event name alone does not prove successful acquisition, quantity, source or ordering.
+
+The probe includes an opt-in event logger for this purpose. After the updated probe files are copied into the AddOns directory and the client is reloaded, run `/fpt start loot` (replace `loot` with a short scenario name), perform one case, then `/fpt stop` and `/reload` to flush the records to the probe's account SavedVariables file. Keep one scenario name per case. The logger records selected event names, elapsed client time and printable arguments, retaining at most 500 records. It records `<inaccessible>` if an argument cannot be stringified. The raw trace may contain other players' names; redact those before sharing. Record bag/bank quantities separately because event payloads alone cannot prove an acquisition. Unsupported event registrations print a diagnostic at startup and should be reported.
 
 ## Report back to the ticket
 
