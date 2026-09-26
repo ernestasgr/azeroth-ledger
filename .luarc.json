@@ -9,6 +9,14 @@
     "CreateFrame",
     "GetBuildInfo",
     "GetLocale",
-    "GetServerTime"
+    "GetServerTime",
+    "GetRealmName",
+    "UnitName",
+    "date",
+    "C_Container",
+    "GetInventoryItemLink",
+    "UIParent",
+    "GameFontNormal",
+    "AzerothLedger"
   ]
 }

@@ -33,6 +33,9 @@ jobs:
           find AzerothLedger AzerothLedger_Tests tests -name '*.lua' -print0 | xargs -0 -n1 luac -p
           lua tests/store_spec.lua
           lua tests/client_spec.lua
+          lua tests/collection_spec.lua
+          lua tests/scan_spec.lua
+          lua tests/wowunit_replay_spec.lua
       - name: Format and lint
         run: |
           .tools/stylua/stylua --check AzerothLedger AzerothLedger_Tests tests
