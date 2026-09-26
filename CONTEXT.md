@@ -24,15 +24,15 @@ The date an item was seen by the ledger, which need not be its acquisition date.
 The date an evidenced acquisition occurred. First and latest acquisition dates remain unknown for an entry known only through observation.
 
 **Journal**:
-The chronological record of acquisitions and their quantities, plus distinctly labelled internal transfers. Its retained history is limited independently of permanent collection totals; transfers do not contribute to acquired quantity or discovery count.
+The chronological record of acquisitions and their quantities, plus distinctly labelled internal transfers and vendor reversals. Its retained history is limited independently of permanent collection totals; transfers do not contribute to acquired quantity or discovery count.
 _Avoid_: Collection
 
 **Acquisition**:
-An evidenced occasion on which an item enters the account's recorded holdings from outside those holdings. Moving it between bags, bank, or the account's own characters is not an acquisition; obtaining it again after disposal is.
+An evidenced occasion on which an item enters the account's recorded holdings from outside those holdings. Internal transfers are not acquisitions; obtaining an item again after disposal is, unless the transaction is a vendor buyback.
 _Avoid_: Bag change
 
 **Acquired quantity**:
-The cumulative number of evidenced units recorded entering the account's holdings from outside. Initial observed stock and internal transfers do not increase it; earlier unrecorded acquisitions remain unknown.
+The cumulative number of evidenced units recorded entering the account's holdings from outside, adjusted by explicit vendor reversals. Initial observed stock and internal transfers do not increase it; earlier unrecorded acquisitions remain unknown.
 
 **Observed stock**:
 The quantity found during an initial inventory or bank scan without evidence of an acquisition. It establishes holdings and discovery, but not an acquired quantity or acquisition date.
@@ -42,6 +42,9 @@ A filter for collection entries with exactly one evidenced acquired unit across 
 
 **Internal transfer**:
 A known movement of an item between the account's own characters or their storage. It appears as a distinct Journal event and changes character holdings history without increasing account acquired quantity or creating another account discovery.
+
+**Vendor reversal**:
+A refund that cancels a completed purchase's contribution to acquired quantity, or a buyback that restores a sold item without a new acquired unit. Both remain visible in the Journal.
 
 **Acquisition method**:
 The means by which an item was obtained, such as loot, quest reward, crafting, vendor purchase, trade, or mail. A method may be unknown when the evidence does not establish it.
@@ -82,5 +85,5 @@ Evidence that a character previously held an item, independent of whether they s
 A filter for items with historical ownership and zero last-known holdings across the selected characters' complete relevant scans. It reports absence as of those scan dates; incomplete storage makes the result Unknown.
 
 **Source**:
-The mob, boss, or container associated with an acquisition when detectable.
+The mob, boss, or container linked to an acquisition by item-specific evidence when detectable.
 _Avoid_: Acquisition method
