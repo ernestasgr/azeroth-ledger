@@ -284,3 +284,116 @@ function tests.UnknownSourceStaysUnknown(_self)
     WoWUnit.AreEqual("Elwynn Forest", record.gains[1].place)
     WoWUnit.AreEqual(12, record.gains[1].level)
 end
+
+local questLink = "|Hitem:263409::::::::|h[Gardening Pants]|h"
+local craftLink = "|Hitem:2996::::::::|h[Bolt of Linen Cloth]|h"
+local inputLink = "|Hitem:2589::::::::|h[Linen Cloth]|h"
+
+local function rewardStore()
+    local store = addon.Schema.open(nil, function() end)
+    local function bags(at, quest, craft, input)
+        local items = {}
+        for _, item in ipairs({
+            { 263409, questLink, quest },
+            { 2996, craftLink, craft },
+            { 2589, inputLink, input },
+        }) do
+            if item[3] > 0 then
+                items[#items + 1] = { itemID = item[1], link = item[2], quantity = item[3] }
+            end
+        end
+        WoWUnit.IsTrue(store:scan({
+            character = "Ada",
+            realm = "Realm",
+            area = "bags",
+            seenAt = at,
+            complete = true,
+            items = items,
+        }))
+    end
+    return store, bags
+end
+
+local function rewardActor()
+    return { character = "Ada", realm = "Realm", level = 12, place = "Elwynn Forest" }
+end
+
+function tests.ChoiceAndFixedQuestRewardsNeedBagIncrease(_self)
+    local choice, choiceBags = rewardStore()
+    choiceBags(1000, 0, 0, 0)
+    local quest = addon.Reward.quest({}, 92463, questLink, 1)
+    WoWUnit.IsTrue(choice:rewardReceipt(quest, 1010, rewardActor()))
+    WoWUnit.IsTrue(choice:questTurnedIn(92463, 1010, rewardActor()))
+    choiceBags(1011, 1, 0, 0)
+    WoWUnit.IsTrue(choice:rewardReceipt(quest, 1012, rewardActor()))
+    local key = addon.Item.key(questLink, 263409)
+    WoWUnit.AreEqual(1, choice:find(key).totalGained)
+    WoWUnit.AreEqual("Quest", choice:find(key).gains[1].method)
+    WoWUnit.AreEqual(92463, choice:find(key).gains[1].context.id)
+
+    local fixed, fixedBags = rewardStore()
+    fixedBags(2000, 2, 0, 0)
+    WoWUnit.IsTrue(fixed:rewardReceipt(quest, 2010, rewardActor()))
+    WoWUnit.IsTrue(fixed:questTurnedIn(92463, 2010, rewardActor()))
+    fixedBags(2011, 3, 0, 0)
+    WoWUnit.AreEqual(1, fixed:find(key).totalGained)
+    WoWUnit.AreEqual(2, fixed:find(key).firstSeenUnits)
+end
+
+function tests.DeclinedQuestAndCanceledCraftDoNotGain(_self)
+    local store, bags = rewardStore()
+    bags(3000, 0, 0, 2)
+    local quest = addon.Reward.quest({}, 92463, questLink, 1)
+    WoWUnit.IsTrue(store:rewardReceipt(quest, 3005, rewardActor()))
+    bags(3010, 0, 0, 2)
+    WoWUnit.AreEqual(nil, store:find(addon.Item.key(questLink, 263409)))
+    local craft = addon.Reward.craft({}, { itemID = 2996, hyperlink = craftLink, quantity = 1 })
+    WoWUnit.IsTrue(store:rewardReceipt(craft, 3020, rewardActor()))
+    bags(3021, 0, 0, 2)
+    WoWUnit.AreEqual(nil, store:find(addon.Item.key(craftLink, 2996)))
+end
+
+function tests.BatchAndPartialStackCountOnlyOutputs(_self)
+    local store, bags = rewardStore()
+    bags(4000, 0, 5, 10)
+    local craft = addon.Reward.craft({}, { itemID = 2996, hyperlink = craftLink, quantity = 1 })
+    WoWUnit.IsTrue(store:rewardReceipt(craft, 4010, rewardActor()))
+    WoWUnit.IsTrue(store:rewardReceipt(craft, 4011, rewardActor()))
+    bags(4012, 0, 7, 6)
+    local output = store:find(addon.Item.key(craftLink, 2996))
+    WoWUnit.AreEqual(2, output.totalGained)
+    WoWUnit.AreEqual(1, #output.gains)
+    WoWUnit.AreEqual("Crafted", output.gains[1].method)
+    WoWUnit.AreEqual(0, store:find(addon.Item.key(inputLink, 2589)).totalGained)
+end
+
+function tests.SingleCraftShowsRecipeAndIgnoresDuplicateLootChannel(_self)
+    local store, bags = rewardStore()
+    bags(5000, 0, 0, 2)
+    local key = addon.Item.key(craftLink, 2996)
+    WoWUnit.IsTrue(store:lootOpen({
+        character = "Ada",
+        realm = "Realm",
+        at = 5010,
+        level = 12,
+        place = "Elwynn Forest",
+        slots = { { key = key, quantity = 1 } },
+    }))
+    local craft = addon.Reward.craft({
+        C_TradeSkillUI = {
+            GetRecipeInfo = function()
+                return { name = "Bolt of Linen Cloth" }
+            end,
+        },
+    }, { itemID = 2996, hyperlink = craftLink, quantity = 1 }, 2963)
+    WoWUnit.IsTrue(store:rewardReceipt(craft, 5010, rewardActor()))
+    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 5010, rewardActor()))
+    bags(5011, 0, 1, 0)
+    local record = store:find(key)
+    WoWUnit.AreEqual(1, record.totalGained)
+    WoWUnit.AreEqual(1, #record.gains)
+    WoWUnit.AreEqual("Crafted", record.gains[1].method)
+    WoWUnit.AreEqual(2963, record.gains[1].context.id)
+    local lines = table.concat(addon.Collection.lines(store, "Ada", "Realm"), "\n")
+    WoWUnit.IsTrue(lines:find("recipe Bolt of Linen Cloth", 1, true) ~= nil)
+end

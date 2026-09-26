@@ -23,6 +23,10 @@ local function sourceText(source)
     return source and (source.name or (source.kind .. " " .. source.guid)) or "Unknown"
 end
 
+local function contextText(context)
+    return context and (context.name or (context.kind .. " " .. context.id)) or "Unknown"
+end
+
 local storageAreas = { "bags", "bank", "equipped" }
 
 local function latestObservation(record, character, realm, area)
@@ -190,12 +194,23 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                 lines[#lines + 1] = "  Latest confirmed gain " .. stamp(record.lastGained)
             end
             local sources = {}
+            local methods = {}
             for _, gain in ipairs(record.gains) do
-                local label = sourceText(gain.source)
-                sources[label] = (sources[label] or 0) + gain.quantity
+                if gain.method == "Looted" then
+                    local label = sourceText(gain.source)
+                    sources[label] = (sources[label] or 0) + gain.quantity
+                end
+                methods[gain.method] = (methods[gain.method] or 0) + gain.quantity
             end
             if record.totalGained > 0 then
-                lines[#lines + 1] = "  Method totals: Looted " .. record.totalGained
+                local methodLabels = {}
+                for method in pairs(methods) do
+                    methodLabels[#methodLabels + 1] = method
+                end
+                table.sort(methodLabels)
+                for _, method in ipairs(methodLabels) do
+                    lines[#lines + 1] = "  Method total: " .. method .. " " .. methods[method]
+                end
                 local labels = {}
                 for label in pairs(sources) do
                     labels[#labels + 1] = label
@@ -239,7 +254,9 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                         .. stamp(gain.at)
                         .. " • +"
                         .. gain.quantity
-                        .. " Looted • "
+                        .. " "
+                        .. gain.method
+                        .. " • "
                         .. gain.character
                         .. "-"
                         .. gain.realm
@@ -247,8 +264,9 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                         .. gain.level
                         .. " • "
                         .. gain.place
-                        .. " • source "
-                        .. sourceText(source)
+                        .. (gain.method == "Looted" and (" • source " .. sourceText(source)) or "")
+                        .. (gain.method == "Quest" and (" • quest " .. contextText(gain.context)) or "")
+                        .. (gain.method == "Crafted" and (" • recipe " .. contextText(gain.context)) or "")
                     lines[#lines + 1] = detail
                     recent[#recent + 1] = { at = gain.at, text = name .. detail }
                 end
