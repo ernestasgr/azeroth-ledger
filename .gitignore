@@ -1,0 +1,7 @@
+.tools/
+lupa-runtime/
+dist/
+check.json
+.lua/
+.luarocks/
+*.log

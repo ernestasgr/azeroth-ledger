@@ -1,0 +1,6 @@
+## Interface: 16001
+## Title: Azeroth Ledger Tests
+## Notes: Development-only genuine WoWUnit assertions
+## Dependencies: AzerothLedger, WoWUnit
+
+Smoke.lua
