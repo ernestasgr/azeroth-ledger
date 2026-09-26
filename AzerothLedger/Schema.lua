@@ -71,6 +71,8 @@ local _, addon = ...
 ---@field character string
 ---@field realm string
 
+---@alias ALActor AzerothLedgerActor
+
 ---@alias ALClaim AzerothLedgerLootClaim
 
 ---@class AzerothLedgerLootReceipt: AzerothLedgerLootClaim
@@ -113,9 +115,13 @@ local _, addon = ...
 ---@field method 'Quest'|'Crafted'
 ---@field context? AzerothLedgerRewardContext
 
+---@alias ALReward AzerothLedgerRewardReceipt
+
 ---@class AzerothLedgerGainActor: AzerothLedgerActor
 ---@field level integer
 ---@field place string
+
+---@alias ALGainActor AzerothLedgerGainActor
 
 ---@class AzerothLedgerRewardSession
 ---@field id integer
@@ -186,8 +192,8 @@ local _, addon = ...
 ---@field lootOpen fun(self: AzerothLedgerStore, context: AzerothLedgerLootContext): boolean
 ---@field lootClose fun(self: AzerothLedgerStore, at: integer): boolean
 ---@field lootReceipt fun(self: AzerothLedgerStore, receipt: ALClaim, at: integer, actor: AzerothLedgerActor): boolean
----@field rewardReceipt fun(self: AzerothLedgerStore, receipt: AzerothLedgerRewardReceipt, at: integer, actor: AzerothLedgerGainActor): boolean
----@field questTurnedIn fun(self: AzerothLedgerStore, questID: integer, at: integer, actor: AzerothLedgerActor): boolean
+---@field rewardReceipt fun(self: AzerothLedgerStore, receipt: ALReward, at: integer, actor: ALGainActor): boolean
+---@field questTurnedIn fun(self: AzerothLedgerStore, questID: integer, at: integer, actor: ALActor): boolean
 
 local CURRENT_SCHEMA = 2
 local areas = { bags = true, bank = true, equipped = true }

@@ -18,7 +18,8 @@ local function scenario()
     end)
     local function bags(at, quest, bolts, cloth)
         local items = {}
-        for _, entry in ipairs({ { questLink, 263409, quest }, { boltLink, 2996, bolts }, { clothLink, 2589, cloth } }) do
+        local entries = { { questLink, 263409, quest }, { boltLink, 2996, bolts }, { clothLink, 2589, cloth } }
+        for _, entry in ipairs(entries) do
             if entry[3] > 0 then
                 items[#items + 1] = { link = entry[1], itemID = entry[2], quantity = entry[3] }
             end
