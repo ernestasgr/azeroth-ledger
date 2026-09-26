@@ -340,6 +340,24 @@ function tests.ChoiceAndFixedQuestRewardsNeedBagIncrease(_self)
     WoWUnit.AreEqual(2, fixed:find(key).firstSeenUnits)
 end
 
+function tests.ChoiceRewardWithoutLootEventUsesObservedIncrease(_self)
+    local store, bags = rewardStore()
+    bags(2500, 0, 0, 0)
+    local quest = addon.Reward.quest({}, 92463, questLink, 1)
+    local alternative = addon.Reward.quest({}, 92463, craftLink, 1)
+    quest.preview = true
+    alternative.preview = true
+    quest.choiceGroup = "quest:2501"
+    alternative.choiceGroup = "quest:2501"
+    WoWUnit.IsTrue(store:rewardReceipt(quest, 2501, rewardActor()))
+    WoWUnit.IsTrue(store:rewardReceipt(alternative, 2501, rewardActor()))
+    WoWUnit.IsTrue(store:questTurnedIn(92463, 2501, rewardActor()))
+    bags(2502, 1, 0, 0)
+    local record = store:find(addon.Item.key(questLink, 263409))
+    WoWUnit.AreEqual(1, record.totalGained)
+    WoWUnit.AreEqual("Quest", record.gains[1].method)
+end
+
 function tests.DeclinedQuestAndCanceledCraftDoNotGain(_self)
     local store, bags = rewardStore()
     bags(3000, 0, 0, 2)

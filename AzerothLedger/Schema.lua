@@ -114,6 +114,8 @@ local _, addon = ...
 ---@field quantity integer
 ---@field method 'Quest'|'Crafted'
 ---@field context? AzerothLedgerRewardContext
+---@field preview? boolean
+---@field choiceGroup? string
 
 ---@alias ALReward AzerothLedgerRewardReceipt
 
@@ -139,6 +141,9 @@ local _, addon = ...
 ---@field awarded integer
 ---@field discovery boolean
 ---@field confirmed boolean
+---@field choiceGroup? string
+---@field specific? boolean
+---@field ambiguous? boolean
 
 ---@class AzerothLedgerRewardState
 ---@field nextID integer
@@ -417,6 +422,9 @@ local function validRewardSession(session)
         and session.awarded <= session.quantity
         and type(session.discovery) == "boolean"
         and type(session.confirmed) == "boolean"
+        and (session.choiceGroup == nil or (type(session.choiceGroup) == "string" and session.choiceGroup ~= ""))
+        and (session.specific == nil or type(session.specific) == "boolean")
+        and (session.ambiguous == nil or type(session.ambiguous) == "boolean")
 end
 
 local function validRewardState(rewards)
@@ -915,6 +923,9 @@ function Schema.open(raw, save)
             or not isName(actor.realm)
             or not isInteger(actor.level)
             or type(actor.place) ~= "string"
+            or (receipt.preview ~= nil and type(receipt.preview) ~= "boolean")
+            or (receipt.choiceGroup ~= nil and (type(receipt.choiceGroup) ~= "string" or receipt.choiceGroup == ""))
+            or (receipt.choiceGroup ~= nil and (receipt.method ~= "Quest" or not receipt.preview))
         then
             return false
         end
@@ -934,6 +945,7 @@ function Schema.open(raw, save)
                 and existing.method == receipt.method
                 and existing.character == actor.character
                 and existing.realm == actor.realm
+                and (not receipt.preview or existing.choiceGroup == receipt.choiceGroup)
                 and (receipt.method ~= "Quest" or not existing.confirmed or existing.awarded < existing.quantity)
                 and (
                     (not existing.context and not context)
@@ -964,11 +976,16 @@ function Schema.open(raw, save)
                 awarded = 0,
                 discovery = not valid[receipt.key],
                 confirmed = receipt.method == "Crafted",
+                choiceGroup = receipt.choiceGroup,
+                specific = receipt.method == "Quest" and not receipt.preview or nil,
             }
             sessions[#sessions + 1] = session
         end
         if receipt.method == "Quest" then
             session.quantity = math.max(session.quantity, receipt.quantity)
+            if not receipt.preview then
+                session.specific = true
+            end
         else
             session.quantity = session.quantity + receipt.quantity
         end
@@ -1060,6 +1077,39 @@ function Schema.open(raw, save)
         records[key] = record
     end
 
+    local function choiceIsProven(session, sessions, grouped)
+        if not session.choiceGroup then
+            return true
+        end
+        local specific
+        local increased
+        local specificCount = 0
+        local increasedCount = 0
+        for _, candidate in ipairs(sessions) do
+            if candidate.choiceGroup == session.choiceGroup then
+                if candidate.awarded > 0 and candidate ~= session then
+                    return false
+                end
+                if candidate.specific then
+                    specific = candidate
+                    specificCount = specificCount + 1
+                end
+                local group = grouped[candidate.key]
+                if group and group.quantity > candidate.baseline then
+                    increased = candidate
+                    increasedCount = increasedCount + 1
+                end
+            end
+        end
+        if specificCount > 0 then
+            return specificCount == 1 and specific == session
+        end
+        if increasedCount > 1 then
+            session.ambiguous = true
+        end
+        return increasedCount == 1 and increased == session and not session.ambiguous
+    end
+
     ---@param snapshot AzerothLedgerSnapshot
     function store.scan(_self, snapshot)
         if
@@ -1101,6 +1151,7 @@ function Schema.open(raw, save)
             return false
         end
         local nextRecords = {}
+        local activeRewards = snapshot.area == "bags" and snapshot.complete and rewardSessions(snapshot.seenAt) or {}
         for key, record in pairs(raw.records) do
             nextRecords[key] = record
         end
@@ -1192,11 +1243,12 @@ function Schema.open(raw, save)
                 award(session, key, nextRecords)
             end
             if snapshot.area == "bags" and snapshot.complete and type(oldScope) == "table" and oldScope.complete then
-                for _, reward in ipairs(rewardSessions(snapshot.seenAt)) do
+                for _, reward in ipairs(activeRewards) do
                     if
                         reward.key == key
                         and reward.character == snapshot.character
                         and reward.realm == snapshot.realm
+                        and choiceIsProven(reward, activeRewards, grouped)
                     then
                         awardReward(reward, key, group.quantity, nextRecords)
                     end

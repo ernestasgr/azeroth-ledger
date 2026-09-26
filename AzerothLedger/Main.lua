@@ -7,6 +7,7 @@ end)
 local client = addon.Client.inspect(_G)
 local bankOpen = false
 local craftRecipeID
+local questOfferSequence = 0
 
 if #client.issues == 0 then
     store:setEnvironment({
@@ -95,6 +96,31 @@ local function rewardReceipt(receipt)
     end
 end
 
+local function questOffer()
+    scan("bags")
+    local offer = addon.Reward.offer(_G)
+    local context = playerContext()
+    if not offer or not context then
+        return
+    end
+    questOfferSequence = questOfferSequence + 1
+    local choiceGroup =
+        table.concat({ context.character, context.realm, offer.questID, context.at, questOfferSequence }, ":")
+    local changed = false
+    for _, receipt in ipairs(offer.choices) do
+        receipt.preview = true
+        receipt.choiceGroup = choiceGroup
+        changed = store:rewardReceipt(receipt, context.at, context) or changed
+    end
+    for _, receipt in ipairs(offer.fixed) do
+        receipt.preview = true
+        changed = store:rewardReceipt(receipt, context.at, context) or changed
+    end
+    if changed then
+        addon.Collection.refresh(store, context.character, context.realm)
+    end
+end
+
 local function printStatus()
     local diagnostic = store:diagnostic()
     print("Azeroth Ledger:", diagnostic.kind)
@@ -158,6 +184,7 @@ if client.frame then
         "LOOT_CLOSED",
         "CHAT_MSG_LOOT",
         "QUEST_LOOT_RECEIVED",
+        "QUEST_COMPLETE",
         "QUEST_TURNED_IN",
         "TRADE_SKILL_ITEM_CRAFTED_RESULT",
         "TRADE_SKILL_CRAFT_BEGIN",
@@ -198,6 +225,8 @@ if client.frame then
             lootMessage(...)
         elseif event == "QUEST_LOOT_RECEIVED" then
             rewardReceipt(addon.Reward.quest(_G, ...))
+        elseif event == "QUEST_COMPLETE" then
+            questOffer()
         elseif event == "QUEST_TURNED_IN" then
             local questID = ...
             local context = playerContext()

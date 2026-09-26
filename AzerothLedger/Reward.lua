@@ -5,6 +5,11 @@ local Reward = {}
 ---@class AzerothLedgerRewardApi
 ---@field C_QuestLog? {GetTitleForQuestID?: fun(questID: integer): string?}
 ---@field C_TradeSkillUI? {GetRecipeInfo?: fun(recipeID: integer): {name?: string}?}
+---@field GetQuestID? fun(): integer?
+---@field GetNumQuestChoices? fun(): integer?
+---@field GetNumQuestRewards? fun(): integer?
+---@field GetQuestItemLink? fun(kind: string, index: integer): string?
+---@field GetQuestItemInfo? fun(kind: string, index: integer): string?, any, integer?
 
 ---@class AzerothLedgerCraftResult
 ---@field itemID integer
@@ -46,6 +51,51 @@ function Reward.quest(api, questID, link, quantity)
         end
     end
     return reward
+end
+
+---@param api AzerothLedgerRewardApi
+---@return {questID: integer, choices: AzerothLedgerRewardReceipt[], fixed: AzerothLedgerRewardReceipt[] }?
+function Reward.offer(api)
+    if
+        type(api.GetQuestID) ~= "function"
+        or type(api.GetNumQuestChoices) ~= "function"
+        or type(api.GetNumQuestRewards) ~= "function"
+        or type(api.GetQuestItemLink) ~= "function"
+        or type(api.GetQuestItemInfo) ~= "function"
+    then
+        return nil
+    end
+    local idOK, questID = pcall(api.GetQuestID)
+    if not idOK or type(questID) ~= "number" or questID < 1 or questID ~= math.floor(questID) then
+        return nil
+    end
+    local offer = { questID = questID, choices = {}, fixed = {} }
+    for _, group in ipairs({ { kind = "choice", items = offer.choices }, { kind = "reward", items = offer.fixed } }) do
+        local countAPI = group.kind == "choice" and api.GetNumQuestChoices or api.GetNumQuestRewards
+        if type(countAPI) ~= "function" then
+            return nil
+        end
+        local countOK, count = pcall(countAPI)
+        if countOK and type(count) == "number" and count >= 0 and count <= 100 and count == math.floor(count) then
+            for index = 1, count do
+                local linkOK, link = pcall(api.GetQuestItemLink, group.kind, index)
+                local infoOK, _, _, quantity = pcall(api.GetQuestItemInfo, group.kind, index)
+                if linkOK and infoOK and type(link) == "string" and type(quantity) == "number" then
+                    local receipt = Reward.quest(api, questID, link, quantity)
+                    if receipt then
+                        group.items[#group.items + 1] = receipt
+                    else
+                        return nil
+                    end
+                else
+                    return nil
+                end
+            end
+        else
+            return nil
+        end
+    end
+    return offer
 end
 
 ---@param api AzerothLedgerRewardApi

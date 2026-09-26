@@ -10,6 +10,7 @@ local clothLink = "|Hitem:2589::::::::|h[Linen Cloth]|h"
 local questKey = addon.Item.key(questLink, 263409)
 local boltKey = addon.Item.key(boltLink, 2996)
 local clothKey = addon.Item.key(clothLink, 2589)
+local otherChoice = assert(addon.Reward.quest({}, 92463, boltLink, 1))
 
 local function scenario()
     local saved
@@ -169,5 +170,50 @@ assert(cross:lootReceipt({ key = boltKey, quantity = 1 }, 6020, actor))
 crossBags(6021, 0, 7, 0)
 assert(cross:find(boltKey).totalGained == 2)
 assert(cross:find(boltKey).gains[2].method == "Looted")
+
+local inferred, inferredBags, inferredRestore = scenario()
+inferredBags(7000, 0, 0, 0)
+local previewQuest = {
+    key = questKey,
+    quantity = 1,
+    method = "Quest",
+    context = quest.context,
+    preview = true,
+    choiceGroup = "choice:1",
+}
+local previewOther =
+    { key = boltKey, quantity = 1, method = "Quest", context = quest.context, preview = true, choiceGroup = "choice:1" }
+assert(inferred:rewardReceipt(previewQuest, 7010, actor))
+assert(inferred:rewardReceipt(previewOther, 7010, actor))
+assert(inferred:questTurnedIn(92463, 7010, actor))
+inferred = inferredRestore()
+inferredBags(7011, 1, 0, 0)
+assert(inferred:find(questKey).totalGained == 1)
+inferredBags(7012, 1, 1, 0)
+assert(inferred:find(boltKey).totalGained == 0)
+
+local ambiguous, ambiguousBags = scenario()
+ambiguousBags(8000, 0, 0, 0)
+assert(ambiguous:rewardReceipt(previewQuest, 8010, actor))
+assert(ambiguous:rewardReceipt(previewOther, 8010, actor))
+assert(ambiguous:questTurnedIn(92463, 8010, actor))
+ambiguousBags(8011, 1, 1, 0)
+assert(ambiguous:find(questKey).totalGained == 0)
+assert(ambiguous:find(boltKey).totalGained == 0)
+ambiguousBags(8012, 1, 0, 0)
+assert(ambiguous:find(questKey).totalGained == 0)
+assert(ambiguous:rewardReceipt(quest, 8013, actor))
+ambiguousBags(8014, 2, 0, 0)
+assert(ambiguous:find(questKey).totalGained == 1)
+
+local explicit, explicitBags = scenario()
+explicitBags(9000, 0, 0, 0)
+assert(explicit:rewardReceipt(previewQuest, 9010, actor))
+assert(explicit:rewardReceipt(previewOther, 9010, actor))
+assert(explicit:rewardReceipt(otherChoice, 9010, actor))
+assert(explicit:questTurnedIn(92463, 9010, actor))
+explicitBags(9011, 1, 1, 0)
+assert(explicit:find(questKey).totalGained == 0)
+assert(explicit:find(boltKey).totalGained == 1)
 
 print("reward_spec: passed")
