@@ -50,27 +50,27 @@ C_Container = {
         return bag == 0 and inBags and { itemID = 80, hyperlink = link, stackCount = 1 } or nil
     end,
 }
-C_QuestLog = {
+_G.C_QuestLog = {
     GetTitleForQuestID = function()
         return "A Quest"
     end,
 }
-GetQuestID = function()
+_G.GetQuestID = function()
     return 42
 end
-GetNumQuestRewards = function()
+_G.GetNumQuestRewards = function()
     return 0
 end
-GetNumQuestChoices = function()
+_G.GetNumQuestChoices = function()
     return 2
 end
-GetQuestItemLink = function(kind, index)
+_G.GetQuestItemLink = function(kind, index)
     if kind ~= "choice" then
         return nil
     end
     return index == 1 and link or otherLink
 end
-GetQuestItemInfo = function(kind)
+_G.GetQuestItemInfo = function(kind)
     return kind == "choice" and "Reward" or nil, nil, 1
 end
 SlashCmdList = {}
