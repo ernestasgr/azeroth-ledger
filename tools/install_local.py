@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import re
 import shutil
 from pathlib import Path
 
@@ -27,6 +28,13 @@ def install(wow_root: Path, verify_only: bool) -> None:
     addons = (client / "Interface" / "AddOns").resolve(strict=True)
     if not (addons / "WoWUnit" / "WoWUnit.toc").is_file():
         raise FileNotFoundError("WoWUnit must be installed before the test companion")
+    saved_root = client / "WTF"
+    if saved_root.is_dir():
+        for saved_file in saved_root.rglob("AzerothLedger.lua"):
+            content = saved_file.read_text(encoding="utf-8")
+            match = re.search(r'\["schema"\]\s*=\s*(\d+)', content)
+            if not match or int(match.group(1)) != 2:
+                raise ValueError("Azeroth Ledger SavedVariables need a backed-up schema 2 conversion")
 
     for source in (ADDON, TESTS):
         target = addons / source.name

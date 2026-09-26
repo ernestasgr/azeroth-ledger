@@ -23,6 +23,6 @@ python tools/install_local.py --wow-root "C:/Program Files (x86)/World of Warcra
 python tools/install_local.py --wow-root "C:/Program Files (x86)/World of Warcraft/_classic_beta_" --verify-only
 ```
 
-The installer copies only TOC-listed files for `AzerothLedger` and `AzerothLedger_Tests`. Keep `WoWUnit`, other addons, and SavedVariables untouched. Confirm the beta flavor and installed-file hashes; a file copy alone is not an in-client test.
+The installer copies only TOC-listed files for `AzerothLedger` and `AzerothLedger_Tests`. Keep `WoWUnit` and other addons untouched. Check the account SavedVariables schema before installing; if it is incompatible, back up the file and resolve the data change explicitly instead of silently discarding records. Confirm the beta flavor and installed-file hashes; a file copy alone is not an in-client test.
 
 For changes that require in-client behavior, reload or restart the Forever client and run the relevant WoWUnit group, including `AzerothLedgerCollection` for Collection changes. Record the build, locale, test result, and any Lua errors. If the client cannot be exercised from this environment, say that the in-client check is pending rather than claiming it passed.

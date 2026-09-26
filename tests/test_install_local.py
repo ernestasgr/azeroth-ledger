@@ -40,6 +40,21 @@ class InstallLocalTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Forever beta"):
                 install(client, verify_only=False)
 
+    def test_rejects_incompatible_saved_data(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            client = Path(temporary)
+            (client / ".flavor.info").write_text("wow_classic_beta", encoding="utf-8")
+            addons = client / "Interface" / "AddOns"
+            (addons / "WoWUnit").mkdir(parents=True)
+            (addons / "WoWUnit" / "WoWUnit.toc").write_text("", encoding="utf-8")
+            saved = client / "WTF" / "Account" / "SavedVariables" / "AzerothLedger.lua"
+            saved.parent.mkdir(parents=True)
+            saved.write_text('AzerothLedgerDB = { ["schema"] = 1 }', encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "schema 2"):
+                install(client, verify_only=False)
+            self.assertFalse((addons / "AzerothLedger").exists())
+
 
 if __name__ == "__main__":
     unittest.main()
