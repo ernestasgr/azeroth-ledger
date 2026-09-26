@@ -24,7 +24,7 @@ The date an item was seen by the ledger, which need not be its acquisition date.
 The date an evidenced acquisition occurred. First and latest acquisition dates remain unknown for an entry known only through observation.
 
 **Journal**:
-The chronological record of acquisitions and their quantities, plus distinctly labelled internal transfers. Its retained history is limited independently of permanent collection totals; transfers do not contribute to acquired quantity or discovery count.
+The chronological record of evidenced acquisitions, internal transfers, and vendor audit actions such as sales, refunds, and buybacks. Recent history is retained separately from permanent Collection facts.
 _Avoid_: Collection
 
 **Acquisition**:
@@ -32,7 +32,10 @@ An evidenced occasion on which an item enters the account's recorded holdings fr
 _Avoid_: Bag change
 
 **Acquired quantity**:
-The cumulative number of evidenced units recorded entering the account's holdings from outside. Initial observed stock and internal transfers do not increase it; earlier unrecorded acquisitions remain unknown.
+The net number of evidenced units recorded entering the account's holdings from outside. Initial Observed stock and internal transfers do not increase it; a validated refund reverses the relevant purchase contribution.
+
+**Recorded units**:
+The combined count of initial Observed stock and net evidenced external acquisitions for a Collection entry. It records known units, not a claim that all are currently owned.
 
 **Observed stock**:
 The quantity found during an initial inventory or bank scan without evidence of an acquisition. It establishes holdings and discovery, but not an acquired quantity or acquisition date.
@@ -63,6 +66,9 @@ _Avoid_: Looted
 **Acquisition evidence**:
 The evidence attached to a particular acquisition, separate from an earlier observation of the same collection entry. A later Looted acquisition does not rewrite the original Observed discovery.
 
+**Unresolved evidence**:
+Evidence that cannot yet support a safe counted transaction or item identity. It remains separate from recorded acquisitions and does not itself add acquired quantity.
+
 **Gear variant**:
 A distinct intrinsic form of an item, including its random suffix or bonus data where present. Enchants, gems, durability, and ownership do not define identity; the full observed item link remains part of the record.
 
@@ -82,5 +88,5 @@ Evidence that a character previously held an item, independent of whether they s
 A filter for items with historical ownership and zero last-known holdings across the selected characters' complete relevant scans. It reports absence as of those scan dates; incomplete storage makes the result Unknown.
 
 **Source**:
-The mob, boss, or container associated with an acquisition when detectable.
+The evidenced origin associated with an acquisition, such as a creature, boss, container, quest, vendor, or external mail or trade counterparty. Its identity may be unknown even when the acquisition method is known.
 _Avoid_: Acquisition method
