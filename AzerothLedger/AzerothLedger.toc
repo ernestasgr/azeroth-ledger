@@ -4,6 +4,9 @@
 ## Version: 0.1.0
 ## SavedVariables: AzerothLedgerDB
 
+Item.lua
 Schema.lua
 Client.lua
+Scan.lua
+Collection.lua
 Main.lua

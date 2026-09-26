@@ -5,3 +5,4 @@ check.json
 .lua/
 .luarocks/
 *.log
+__pycache__/
