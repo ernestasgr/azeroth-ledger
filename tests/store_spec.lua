@@ -36,6 +36,37 @@ assert(fresh:find(key).links[1] == link)
 local damaged = open({ schema = 2, records = { bad = { itemID = -1 } }, areas = {} })
 assert(damaged:diagnostic().kind == "damaged")
 assert(#damaged:list() == 0)
+local legacy = open({
+    schema = 2,
+    records = {
+        ["2672:0"] = {
+            key = "2672:0",
+            itemID = 2672,
+            firstSeen = 1000,
+            lastSeen = 1000,
+            firstSeenUnits = 0,
+            totalGained = 2,
+            gains = {
+                {
+                    id = "legacy:1",
+                    at = 1001,
+                    quantity = 1,
+                    character = "Ada",
+                    realm = "Realm",
+                    level = 1,
+                    place = "Unknown",
+                    method = "Looted",
+                },
+            },
+            links = { link },
+            characters = { { name = "Ada", realm = "Realm", firstSeen = 1000, lastSeen = 1000, firstSeenUnits = 0 } },
+            observations = { { character = "Ada", realm = "Realm", area = "bags", quantity = 2, seenAt = 1000 } },
+        },
+    },
+    areas = {},
+})
+assert(legacy:diagnostic().kind == "damaged")
+assert(legacy:find("2672:0").gains[1].id == "legacy:1")
 local future = { schema = 9, records = {}, areas = {} }
 local unsupported = open(future)
 assert(unsupported:diagnostic().kind == "unsupported")

@@ -376,6 +376,39 @@ local function validRecord(key, record)
     return true
 end
 
+local function recoverableRecord(key, record)
+    if
+        type(key) ~= "string"
+        or type(record) ~= "table"
+        or record.key ~= key
+        or not isInteger(record.itemID)
+        or record.itemID <= 0
+        or not isInteger(record.firstSeen)
+        or not isInteger(record.lastSeen)
+        or not isInteger(record.firstSeenUnits)
+        or not isInteger(record.totalGained)
+        or type(record.links) ~= "table"
+        or type(record.characters) ~= "table"
+        or type(record.observations) ~= "table"
+        or type(record.gains) ~= "table"
+        or #record.links == 0
+        or #record.characters == 0
+        or #record.observations == 0
+    then
+        return false
+    end
+    for _, gain in ipairs(record.gains) do
+        if
+            type(gain) ~= "table"
+            or (gain.source ~= nil and type(gain.source) ~= "table")
+            or (gain.context ~= nil and type(gain.context) ~= "table")
+        then
+            return false
+        end
+    end
+    return true
+end
+
 local function validEnvironment(environment)
     return type(environment) == "table"
         and isName(environment.build)
@@ -457,6 +490,9 @@ function Schema.open(raw, save)
         for key, record in pairs(raw.records) do
             if validRecord(key, record) then
                 valid[key] = copyRecord(record)
+            elseif recoverableRecord(key, record) then
+                valid[key] = copyRecord(record)
+                damagedCount = damagedCount + 1
             else
                 damagedCount = damagedCount + 1
             end
