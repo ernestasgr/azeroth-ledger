@@ -11,6 +11,8 @@ globals = {
     "GetServerTime",
     "GetRealmName",
     "UnitName",
+    "UnitLevel",
+    "GetRealZoneText",
     "date",
     "C_Container",
     "GetInventoryItemLink",

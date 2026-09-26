@@ -64,6 +64,12 @@ local _, addon = ...
 ---@field key string
 ---@field quantity integer
 
+---@class AzerothLedgerActor
+---@field character string
+---@field realm string
+
+---@alias ALClaim AzerothLedgerLootClaim
+
 ---@class AzerothLedgerLootReceipt: AzerothLedgerLootClaim
 ---@field itemID integer
 ---@field link string
@@ -137,7 +143,7 @@ local _, addon = ...
 ---@field scan fun(self: AzerothLedgerStore, snapshot: AzerothLedgerSnapshot): boolean
 ---@field lootOpen fun(self: AzerothLedgerStore, context: AzerothLedgerLootContext): boolean
 ---@field lootClose fun(self: AzerothLedgerStore, at: integer): boolean
----@field lootReceipt fun(self: AzerothLedgerStore, receipt: AzerothLedgerLootClaim, at: integer, character: string, realm: string): boolean
+---@field lootReceipt fun(self: AzerothLedgerStore, receipt: ALClaim, at: integer, actor: AzerothLedgerActor): boolean
 
 local CURRENT_SCHEMA = 2
 local areas = { bags = true, bank = true, equipped = true }
@@ -471,7 +477,7 @@ function Schema.open(raw, save)
         return nil
     end
 
-    local function receiptSession(key, at, character, realm)
+    local function receiptSession(key, at, actor)
         local loot = raw.loot
         local sessions = type(loot) == "table" and loot.sessions or nil
         if type(sessions) ~= "table" then
@@ -481,8 +487,8 @@ function Schema.open(raw, save)
         for _, session in ipairs(sessions) do
             if
                 sessionIsLive(session, at)
-                and session.character == character
-                and session.realm == realm
+                and session.character == actor.character
+                and session.realm == actor.realm
                 and type(session.slots[key]) == "table"
             then
                 latest = session
@@ -644,10 +650,10 @@ function Schema.open(raw, save)
 
     ---@param receipt AzerothLedgerLootClaim
     ---@param at integer
-    ---@param character string
-    ---@param realm string
-    function store.lootReceipt(_self, receipt, at, character, realm)
-        local session = type(receipt) == "table" and receiptSession(receipt.key, at, character, realm) or nil
+    ---@param actor AzerothLedgerActor
+    function store.lootReceipt(_self, receipt, at, actor)
+        local session = type(receipt) == "table" and type(actor) == "table" and receiptSession(receipt.key, at, actor)
+            or nil
         if
             not readable
             or not session

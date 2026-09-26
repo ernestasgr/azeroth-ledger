@@ -61,7 +61,13 @@ local function lootMessage(message)
     local receipt = addon.Loot.receipt(_G, message)
     local at = now()
     local character, realm = identity()
-    if receipt and at and character and realm and store:lootReceipt(receipt, at, character, realm) then
+    if
+        receipt
+        and at
+        and character
+        and realm
+        and store:lootReceipt(receipt, at, { character = character, realm = realm })
+    then
         addon.Collection.refresh(store, character, realm)
     end
 end

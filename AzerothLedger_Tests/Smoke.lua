@@ -129,7 +129,7 @@ local function lootReplay(startingUnits, gainUnits, receiptUnits, duplicates, re
         WoWUnit.IsTrue(store:lootClose(1011))
     end
     for _ = 1, duplicates do
-        WoWUnit.IsTrue(store:lootReceipt(receipt, 1012, "Ada", "Realm"))
+        WoWUnit.IsTrue(store:lootReceipt(receipt, 1012, { character = "Ada", realm = "Realm" }))
     end
     if not receiptAfterScan then
         bags(1013, startingUnits + gainUnits)
