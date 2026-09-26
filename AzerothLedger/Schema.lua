@@ -129,7 +129,7 @@ function Schema.open(raw, save)
 
     ---@return AzerothLedgerDiagnostic
     -- Reports whether saved data is healthy, damaged, or unsupported.
-    function store:diagnostic()
+    function store.diagnostic(_self)
         if not supported then
             return { kind = "unsupported", damagedCount = 0, schema = type(raw) == "table" and raw.schema or nil }
         end
@@ -144,7 +144,7 @@ function Schema.open(raw, save)
 
     ---@return string?
     -- Returns the reload marker when it is valid.
-    function store:marker()
+    function store.marker(_self)
         if supported and type(raw.marker) == "string" and #raw.marker > 0 and #raw.marker <= 64 then
             return raw.marker
         end
@@ -153,13 +153,13 @@ function Schema.open(raw, save)
 
     ---@return AzerothLedgerEnvironment?
     -- Returns the last recorded client environment when it is valid.
-    function store:environment()
+    function store.environment(_self)
         return supported and validEnvironment(raw.environment) and copyEnvironment(raw.environment) or nil
     end
 
     ---@return AzerothLedgerRecord[]
     -- Returns sorted copies of all readable item records.
-    function store:list()
+    function store.list(_self)
         local result = {}
         for _, record in pairs(valid) do
             result[#result + 1] = copyRecord(record)
@@ -173,7 +173,7 @@ function Schema.open(raw, save)
     ---@param itemID integer
     ---@return AzerothLedgerRecord?
     -- Returns a copy of one readable item record.
-    function store:find(itemID)
+    function store.find(_self, itemID)
         local record = valid[tostring(itemID)]
         return record and copyRecord(record) or nil
     end
@@ -181,7 +181,7 @@ function Schema.open(raw, save)
     ---@param marker string
     ---@return boolean
     -- Saves a marker when the current schema and data are writable.
-    function store:setMarker(marker)
+    function store.setMarker(_self, marker)
         if not recordsReadable or type(marker) ~= "string" or #marker < 1 or #marker > 64 then
             return false
         end
@@ -199,7 +199,7 @@ function Schema.open(raw, save)
     ---@param environment AzerothLedgerEnvironment
     ---@return boolean
     -- Saves the client build and addon revision metadata.
-    function store:setEnvironment(environment)
+    function store.setEnvironment(_self, environment)
         if not recordsReadable or not validEnvironment(environment) then
             return false
         end
@@ -218,7 +218,7 @@ function Schema.open(raw, save)
     ---@param firstSeen integer
     ---@return boolean
     -- Adds an item's first Seen observation without overwriting existing data.
-    function store:recordSeen(itemID, firstSeen)
+    function store.recordSeen(_self, itemID, firstSeen)
         if not recordsReadable or not isInteger(itemID) or itemID <= 0 or not isInteger(firstSeen) or firstSeen < 0 then
             return false
         end
