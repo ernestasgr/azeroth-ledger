@@ -79,9 +79,8 @@ SlashCmdList.AZEROTHLEDGER = function(message)
                     or "Azeroth Ledger: marker rejected; use 1-64 characters and current schema"
             )
         else
-            print(
-                "Azeroth Ledger: /al collection [character realm], /al collection realm <realm>, /al status, /al scan, /al mark <token>"
-            )
+            print("Azeroth Ledger: /al collection [character realm], /al collection realm <realm>")
+            print("Azeroth Ledger: /al status, /al scan, /al mark <token>")
         end
     end
 end

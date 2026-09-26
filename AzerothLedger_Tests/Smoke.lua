@@ -56,7 +56,7 @@ local function replay()
     end)
 end
 
-function tests:InitialStockHasNoGain()
+function tests.InitialStockHasNoGain(_self)
     local store = replay()
     local meat = store:find(addon.Item.key(plain, 2672))
     WoWUnit.AreEqual(400, meat.firstSeenUnits)
@@ -67,7 +67,7 @@ function tests:InitialStockHasNoGain()
     WoWUnit.IsTrue(not store:area("Ada", "Realm A", "bank").complete)
 end
 
-function tests:VariantsAndLinksSurviveRestoration()
+function tests.VariantsAndLinksSurviveRestoration(_self)
     local store = replay()
     WoWUnit.AreEqual(3, #store:list())
     local bearRecord = store:find(addon.Item.key(bear, 100))
@@ -82,7 +82,7 @@ function tests:VariantsAndLinksSurviveRestoration()
     WoWUnit.IsTrue(addon.Item.key(bear, 100) ~= addon.Item.key(wolf, 100))
 end
 
-function tests:CollectionOpensWithDatedObservations()
+function tests.CollectionOpensWithDatedObservations(_self)
     local store = replay()
     local lines = addon.Collection.lines(store, "Ada", "Realm A")
     WoWUnit.IsTrue(lines[2]:find("incomplete", 1, true) ~= nil)
