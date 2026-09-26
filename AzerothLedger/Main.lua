@@ -1,6 +1,6 @@
 local addonName, addon = ...
 
-local REVISION = "0.2.0"
+local REVISION = "0.3.0"
 local store = addon.Schema.open(AzerothLedgerDB, function(nextValue)
     AzerothLedgerDB = nextValue
 end)
@@ -28,6 +28,41 @@ local function scan(area)
     if snapshot then
         store:scan(snapshot)
         addon.Collection.refresh(store, snapshot.character, snapshot.realm)
+    end
+end
+
+local function now()
+    return type(GetServerTime) == "function" and GetServerTime() or nil
+end
+
+local function lootOpen()
+    local character, realm = identity()
+    local at = now()
+    local slots = addon.Loot.open(_G)
+    if not character or not realm or not at or not slots then
+        return
+    end
+    local level = type(UnitLevel) == "function" and UnitLevel("player") or 0
+    local place = type(GetRealZoneText) == "function" and GetRealZoneText() or "Unknown"
+    if type(place) ~= "string" or place == "" then
+        place = "Unknown"
+    end
+    store:lootOpen({
+        character = character,
+        realm = realm,
+        at = at,
+        level = level,
+        place = place,
+        slots = slots,
+    })
+end
+
+local function lootMessage(message)
+    local receipt = addon.Loot.receipt(_G, message)
+    local at = now()
+    local character, realm = identity()
+    if receipt and at and character and realm and store:lootReceipt(receipt, at, character, realm) then
+        addon.Collection.refresh(store, character, realm)
     end
 end
 
@@ -92,13 +127,16 @@ if client.frame then
         "PLAYER_EQUIPMENT_CHANGED",
         "BANKFRAME_OPENED",
         "BANKFRAME_CLOSED",
+        "LOOT_OPENED",
+        "LOOT_CLOSED",
+        "CHAT_MSG_LOOT",
     }) do
         local ok = pcall(client.frame.RegisterEvent, client.frame, event)
         if not ok then
             client.issues[#client.issues + 1] = event .. " (unusable)"
         end
     end
-    local ok = pcall(client.frame.SetScript, client.frame, "OnEvent", function(_, event)
+    local ok = pcall(client.frame.SetScript, client.frame, "OnEvent", function(_, event, ...)
         if event == "PLAYER_LOGIN" then
             scan("bags")
             scan("equipped")
@@ -117,6 +155,15 @@ if client.frame then
         elseif event == "BANKFRAME_CLOSED" then
             bankOpen = false
             scan("bank")
+        elseif event == "LOOT_OPENED" then
+            lootOpen()
+        elseif event == "LOOT_CLOSED" then
+            local at = now()
+            if at then
+                store:lootClose(at)
+            end
+        elseif event == "CHAT_MSG_LOOT" then
+            lootMessage(...)
         end
     end)
     if not ok then

@@ -90,3 +90,80 @@ function tests.CollectionOpensWithDatedObservations(_self)
     WoWUnit.IsTrue(frame and frame:IsShown())
     frame:Hide()
 end
+
+local pelt = "|Hitem:4865::::::::|h[Ruined Pelt]|h"
+local peltKey = addon.Item.key(pelt, 4865)
+
+local function lootReplay(startingUnits, gainUnits, receiptUnits, duplicates, receiptAfterScan)
+    local saved
+    local store = addon.Schema.open(nil, function(value)
+        saved = value
+    end)
+    local function bags(at, units)
+        local items = {}
+        if units > 0 then
+            items[1] = { itemID = 4865, link = pelt, quantity = units }
+        end
+        WoWUnit.IsTrue(store:scan({
+            character = "Ada",
+            realm = "Realm",
+            area = "bags",
+            seenAt = at,
+            complete = true,
+            items = items,
+        }))
+    end
+    bags(1000, startingUnits)
+    WoWUnit.IsTrue(store:lootOpen({
+        character = "Ada",
+        realm = "Realm",
+        at = 1010,
+        level = 12,
+        place = "Elwynn Forest",
+        slots = { { key = peltKey } },
+    }))
+    local receipt = { key = peltKey, quantity = receiptUnits }
+    if receiptAfterScan then
+        bags(1011, startingUnits + gainUnits)
+        WoWUnit.IsTrue(store:lootClose(1011))
+        WoWUnit.IsTrue(store:lootClose(1011))
+    end
+    for _ = 1, duplicates do
+        WoWUnit.IsTrue(store:lootReceipt(receipt, 1012, "Ada", "Realm"))
+    end
+    if not receiptAfterScan then
+        bags(1013, startingUnits + gainUnits)
+    end
+    return addon.Schema
+        .open(saved, function(value)
+            saved = value
+        end)
+        :find(peltKey)
+end
+
+function tests.TwoLootedUnitsAreCountedOnce(_self)
+    local record = lootReplay(6, 2, 2, 1, false)
+    WoWUnit.AreEqual(6, record.firstSeenUnits)
+    WoWUnit.AreEqual(2, record.totalGained)
+    WoWUnit.AreEqual(8, record.firstSeenUnits + record.totalGained)
+    WoWUnit.AreEqual(1, #record.gains)
+    WoWUnit.AreEqual("Looted", record.gains[1].method)
+end
+
+function tests.DuplicateLookingReceiptsRespectOneUnitIncrease(_self)
+    local record = lootReplay(5, 1, 1, 2, false)
+    WoWUnit.AreEqual(1, record.totalGained)
+    WoWUnit.AreEqual(1, #record.gains)
+end
+
+function tests.LateReceiptAfterRepeatedCloseIsCounted(_self)
+    local record = lootReplay(5, 1, 1, 1, true)
+    WoWUnit.AreEqual(1, record.totalGained)
+end
+
+function tests.UnknownSourceStaysUnknown(_self)
+    local record = lootReplay(5, 1, 1, 1, false)
+    WoWUnit.AreEqual(nil, record.gains[1].source)
+    WoWUnit.AreEqual("Elwynn Forest", record.gains[1].place)
+    WoWUnit.AreEqual(12, record.gains[1].level)
+end
