@@ -9,5 +9,6 @@ Schema.lua
 Client.lua
 Scan.lua
 Loot.lua
+Reward.lua
 Collection.lua
 Main.lua

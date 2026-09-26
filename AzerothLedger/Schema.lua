@@ -46,8 +46,9 @@ local _, addon = ...
 ---@field realm string
 ---@field level integer
 ---@field place string
----@field method 'Looted'
+---@field method 'Looted'|'Quest'|'Crafted'
 ---@field source? AzerothLedgerLootSource
+---@field context? {kind: 'quest'|'recipe', id: integer, name?: string}
 
 ---@class AzerothLedgerLootSlot
 ---@field key string
@@ -69,6 +70,8 @@ local _, addon = ...
 ---@class AzerothLedgerActor
 ---@field character string
 ---@field realm string
+
+---@alias ALActor AzerothLedgerActor
 
 ---@alias ALClaim AzerothLedgerLootClaim
 
@@ -92,6 +95,7 @@ local _, addon = ...
 ---@field slots table<string, AzerothLedgerLootSessionSlot>
 ---@field credits table<string, integer>
 ---@field baselineQuantities table<string, integer>
+---@field baselineGains table<string, integer>
 ---@field receipts table<string, {quantity: integer, at: integer}>
 ---@field awarded table<string, integer>
 ---@field discoveries table<string, boolean>
@@ -99,6 +103,51 @@ local _, addon = ...
 ---@class AzerothLedgerLootState
 ---@field nextID integer
 ---@field sessions AzerothLedgerLootSession[]
+
+---@class AzerothLedgerRewardContext
+---@field kind 'quest'|'recipe'
+---@field id integer
+---@field name? string
+
+---@class AzerothLedgerRewardReceipt
+---@field key string
+---@field quantity integer
+---@field method 'Quest'|'Crafted'
+---@field context? AzerothLedgerRewardContext
+---@field preview? boolean
+---@field choiceGroup? string
+
+---@alias ALReward AzerothLedgerRewardReceipt
+
+---@class AzerothLedgerGainActor: AzerothLedgerActor
+---@field level integer
+---@field place string
+
+---@alias ALGainActor AzerothLedgerGainActor
+
+---@class AzerothLedgerRewardSession
+---@field id integer
+---@field key string
+---@field method 'Quest'|'Crafted'
+---@field context? AzerothLedgerRewardContext
+---@field character string
+---@field realm string
+---@field level integer
+---@field place string
+---@field at integer
+---@field baseline integer
+---@field baselineGained integer
+---@field quantity integer
+---@field awarded integer
+---@field discovery boolean
+---@field confirmed boolean
+---@field choiceGroup? string
+---@field specific? boolean
+---@field ambiguous? boolean
+
+---@class AzerothLedgerRewardState
+---@field nextID integer
+---@field sessions AzerothLedgerRewardSession[]
 
 ---@class AzerothLedgerRecord
 ---@field key string
@@ -121,6 +170,7 @@ local _, addon = ...
 ---@field records table<string, AzerothLedgerRecord>
 ---@field areas table<string, AzerothLedgerAreaState>
 ---@field loot? AzerothLedgerLootState
+---@field rewards? AzerothLedgerRewardState
 
 ---@class AzerothLedgerEnvironment
 ---@field build string
@@ -147,6 +197,8 @@ local _, addon = ...
 ---@field lootOpen fun(self: AzerothLedgerStore, context: AzerothLedgerLootContext): boolean
 ---@field lootClose fun(self: AzerothLedgerStore, at: integer): boolean
 ---@field lootReceipt fun(self: AzerothLedgerStore, receipt: ALClaim, at: integer, actor: AzerothLedgerActor): boolean
+---@field rewardReceipt fun(self: AzerothLedgerStore, receipt: ALReward, at: integer, actor: ALGainActor): boolean
+---@field questTurnedIn fun(self: AzerothLedgerStore, questID: integer, at: integer, actor: ALActor): boolean
 
 local CURRENT_SCHEMA = 2
 local areas = { bags = true, bank = true, equipped = true }
@@ -192,6 +244,8 @@ local function copyRecord(record)
             place = gain.place,
             method = gain.method,
             source = gain.source and { kind = gain.source.kind, guid = gain.source.guid, name = gain.source.name }
+                or nil,
+            context = gain.context and { kind = gain.context.kind, id = gain.context.id, name = gain.context.name }
                 or nil,
         }
     end
@@ -281,17 +335,31 @@ local function validRecord(key, record)
             or not isName(gain.realm)
             or not isInteger(gain.level)
             or type(gain.place) ~= "string"
-            or gain.method ~= "Looted"
+            or (gain.method ~= "Looted" and gain.method ~= "Quest" and gain.method ~= "Crafted")
             or gainIDs[gain.id]
         then
             return false
         end
         if gain.source ~= nil then
             if
-                type(gain.source) ~= "table"
-                or (gain.source.kind ~= "mob" and gain.source.kind ~= "container")
-                or not isName(gain.source.guid)
+                gain.method ~= "Looted"
+                or type(gain.source) ~= "table"
                 or (gain.source.name ~= nil and not isName(gain.source.name))
+            then
+                return false
+            end
+            if (gain.source.kind ~= "mob" and gain.source.kind ~= "container") or not isName(gain.source.guid) then
+                return false
+            end
+        end
+        if gain.context ~= nil then
+            if
+                type(gain.context) ~= "table"
+                or gain.method == "Looted"
+                or gain.context.kind ~= (gain.method == "Quest" and "quest" or "recipe")
+                or not isInteger(gain.context.id)
+                or gain.context.id < 1
+                or (gain.context.name ~= nil and not isName(gain.context.name))
             then
                 return false
             end
@@ -308,6 +376,39 @@ local function validRecord(key, record)
     return true
 end
 
+local function recoverableRecord(key, record)
+    if
+        type(key) ~= "string"
+        or type(record) ~= "table"
+        or record.key ~= key
+        or not isInteger(record.itemID)
+        or record.itemID <= 0
+        or not isInteger(record.firstSeen)
+        or not isInteger(record.lastSeen)
+        or not isInteger(record.firstSeenUnits)
+        or not isInteger(record.totalGained)
+        or type(record.links) ~= "table"
+        or type(record.characters) ~= "table"
+        or type(record.observations) ~= "table"
+        or type(record.gains) ~= "table"
+        or #record.links == 0
+        or #record.characters == 0
+        or #record.observations == 0
+    then
+        return false
+    end
+    for _, gain in ipairs(record.gains) do
+        if
+            type(gain) ~= "table"
+            or (gain.source ~= nil and type(gain.source) ~= "table")
+            or (gain.context ~= nil and type(gain.context) ~= "table")
+        then
+            return false
+        end
+    end
+    return true
+end
+
 local function validEnvironment(environment)
     return type(environment) == "table"
         and isName(environment.build)
@@ -318,6 +419,57 @@ local function validEnvironment(environment)
         and #environment.locale <= 16
         and isName(environment.revision)
         and #environment.revision <= 64
+end
+
+local function validRewardContext(context, method)
+    return context == nil
+        or (
+            type(context) == "table"
+            and context.kind == (method == "Quest" and "quest" or "recipe")
+            and isInteger(context.id)
+            and context.id > 0
+            and (context.name == nil or isName(context.name))
+        )
+end
+
+local function validRewardSession(session)
+    return type(session) == "table"
+        and isInteger(session.id)
+        and session.id > 0
+        and type(session.key) == "string"
+        and (session.method == "Quest" or session.method == "Crafted")
+        and validRewardContext(session.context, session.method)
+        and isName(session.character)
+        and isName(session.realm)
+        and isInteger(session.level)
+        and type(session.place) == "string"
+        and isInteger(session.at)
+        and isInteger(session.baseline)
+        and session.baseline >= 0
+        and isInteger(session.baselineGained)
+        and session.baselineGained >= 0
+        and isInteger(session.quantity)
+        and session.quantity > 0
+        and isInteger(session.awarded)
+        and session.awarded >= 0
+        and session.awarded <= session.quantity
+        and type(session.discovery) == "boolean"
+        and type(session.confirmed) == "boolean"
+        and (session.choiceGroup == nil or (type(session.choiceGroup) == "string" and session.choiceGroup ~= ""))
+        and (session.specific == nil or type(session.specific) == "boolean")
+        and (session.ambiguous == nil or type(session.ambiguous) == "boolean")
+end
+
+local function validRewardState(rewards)
+    if type(rewards) ~= "table" or not isInteger(rewards.nextID) or type(rewards.sessions) ~= "table" then
+        return false
+    end
+    for _, session in ipairs(rewards.sessions) do
+        if not validRewardSession(session) then
+            return false
+        end
+    end
+    return true
 end
 
 local Schema = {}
@@ -338,6 +490,9 @@ function Schema.open(raw, save)
         for key, record in pairs(raw.records) do
             if validRecord(key, record) then
                 valid[key] = copyRecord(record)
+            elseif recoverableRecord(key, record) then
+                valid[key] = copyRecord(record)
+                damagedCount = damagedCount + 1
             else
                 damagedCount = damagedCount + 1
             end
@@ -360,6 +515,9 @@ function Schema.open(raw, save)
     if supported and raw.environment ~= nil and not validEnvironment(raw.environment) then
         damagedCount = damagedCount + 1
     end
+    if supported and raw.rewards ~= nil and not validRewardState(raw.rewards) then
+        damagedCount = damagedCount + 1
+    end
 
     local function saveFields(fields)
         local nextValue = {
@@ -369,6 +527,7 @@ function Schema.open(raw, save)
             records = fields.records or raw.records,
             areas = fields.areas or raw.areas,
             loot = fields.loot or raw.loot,
+            rewards = fields.rewards or raw.rewards,
         }
         save(nextValue)
         raw = nextValue
@@ -486,6 +645,7 @@ function Schema.open(raw, save)
             and type(session.awarded) == "table"
             and type(session.discoveries) == "table"
             and type(session.baselineQuantities) == "table"
+            and type(session.baselineGains) == "table"
             and (session.closedAt == nil or isInteger(session.closedAt))
             and (session.endedAt == nil or isInteger(session.endedAt))
             and isInteger(at)
@@ -548,6 +708,12 @@ function Schema.open(raw, save)
         local slot = session.slots[key]
         local limit = type(slot) == "table" and slot.limit or nil
         local target = math.min(credit, receipt.quantity, isInteger(limit) and limit or math.huge)
+        local baselineGained = session.baselineGains[key]
+        if not isInteger(baselineGained) then
+            return
+        end
+        local otherGains = math.max(0, record.totalGained - baselineGained - awarded)
+        target = math.min(target, math.max(0, credit - otherGains))
         local quantity = target - awarded
         if quantity <= 0 then
             return
@@ -613,6 +779,7 @@ function Schema.open(raw, save)
         end
         local slots = {}
         local baselineQuantities = {}
+        local baselineGains = {}
         for _, slot in ipairs(context.slots) do
             if type(slot) == "table" and type(slot.key) == "string" then
                 if slots[slot.key] then
@@ -628,6 +795,7 @@ function Schema.open(raw, save)
                         limit = isInteger(slot.quantity) and slot.quantity > 0 and slot.quantity or nil,
                     }
                     local record = valid[slot.key]
+                    baselineGains[slot.key] = record and record.totalGained or 0
                     for _, observation in ipairs(record and record.observations or {}) do
                         if
                             observation.character == context.character
@@ -668,6 +836,7 @@ function Schema.open(raw, save)
             slots = slots,
             credits = {},
             baselineQuantities = baselineQuantities,
+            baselineGains = baselineGains,
             receipts = {},
             awarded = {},
             discoveries = {},
@@ -698,6 +867,30 @@ function Schema.open(raw, save)
         then
             return false
         end
+        local rewards = type(raw.rewards) == "table" and raw.rewards.sessions or nil
+        for _, reward in ipairs(type(rewards) == "table" and rewards or {}) do
+            if
+                validRewardSession(reward)
+                and reward.confirmed
+                and reward.key == receipt.key
+                and reward.character == actor.character
+                and reward.realm == actor.realm
+                and at >= reward.at
+                and at - reward.at <= 120
+            then
+                local current = activeSession(at)
+                if
+                    not current
+                    or current.openedAt <= reward.at
+                    or type(current.slots[receipt.key]) ~= "table"
+                    or current.character ~= actor.character
+                    or current.realm ~= actor.realm
+                then
+                    return true
+                end
+                session = current
+            end
+        end
         local existing = session.receipts[receipt.key]
         session.receipts[receipt.key] = {
             quantity = (existing and existing.quantity or 0) + receipt.quantity,
@@ -725,6 +918,232 @@ function Schema.open(raw, save)
             saveFields({})
         end
         return true
+    end
+
+    local function bagQuantity(record, character, realm)
+        local quantity = 0
+        for _, observation in ipairs(record and record.observations or {}) do
+            if observation.character == character and observation.realm == realm and observation.area == "bags" then
+                quantity = observation.quantity
+            end
+        end
+        return quantity
+    end
+
+    local function rewardSessions(at)
+        local result = {}
+        local rewards = raw.rewards
+        local sessions = type(rewards) == "table" and rewards.sessions or nil
+        for _, session in ipairs(type(sessions) == "table" and sessions or {}) do
+            if validRewardSession(session) and at >= session.at and at - session.at <= 120 then
+                result[#result + 1] = session
+            end
+        end
+        return result
+    end
+
+    ---@param receipt AzerothLedgerRewardReceipt
+    ---@param at integer
+    ---@param actor AzerothLedgerGainActor
+    function store.rewardReceipt(_self, receipt, at, actor)
+        if
+            not readable
+            or type(receipt) ~= "table"
+            or type(receipt.key) ~= "string"
+            or (receipt.method ~= "Quest" and receipt.method ~= "Crafted")
+            or not isInteger(receipt.quantity)
+            or receipt.quantity < 1
+            or not isInteger(at)
+            or type(actor) ~= "table"
+            or not isName(actor.character)
+            or not isName(actor.realm)
+            or not isInteger(actor.level)
+            or type(actor.place) ~= "string"
+            or (receipt.preview ~= nil and type(receipt.preview) ~= "boolean")
+            or (receipt.choiceGroup ~= nil and (type(receipt.choiceGroup) ~= "string" or receipt.choiceGroup == ""))
+            or (receipt.choiceGroup ~= nil and (receipt.method ~= "Quest" or not receipt.preview))
+        then
+            return false
+        end
+        local area = store:area(actor.character, actor.realm, "bags")
+        if not area or not area.complete or area.seenAt > at then
+            return false
+        end
+        local context = receipt.context
+        if not validRewardContext(context, receipt.method) then
+            return false
+        end
+        local sessions = rewardSessions(at)
+        local session
+        for _, existing in ipairs(sessions) do
+            if
+                existing.key == receipt.key
+                and existing.method == receipt.method
+                and existing.character == actor.character
+                and existing.realm == actor.realm
+                and (not receipt.preview or existing.choiceGroup == receipt.choiceGroup)
+                and (receipt.method ~= "Quest" or not existing.confirmed or existing.awarded < existing.quantity)
+                and (
+                    (not existing.context and not context)
+                    or (existing.context and context and existing.context.id == context.id)
+                )
+            then
+                session = existing
+                break
+            end
+        end
+        local rewards = type(raw.rewards) == "table" and raw.rewards or nil
+        local nextID = rewards and rewards.nextID or 0
+        if not session then
+            nextID = (isInteger(nextID) and nextID or 0) + 1
+            session = {
+                id = nextID,
+                key = receipt.key,
+                method = receipt.method,
+                context = context,
+                character = actor.character,
+                realm = actor.realm,
+                level = actor.level,
+                place = actor.place,
+                at = at,
+                baseline = bagQuantity(valid[receipt.key], actor.character, actor.realm),
+                baselineGained = valid[receipt.key] and valid[receipt.key].totalGained or 0,
+                quantity = 0,
+                awarded = 0,
+                discovery = not valid[receipt.key],
+                confirmed = receipt.method == "Crafted",
+                choiceGroup = receipt.choiceGroup,
+                specific = receipt.method == "Quest" and not receipt.preview or nil,
+            }
+            sessions[#sessions + 1] = session
+        end
+        if receipt.method == "Quest" then
+            session.quantity = math.max(session.quantity, receipt.quantity)
+            if not receipt.preview then
+                session.specific = true
+            end
+        else
+            session.quantity = session.quantity + receipt.quantity
+        end
+        saveFields({ rewards = { nextID = nextID, sessions = sessions } })
+        return true
+    end
+
+    function store.questTurnedIn(_self, questID, at, actor)
+        if
+            not readable
+            or not isInteger(questID)
+            or questID < 1
+            or not isInteger(at)
+            or type(actor) ~= "table"
+            or not isName(actor.character)
+            or not isName(actor.realm)
+        then
+            return false
+        end
+        local changed = false
+        for _, session in ipairs(rewardSessions(at)) do
+            if
+                session.method == "Quest"
+                and session.context
+                and session.context.id == questID
+                and session.character == actor.character
+                and session.realm == actor.realm
+                and not session.confirmed
+            then
+                session.confirmed = true
+                changed = true
+            end
+        end
+        if changed then
+            saveFields({})
+        end
+        return changed
+    end
+
+    local function awardReward(session, key, currentQuantity, records)
+        local record = records[key]
+        if not record or not session.confirmed then
+            return
+        end
+        local otherGains = math.max(0, record.totalGained - session.baselineGained - session.awarded)
+        local target = math.min(session.quantity, math.max(0, currentQuantity - session.baseline - otherGains))
+        local quantity = target - session.awarded
+        if quantity <= 0 then
+            return
+        end
+        record = copyRecord(record)
+        local gainID = "reward:" .. session.id .. ":" .. key
+        local gain
+        for _, existing in ipairs(record.gains) do
+            if existing.id == gainID then
+                gain = existing
+                break
+            end
+        end
+        if gain then
+            gain.quantity = gain.quantity + quantity
+        else
+            gain = {
+                id = gainID,
+                at = session.at,
+                quantity = quantity,
+                character = session.character,
+                realm = session.realm,
+                level = session.level,
+                place = session.place,
+                method = session.method,
+                context = session.context,
+            }
+            record.gains[#record.gains + 1] = gain
+        end
+        record.totalGained = record.totalGained + quantity
+        record.firstGained = record.firstGained and math.min(record.firstGained, gain.at) or gain.at
+        record.lastGained = record.lastGained and math.max(record.lastGained, gain.at) or gain.at
+        if session.discovery then
+            record.firstSeenUnits = math.max(0, record.firstSeenUnits - quantity)
+            for _, character in ipairs(record.characters) do
+                if character.name == session.character and character.realm == session.realm then
+                    character.firstSeenUnits = math.max(0, character.firstSeenUnits - quantity)
+                    break
+                end
+            end
+        end
+        session.awarded = target
+        records[key] = record
+    end
+
+    local function choiceIsProven(session, sessions, grouped)
+        if not session.choiceGroup then
+            return true
+        end
+        local specific
+        local increased
+        local specificCount = 0
+        local increasedCount = 0
+        for _, candidate in ipairs(sessions) do
+            if candidate.choiceGroup == session.choiceGroup then
+                if candidate.awarded > 0 and candidate ~= session then
+                    return false
+                end
+                if candidate.specific then
+                    specific = candidate
+                    specificCount = specificCount + 1
+                end
+                local group = grouped[candidate.key]
+                if group and group.quantity > candidate.baseline then
+                    increased = candidate
+                    increasedCount = increasedCount + 1
+                end
+            end
+        end
+        if specificCount > 0 then
+            return specificCount == 1 and specific == session
+        end
+        if increasedCount > 1 then
+            session.ambiguous = true
+        end
+        return increasedCount == 1 and increased == session and not session.ambiguous
     end
 
     ---@param snapshot AzerothLedgerSnapshot
@@ -768,6 +1187,7 @@ function Schema.open(raw, save)
             return false
         end
         local nextRecords = {}
+        local activeRewards = snapshot.area == "bags" and snapshot.complete and rewardSessions(snapshot.seenAt) or {}
         for key, record in pairs(raw.records) do
             nextRecords[key] = record
         end
@@ -857,6 +1277,18 @@ function Schema.open(raw, save)
             nextRecords[key] = record
             if session then
                 award(session, key, nextRecords)
+            end
+            if snapshot.area == "bags" and snapshot.complete and type(oldScope) == "table" and oldScope.complete then
+                for _, reward in ipairs(activeRewards) do
+                    if
+                        reward.key == key
+                        and reward.character == snapshot.character
+                        and reward.realm == snapshot.realm
+                        and choiceIsProven(reward, activeRewards, grouped)
+                    then
+                        awardReward(reward, key, group.quantity, nextRecords)
+                    end
+                end
             end
         end
         if snapshot.complete then
