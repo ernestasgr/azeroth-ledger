@@ -14,3 +14,5 @@ The [Forever capability trace](forever-client.md) was recorded on build **1.60.1
 | Partial-stack output | Unrun | Add output to an existing stack; verify only the increase is gained. |
 
 Run `AzerothLedgerCollection` in WoWUnit after reloading the installed addon. Record the actual build and `GetLocale()` value, the result of each path, and any Lua errors. A local Lua replay passes the group but does not count as an in-client pass.
+
+On 26 September 2026, PR #35's `verify` job passed, including Lua 5.1 behavior, StyLua, Luacheck, LuaLS, package validation, and installer tests. The addon and its WoWUnit companion were installed to the local `wow_classic_beta` client and the installer verified all TOC-listed file hashes. The installed root reports build **1.60.1.70009**; no client session was available to confirm the runtime build or locale. `AzerothLedgerCollection` and the client paths above remain **unrun** in the client, and Lua errors could not be observed.
