@@ -46,3 +46,5 @@ jobs:
           python3 tools/check_luals.py
       - name: Package contents and order
         run: python3 tools/package.py --output dist/AzerothLedger.zip
+      - name: Local installer behavior
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
