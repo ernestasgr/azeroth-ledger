@@ -9,4 +9,12 @@ globals = {
     "GetBuildInfo",
     "GetLocale",
     "GetServerTime",
+    "GetRealmName",
+    "UnitName",
+    "date",
+    "C_Container",
+    "GetInventoryItemLink",
+    "UIParent",
+    "GameFontNormal",
+    "AzerothLedger",
 }
