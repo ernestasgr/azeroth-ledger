@@ -79,6 +79,58 @@ equal(false, restored:area("Ada", "Realm A", "bank").complete)
 
 print("collection_spec: passed")
 
+local ownership = addon.Schema.open(nil, function() end)
+local function check(character, area, at, complete, quantity)
+    local items = quantity > 0 and { { itemID = 2672, link = plain, quantity = quantity } } or {}
+    assert(ownership:scan({
+        character = character,
+        realm = "Realm A",
+        area = area,
+        seenAt = at,
+        complete = complete,
+        items = items,
+    }))
+end
+local function visible(character, expected)
+    local lines = addon.Collection.lines(ownership, "Ada", "Realm A", character, "Realm A")
+    local joined = table.concat(lines, "\n")
+    assert(joined:find(expected, 1, true), joined)
+end
+local function status(character, expected)
+    visible(character, "Ownership: " .. expected)
+end
+check("Ada", "bags", 6000, true, 1)
+check("Ada", "bank", 6000, true, 0)
+check("Ada", "equipped", 6000, true, 0)
+status("Ada", "Present")
+check("Ada", "bags", 6010, true, 0)
+check("Ada", "bank", 6010, true, 1)
+status("Ada", "Present")
+check("Ada", "bank", 6020, true, 0)
+check("Ada", "equipped", 6020, true, 1)
+status("Ada", "Present")
+check("Ada", "equipped", 6030, true, 0)
+check("Ada", "bags", 6030, true, 1)
+status("Ada", "Present")
+assert(ownership:list()[1].totalGained == 0)
+assert(#ownership:list() == 1)
+check("Ada", "bags", 6040, true, 0)
+status("Ada", "Unknown")
+check("Ada", "bank", 6040, true, 0)
+check("Ada", "equipped", 6040, true, 0)
+status("Ada", "Historical only")
+visible("Ada", "Latest area check 0")
+check("Ada", "bank", 6050, false, 0)
+status("Ada", "Unknown")
+visible("Ada", "Latest area check Unknown")
+check("Ada", "bank", 6060, false, 2)
+status("Ada", "Present")
+visible("Ada", "Latest area check 2")
+check("Ada", "bank", 6070, false, 0)
+status("Ada", "Unknown")
+
+print("ownership_spec: passed")
+
 local lootSaved
 local lootStore = addon.Schema.open(nil, function(value)
     lootSaved = value

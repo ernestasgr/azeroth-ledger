@@ -23,6 +23,80 @@ local function sourceText(source)
     return source and (source.name or (source.kind .. " " .. source.guid)) or "Unknown"
 end
 
+local storageAreas = { "bags", "bank", "equipped" }
+
+local function latestObservation(record, character, realm, area)
+    local latest
+    for _, observation in ipairs(record.observations) do
+        if observation.character == character and observation.realm == realm and observation.area == area then
+            if not latest or observation.seenAt >= latest.seenAt then
+                latest = observation
+            end
+        end
+    end
+    return latest
+end
+
+local function ownership(store, record, currentCharacter, currentRealm, filterCharacter, filterRealm)
+    local characters = {}
+    local selected = {}
+    local function add(character, realm)
+        if matchesFilter(filterCharacter, filterRealm, character, realm) then
+            local key = realm .. ":" .. character
+            if not selected[key] then
+                selected[key] = true
+                characters[#characters + 1] = { name = character, realm = realm }
+            end
+        end
+    end
+    add(currentCharacter, currentRealm)
+    for _, knownCharacter in ipairs(store:characters()) do
+        add(knownCharacter.character, knownCharacter.realm)
+    end
+    local present = false
+    local unknown = false
+    local earliestCheck
+    for _, character in ipairs(characters) do
+        local online = character.name == currentCharacter and character.realm == currentRealm
+        local characterCheck
+        for _, area in ipairs(storageAreas) do
+            local state = store:area(character.name, character.realm, area)
+            local observation = latestObservation(record, character.name, character.realm, area)
+            if state and state.complete then
+                if observation and observation.quantity > 0 then
+                    if online then
+                        present = true
+                    else
+                        unknown = true
+                    end
+                end
+                if characterCheck and characterCheck ~= state.seenAt then
+                    unknown = true
+                end
+                characterCheck = state.seenAt
+            elseif state and observation and observation.quantity > 0 and observation.seenAt == state.seenAt then
+                if online then
+                    present = true
+                else
+                    unknown = true
+                end
+            else
+                unknown = true
+            end
+        end
+        if characterCheck then
+            earliestCheck = math.min(earliestCheck or characterCheck, characterCheck)
+        end
+    end
+    if present then
+        return "Present"
+    end
+    if unknown or #characters == 0 then
+        return "Unknown"
+    end
+    return "Historical only as of " .. stamp(earliestCheck)
+end
+
 ---@param store AzerothLedgerStore
 ---@param character string
 ---@param realm string
@@ -33,7 +107,7 @@ end
 function Collection.lines(store, character, realm, filterCharacter, filterRealm)
     local lines = {}
     if not filterRealm or filterCharacter then
-        for _, area in ipairs({ "bags", "bank", "equipped" }) do
+        for _, area in ipairs(storageAreas) do
             local state = store:area(filterCharacter or character, filterRealm or realm, area)
             if not state or not state.complete then
                 lines[#lines + 1] = area .. ": incomplete / current stock unknown"
@@ -44,7 +118,8 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
     end
     local shown = 0
     local recent = {}
-    for _, record in ipairs(store:list()) do
+    local records = store:list()
+    for _, record in ipairs(records) do
         local matches = not filterCharacter and not filterRealm
         for _, seen in ipairs(record.characters) do
             if matchesFilter(filterCharacter, filterRealm, seen.name, seen.realm) then
@@ -64,6 +139,45 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                 .. record.totalGained
                 .. "; Recorded units "
                 .. (record.firstSeenUnits + record.totalGained)
+            lines[#lines + 1] = "  Ownership: "
+                .. ownership(store, record, character, realm, filterCharacter, filterRealm)
+            local lastCheck
+            for _, knownCharacter in ipairs(store:characters()) do
+                if matchesFilter(filterCharacter, filterRealm, knownCharacter.character, knownCharacter.realm) then
+                    for _, area in ipairs(storageAreas) do
+                        local state = store:area(knownCharacter.character, knownCharacter.realm, area)
+                        if state and (not lastCheck or state.seenAt >= lastCheck.seenAt) then
+                            local observation =
+                                latestObservation(record, knownCharacter.character, knownCharacter.realm, area)
+                            local quantity
+                            if state.complete then
+                                quantity = observation and observation.quantity or 0
+                            elseif observation and observation.seenAt == state.seenAt then
+                                quantity = observation.quantity
+                            end
+                            lastCheck = {
+                                seenAt = state.seenAt,
+                                quantity = quantity,
+                                character = knownCharacter.character,
+                                realm = knownCharacter.realm,
+                                area = area,
+                            }
+                        end
+                    end
+                end
+            end
+            if lastCheck then
+                lines[#lines + 1] = "  Latest area check "
+                    .. (lastCheck.quantity or "Unknown")
+                    .. " • "
+                    .. lastCheck.character
+                    .. "-"
+                    .. lastCheck.realm
+                    .. " • "
+                    .. lastCheck.area
+                    .. " • "
+                    .. stamp(lastCheck.seenAt)
+            end
             lines[#lines + 1] = "  First Seen "
                 .. stamp(record.firstSeen)
                 .. " • latest Seen "
