@@ -1,0 +1,14 @@
+{
+  "runtime.version": "Lua 5.1",
+  "workspace.ignoreDir": ["validation", ".vscode", ".tools", "dist"],
+  "diagnostics.globals": [
+    "AzerothLedgerDB",
+    "SLASH_AZEROTHLEDGER1",
+    "SlashCmdList",
+    "WoWUnit",
+    "CreateFrame",
+    "GetBuildInfo",
+    "GetLocale",
+    "GetServerTime"
+  ]
+}
