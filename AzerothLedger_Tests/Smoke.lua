@@ -91,6 +91,123 @@ function tests.CollectionOpensWithDatedObservations(_self)
     frame:Hide()
 end
 
+function tests.StorageMovesAndUnreadableChecks(_self)
+    local store = addon.Schema.open(nil, function() end)
+    local clock = 2000
+    local character = "Ada"
+    ---@type string?
+    local bagItem = plain
+    local bankItem
+    local equippedItem
+    local equipmentReadable = true
+    local bankReadable = true
+    local bankBagReadable = true
+    local bankCount = 1
+    local api = {
+        UnitName = function()
+            return character
+        end,
+        GetRealmName = function()
+            return "Realm"
+        end,
+        GetServerTime = function()
+            return clock
+        end,
+        GetInventoryItemLink = function(_, slot)
+            if slot == 1 and not equipmentReadable then
+                error("equipment unreadable")
+            end
+            return slot == 1 and equippedItem or nil
+        end,
+        C_Container = {
+            GetContainerNumSlots = function(bag)
+                if bag == -1 and not bankReadable then
+                    error("bank unreadable")
+                end
+                if bag == 6 and not bankBagReadable then
+                    error("bank bag unreadable")
+                end
+                return (bag == 0 or bag == -1) and 1 or 0
+            end,
+            GetContainerItemInfo = function(bag)
+                local link = bag == 0 and bagItem or bag == -1 and bankItem or nil
+                return link and { itemID = 2672, hyperlink = link, stackCount = bag == -1 and bankCount or 1 } or nil
+            end,
+        },
+    }
+    local function scan(area, bankOpen)
+        WoWUnit.IsTrue(store:scan(addon.Scan.capture(api, area, bankOpen)))
+    end
+    local function ownership(expected)
+        local lines = addon.Collection.lines(store, character, "Realm", "Ada", "Realm")
+        WoWUnit.IsTrue(table.concat(lines, "\n"):find("Ownership: " .. expected, 1, true) ~= nil)
+    end
+    scan("bags", true)
+    scan("bank", true)
+    scan("equipped", true)
+    ownership("Present")
+    clock = 2010
+    bagItem, bankItem = nil, plain
+    scan("bags", true)
+    scan("bank", true)
+    ownership("Present")
+    clock = 2020
+    bankItem, equippedItem = nil, plain
+    scan("bank", true)
+    scan("equipped", true)
+    ownership("Present")
+    clock = 2030
+    equippedItem, bagItem = nil, plain
+    scan("equipped", true)
+    scan("bags", true)
+    ownership("Present")
+    local record = store:find(addon.Item.key(plain, 2672))
+    WoWUnit.AreEqual(0, record.totalGained)
+    WoWUnit.AreEqual(1, #store:list())
+    clock = 2040
+    bagItem = nil
+    scan("bags", true)
+    ownership("Unknown")
+    scan("bank", true)
+    scan("equipped", true)
+    ownership("Historical only")
+    clock = 2050
+    scan("bank", false)
+    ownership("Unknown")
+    clock = 2060
+    bankItem = plain
+    bankReadable = false
+    scan("bank", true)
+    ownership("Unknown")
+    bankReadable = true
+    bankCount = 0
+    scan("bank", true)
+    ownership("Unknown")
+    bankCount = 1
+    bankBagReadable = false
+    scan("bank", true)
+    ownership("Present")
+    bankBagReadable = true
+    scan("bank", true)
+    ownership("Present")
+    clock = 2065
+    bankItem, equippedItem = nil, plain
+    scan("bank", true)
+    equipmentReadable = false
+    scan("equipped", true)
+    ownership("Unknown")
+    equipmentReadable = true
+    scan("equipped", true)
+    ownership("Present")
+    clock = 2070
+    character = "Ben"
+    equippedItem = nil
+    scan("bags", true)
+    scan("bank", true)
+    scan("equipped", true)
+    ownership("Unknown")
+end
+
 local pelt = "|Hitem:4865::::::::|h[Ruined Pelt]|h"
 local peltKey = addon.Item.key(pelt, 4865)
 
