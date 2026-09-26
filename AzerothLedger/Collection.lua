@@ -19,6 +19,10 @@ local function matchesFilter(filterCharacter, filterRealm, name, realm)
     return (not filterCharacter or name == filterCharacter) and (not filterRealm or realm == filterRealm)
 end
 
+local function sourceText(source)
+    return source and (source.name or (source.kind .. " " .. source.guid)) or "Unknown"
+end
+
 ---@param store AzerothLedgerStore
 ---@param character string
 ---@param realm string
@@ -39,6 +43,7 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
         end
     end
     local shown = 0
+    local recent = {}
     for _, record in ipairs(store:list()) do
         local matches = not filterCharacter and not filterRealm
         for _, seen in ipairs(record.characters) do
@@ -57,11 +62,35 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                 .. record.firstSeenUnits
                 .. " Seen; Total gained "
                 .. record.totalGained
+                .. "; Recorded units "
+                .. (record.firstSeenUnits + record.totalGained)
             lines[#lines + 1] = "  First Seen "
                 .. stamp(record.firstSeen)
                 .. " • latest Seen "
                 .. stamp(record.lastSeen)
-                .. " • confirmed gain unknown"
+                .. (
+                    record.firstGained and (" • first confirmed gain " .. stamp(record.firstGained))
+                    or " • confirmed gain unknown"
+                )
+            if record.lastGained then
+                lines[#lines + 1] = "  Latest confirmed gain " .. stamp(record.lastGained)
+            end
+            local sources = {}
+            for _, gain in ipairs(record.gains) do
+                local label = sourceText(gain.source)
+                sources[label] = (sources[label] or 0) + gain.quantity
+            end
+            if record.totalGained > 0 then
+                lines[#lines + 1] = "  Method totals: Looted " .. record.totalGained
+                local labels = {}
+                for label in pairs(sources) do
+                    labels[#labels + 1] = label
+                end
+                table.sort(labels)
+                for _, label in ipairs(labels) do
+                    lines[#lines + 1] = "  Source total: " .. label .. " " .. sources[label]
+                end
+            end
             for _, seen in ipairs(record.characters) do
                 if matchesFilter(filterCharacter, filterRealm, seen.name, seen.realm) then
                     lines[#lines + 1] = "  "
@@ -89,10 +118,40 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                         .. observation.area
                 end
             end
+            for _, gain in ipairs(record.gains) do
+                if matchesFilter(filterCharacter, filterRealm, gain.character, gain.realm) then
+                    local source = gain.source
+                    local detail = "  "
+                        .. stamp(gain.at)
+                        .. " • +"
+                        .. gain.quantity
+                        .. " Looted • "
+                        .. gain.character
+                        .. "-"
+                        .. gain.realm
+                        .. " level "
+                        .. gain.level
+                        .. " • "
+                        .. gain.place
+                        .. " • source "
+                        .. sourceText(source)
+                    lines[#lines + 1] = detail
+                    recent[#recent + 1] = { at = gain.at, text = name .. detail }
+                end
+            end
         end
     end
     if shown == 0 then
         lines[#lines + 1] = "No items Seen yet."
+    end
+    if #recent > 0 then
+        table.sort(recent, function(left, right)
+            return left.at > right.at
+        end)
+        lines[#lines + 1] = "Recent gains"
+        for index = 1, math.min(#recent, 10) do
+            lines[#lines + 1] = recent[index].text
+        end
     end
     return lines
 end
