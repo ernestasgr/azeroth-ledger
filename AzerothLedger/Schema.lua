@@ -17,6 +17,8 @@ local _, addon = ...
 ---@class AzerothLedgerAreaState
 ---@field seenAt integer
 ---@field complete boolean
+---@field character? string
+---@field realm? string
 
 ---@class AzerothLedgerScanItem
 ---@field itemID integer
@@ -138,6 +140,7 @@ local _, addon = ...
 ---@field list fun(self: AzerothLedgerStore): AzerothLedgerRecord[]
 ---@field find fun(self: AzerothLedgerStore, key: string): AzerothLedgerRecord?
 ---@field area fun(self: AzerothLedgerStore, character: string, realm: string, area: string): AzerothLedgerAreaState?
+---@field characters fun(self: AzerothLedgerStore): AzerothLedgerActor[]
 ---@field setMarker fun(self: AzerothLedgerStore, marker: string): boolean
 ---@field setEnvironment fun(self: AzerothLedgerStore, environment: AzerothLedgerEnvironment): boolean
 ---@field scan fun(self: AzerothLedgerStore, snapshot: AzerothLedgerSnapshot): boolean
@@ -345,6 +348,8 @@ function Schema.open(raw, save)
                 or type(state) ~= "table"
                 or not isInteger(state.seenAt)
                 or type(state.complete) ~= "boolean"
+                or (state.character ~= nil and not isName(state.character))
+                or (state.realm ~= nil and not isName(state.realm))
             then
                 damagedCount = damagedCount + 1
             end
@@ -423,6 +428,34 @@ function Schema.open(raw, save)
             return nil
         end
         return { seenAt = state.seenAt, complete = state.complete }
+    end
+
+    function store.characters(_self)
+        local result = {}
+        local seen = {}
+        local function add(character, realm)
+            local key = areaKey(character, realm, "")
+            if not seen[key] then
+                seen[key] = true
+                result[#result + 1] = { character = character, realm = realm }
+            end
+        end
+        if readable then
+            for _, state in pairs(raw.areas) do
+                if type(state) == "table" and isName(state.character) and isName(state.realm) then
+                    add(state.character, state.realm)
+                end
+            end
+            for _, record in pairs(valid) do
+                for _, character in ipairs(record.characters) do
+                    add(character.name, character.realm)
+                end
+            end
+        end
+        table.sort(result, function(left, right)
+            return left.realm < right.realm or (left.realm == right.realm and left.character < right.character)
+        end)
+        return result
     end
 
     function store.setMarker(_self, marker)
@@ -818,6 +851,8 @@ function Schema.open(raw, save)
                     quantity = group.quantity,
                     seenAt = snapshot.seenAt,
                 }
+            else
+                previous.seenAt = snapshot.seenAt
             end
             nextRecords[key] = record
             if session then
@@ -855,7 +890,12 @@ function Schema.open(raw, save)
         for key, state in pairs(raw.areas) do
             nextAreas[key] = state
         end
-        nextAreas[scopeKey] = { seenAt = snapshot.seenAt, complete = snapshot.complete }
+        nextAreas[scopeKey] = {
+            seenAt = snapshot.seenAt,
+            complete = snapshot.complete,
+            character = snapshot.character,
+            realm = snapshot.realm,
+        }
         saveFields({ records = nextRecords, areas = nextAreas })
         for key, record in pairs(nextRecords) do
             if valid[key] or grouped[key] then

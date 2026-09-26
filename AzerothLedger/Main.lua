@@ -23,12 +23,22 @@ local function identity()
     return UnitName("player"), GetRealmName()
 end
 
-local function scan(area)
+local function scan(area, checkedAt)
     local snapshot = addon.Scan.capture(_G, area, bankOpen)
     if snapshot then
+        if checkedAt then
+            snapshot.seenAt = checkedAt
+        end
         store:scan(snapshot)
         addon.Collection.refresh(store, snapshot.character, snapshot.realm)
     end
+end
+
+local function scanAll()
+    local checkedAt = type(GetServerTime) == "function" and GetServerTime() or nil
+    scan("bags", checkedAt)
+    scan("equipped", checkedAt)
+    scan("bank", checkedAt)
 end
 
 local function now()
@@ -108,9 +118,7 @@ SlashCmdList.AZEROTHLEDGER = function(message)
     elseif message == "status" then
         printStatus()
     elseif message == "scan" then
-        scan("bags")
-        scan("equipped")
-        scan("bank")
+        scanAll()
         print("Azeroth Ledger: readable storage checked")
     else
         local marker = message:match("^mark%s+(.+)$")
@@ -144,20 +152,19 @@ if client.frame then
     end
     local ok = pcall(client.frame.SetScript, client.frame, "OnEvent", function(_, event, ...)
         if event == "PLAYER_LOGIN" then
-            scan("bags")
-            scan("equipped")
-            scan("bank")
+            scanAll()
             printStatus()
         elseif event == "BAG_UPDATE_DELAYED" then
-            scan("bags")
             if bankOpen then
-                scan("bank")
+                scanAll()
+            else
+                scan("bags")
             end
         elseif event == "PLAYER_EQUIPMENT_CHANGED" then
-            scan("equipped")
+            scanAll()
         elseif event == "BANKFRAME_OPENED" then
             bankOpen = true
-            scan("bank")
+            scanAll()
         elseif event == "BANKFRAME_CLOSED" then
             bankOpen = false
             scan("bank")
