@@ -1,6 +1,6 @@
 # Native Lua addon toolchain and WoWUnit
 
-Research date: 25 September 2026. Scope: [Determine the native Lua toolchain and WoWUnit validation approach](https://github.com/ernestasgr/azeroth-ledger/issues/3). The user has selected native Lua without TypeScript or Effect. This report recommends development tooling and validation gates; it does not implement or certify a working addon. Client/API feasibility is covered separately in [Forever feasibility](https://github.com/ernestasgr/azeroth-ledger/blob/11ee69b9bd4e212cb935891f815f4b5066885d82/docs/research/forever-feasibility.md).
+Research date: 25 September 2026. Scope: [Choose native Lua tools and WoWUnit testing](https://github.com/ernestasgr/azeroth-ledger/issues/3). The user has selected native Lua without TypeScript or Effect. This report recommends development tooling and validation gates; it does not implement or certify a working addon. Client/API feasibility is covered separately in [Forever feasibility](https://github.com/ernestasgr/azeroth-ledger/blob/11ee69b9bd4e212cb935891f815f4b5066885d82/docs/research/forever-feasibility.md).
 
 ## Recommended baseline
 
@@ -8,7 +8,7 @@ Use native Lua, LuaCATS annotations checked by Lua Language Server (LuaLS), StyL
 
 | Concern | Evidence | Project recommendation |
 | --- | --- | --- |
-| Type-oriented development | LuaLS understands annotated parameters, return values, aliases, unions, table structures, optional fields and exact classes. [Annotations](https://luals.github.io/wiki/annotations/) | Annotate module boundaries, normalized events, persisted records, settings and adapter contracts. Use finite literal values for provenance, acquisition method and ownership state. |
+| Type-oriented development | LuaLS understands annotated parameters, return values, aliases, unions, table structures, optional fields and exact classes. [Annotations](https://luals.github.io/wiki/annotations/) | Annotate module boundaries, normalized events, persisted records, settings and adapter contracts. Use finite literal values for Seen/Looted/Obtained, item method and current status. |
 | Static checking | LuaLS checks inferred and annotated types, but explicitly describes its checker as less complete than TypeScript's type system. [Type checking](https://luals.github.io/wiki/type-checking/) | Describe this honestly as statically checked, annotated Lua. Validate SavedVariables and external event payloads at runtime; comments do not enforce runtime types. |
 | CI diagnostics | LuaLS supports a command-line workspace check and emits `check.json`, using the workspace configuration. [Diagnosis report](https://luals.github.io/wiki/diagnosis-report/) | Check the same `.luarc.json` in editor and CI; fail on selected warning/error diagnostics after verifying the pinned binary's reporting behavior. |
 | Formatting | StyLua supports Lua 5.1 syntax and a non-mutating `--check` mode that returns failure when formatting differs. [StyLua](https://github.com/JohnnyMorganz/StyLua) | Commit `.stylua.toml`; run `stylua --check` for source and tests. Start with `Lua51` syntax and verify it against the target client. |
@@ -21,11 +21,11 @@ The Lua 5.1 tooling target is a conservative starting recommendation, not a subs
 
 Recommended architecture, rather than a requirement imposed by a library:
 
-1. Keep item identity, acquisition reconciliation, collection aggregation, ownership evaluation and journal retention in independent domain modules. Pass plain records in and return results or explicit errors; avoid WoW globals in these modules.
-2. Put event registration, bag/bank reads, asynchronous item data, time, character identity and SavedVariables access behind small injected adapter tables. Capture acquisition context immediately, before asynchronous metadata completion.
+1. Keep item identity, item gain reconciliation, collection aggregation, ownership evaluation and journal retention in independent domain modules. Pass plain records in and return results or explicit errors; avoid WoW globals in these modules.
+2. Put event registration, bag/bank reads, asynchronous item data, time, character identity and SavedVariables access behind small injected adapter tables. Capture item gain context immediately, before asynchronous metadata completion.
 3. Give each mutable store a single owning module. Expose operations and read models instead of letting UI code edit persisted tables directly.
 4. Compose modules in one bootstrap with explicit load order. Use the addon's private namespace for cooperation between files, avoiding a global for every module. Do not add a custom module framework unless a demonstrated need exceeds ordinary tables and functions.
-5. Keep native frames, Settings registration, tooltip hooks, toasts and dressing-room integration in presentation adapters. Those modules consume collection/journal queries and issue commands; they do not calculate acquisition totals.
+5. Keep native frames, Settings registration, tooltip hooks, toasts and dressing-room integration in presentation adapters. Those modules consume collection/journal queries and issue commands; they do not calculate item gain totals.
 6. Validate persisted data and configuration at their boundary. Record a schema version, reject malformed values with a recoverable diagnostic, and preserve a usable collection when a single record is damaged. Define data evolution explicitly; do not conflate supporting old clients with preserving users' recorded discoveries.
 
 This structure supports meaningful tests through injected data and deterministic clocks. It needs neither inheritance-heavy frameworks nor a runtime dependency for every module.
@@ -44,14 +44,14 @@ Recommended packaging: a development-only `AzerothLedger_Tests` companion addon 
 
 Proposed WoWUnit behavioral suites should exercise public module operations with realistic input sequences:
 
-- Initial observations create discoveries with unknown acquisition dates and no discovery toast; later evidenced acquisitions retain the earlier observation while updating acquisition information.
-- Duplicate evidence and differing event order produce one acquisition; two actual acquisitions of the same quantity remain distinct.
-- Bag rearrangement, equip/unequip and bag-bank transfers change holdings without creating acquisitions.
+- Items first found in bags or bank enter the Collection with no known gain date and no discovery toast. Later confirmed gains keep that first-seen record intact.
+- Duplicate evidence and differing event order produce one item gain; two actual item gains of the same quantity remain distinct.
+- Bag rearrangement, equip/unequip and bag-bank transfers change where items are kept without creating item gains.
 - Intrinsic suffix/bonus variants remain distinct while enchant/gem changes preserve the same collection identity; keep full observed links separately.
 - Journal eviction and configured retention reductions preserve permanent totals, first/last dates and discovery counts.
-- Unvisited/offline storage produces last-known or Unknown ownership as appropriate, never a fabricated proof of absence.
-- Item-data failure, delayed completion and repeated callbacks do not lose, duplicate or misattribute acquisitions.
-- Search/filter queries distinguish Collection entries from Journal quantities and acquisition-event counts.
+- Unvisited or offline storage shows the last time items were seen or an Unknown status, never a made-up claim that they are gone.
+- Item-data failure, delayed completion and repeated callbacks do not lose, duplicate or misattribute item gains.
+- Search and filters distinguish Collection entries from Journal rows and item quantities.
 
 Local CI can immediately enforce formatting, lint, LuaLS diagnostics and package/TOC consistency without a game client. Running the **same WoWUnit tests** headlessly would need a proven host adapter that loads the real framework with its necessary WoW environment and reports failures correctly; no supported upstream headless runner was established by the examined README/core/TOC. Treat that as a bounded tooling spike, not an already available capability. Do not substitute a homegrown assertion table named `WoWUnit` and claim WoWUnit coverage.
 

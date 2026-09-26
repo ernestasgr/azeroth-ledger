@@ -38,11 +38,11 @@ Multi-context repo (presence of `CONTEXT-MAP.md` at the root):
         └── docs/adr/
 ```
 
-## Use the glossary's vocabulary
+## Use the glossary's words
 
-When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `CONTEXT.md`. Don't drift to synonyms the glossary explicitly avoids.
+Use the short terms in `CONTEXT.md` when naming item rules in issues, docs, code and tests. Prefer WoW words such as item, bag, bank, loot, quest, vendor and character over abstract labels.
 
-If the concept you need isn't in the glossary yet, that's a signal: either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for `/domain-modeling`).
+If a term is missing, explain the idea in plain language. Add a glossary entry only when the distinction matters to this addon.
 
 ## Flag ADR conflicts
 

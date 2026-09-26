@@ -1,65 +1,44 @@
 # Azeroth Ledger
 
-Azeroth Ledger records the items a player encounters in World of Warcraft: Forever, preserving discoveries separately from repeated acquisitions.
+Azeroth Ledger keeps a Collection of items seen on your characters and a Journal of recent item activity.
 
 ## Language
 
 **Collection**:
-The discovery view containing one entry per distinct item or gear variant, rather than one entry per acquisition.
-_Avoid_: Journal, inventory
-
-**Account collection**:
-The collection shared across all characters and realms recorded in this WoW account's local addon data. Character and realm filters narrow this shared collection.
-
-**Discovery**:
-The first recorded encounter with an item or gear variant in the account collection. An initial observation counts as a discovery without establishing an acquisition date or producing a new-discovery toast.
-
-**Observation date**:
-The date an item was first seen by the ledger, which need not be its acquisition date.
-
-**Acquisition date**:
-The date an evidenced acquisition occurred. It remains unknown for an item known only through an initial observation.
+One entry for each item or gear variant seen across the characters and realms this addon has recorded on your WoW account. This is the addon's list, not the game's Collections window.
 
 **Journal**:
-The chronological record of acquisitions and their quantities. Its retained history is limited independently of permanent collection totals.
-_Avoid_: Collection
-
-**Acquisition**:
-An occasion on which a character obtains an item from a source outside their existing holdings. Moving an item between that character's bags and bank is not an acquisition.
-_Avoid_: Bag change
-
-**Acquisition method**:
-The means by which an item was obtained, such as loot, quest reward, crafting, vendor purchase, trade, or mail. A method may be unknown when the evidence does not establish it.
-_Avoid_: Provenance level
-
-**Provenance level**:
-The strength and kind of evidence supporting an item record: Looted, Obtained, or Observed. It is distinct from the acquisition method.
-
-**Looted**:
-An acquisition supported by a confirmed personal loot event.
-
-**Obtained**:
-An item detected entering a character's holdings through another method, without confirmed personal loot evidence.
-
-**Observed**:
-An item found in an initial bag or bank scan without evidence establishing how or when it was acquired.
-_Avoid_: Looted
+A recent log of items gained through loot, quests, crafting, vendors, mail, or trade; items moved between your own characters; and vendor refunds or buybacks. Removing old entries does not change lifetime item counts.
 
 **Gear variant**:
-A distinct intrinsic form of an item, including its random suffix or bonus data where present. Enchanting or socketing alone does not create a new collection entry; the full observed item link remains part of the record.
+A built-in version of gear, such as a sword "of the Bear" or one with another built-in bonus. An enchant or gem does not make a new variant.
 
-**Last-known holdings**:
-The items a character was recorded as holding at their latest relevant observation, accompanied by the observation time. This is not a guarantee that inaccessible storage or an offline character still holds them.
+**Discovered**:
+An item or gear variant added to the Collection for the first time. It may have been in a bag or bank already; discovery does not mean it was just looted.
 
-**Unknown ownership**:
-An ownership state used when available observations cannot establish whether an item is still held or absent.
+**Seen**:
+Found in a character's bags, bank, or equipped gear without knowing how or when it was obtained.
 
-**Zone or dungeon collection**:
-A grouping of the account's recorded discoveries associated with a zone or dungeon. It is not a checklist of every possible drop.
+**Looted**:
+Personally looted by your character, with a matching item gain. Another player's loot or a nearby mob is not enough evidence.
 
-**Historical ownership**:
-Evidence that a character previously held an item, independent of whether they still hold it.
+**Obtained**:
+Confirmed as gained by another means, such as a quest reward, craft, purchase, mail, or trade. The exact means can remain unknown.
+
+**Recorded units**:
+The number first seen plus later confirmed gains from outside your recorded characters, minus confirmed refunds. Moving an item between your bags, bank, equipped gear, or alts does not add to this number.
+
+**Last seen**:
+Where and when the addon last checked an item on a character. A closed bank or an offline character can leave current ownership unknown.
+
+**Historical only**:
+An item seen before but absent from complete checks of the selected characters' bags, bank, and equipped gear. If any needed storage could not be checked, ownership is unknown instead.
 
 **Source**:
-The mob, boss, or container associated with an acquisition when detectable.
-_Avoid_: Acquisition method
+The specific mob, boss, chest, other container, quest, vendor, or player known to have supplied an item. If the game does not provide enough evidence, the source is unknown.
+
+**Found once**:
+Exactly one confirmed item gained from outside your recorded characters, with none seen beforehand.
+
+**Zone or dungeon group**:
+Items linked to a known gain in that zone or dungeon. It is not a list of every item that could drop there, and scanning a bag there does not establish where an item came from.
