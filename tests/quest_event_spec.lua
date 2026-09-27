@@ -85,6 +85,7 @@ local function event(name, ...)
     end
 end
 
+event("ADDON_LOADED", "AzerothLedger")
 event("PLAYER_LOGIN")
 clock = 1010
 event("QUEST_COMPLETE")

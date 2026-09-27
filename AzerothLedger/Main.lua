@@ -1,9 +1,7 @@
 local addonName, addon = ...
 
-local REVISION = "0.4.2"
-local store = addon.Schema.open(AzerothLedgerDB, function(nextValue)
-    AzerothLedgerDB = nextValue
-end)
+local REVISION = "0.4.3"
+local store
 local client = addon.Client.inspect(_G)
 local bankOpen = false
 local merchantOpen = false
@@ -14,13 +12,22 @@ local buybackItems
 local craftRecipeID
 local questOfferSequence = 0
 
-if #client.issues == 0 then
-    store:setEnvironment({
-        build = client.build,
-        interface = client.interface,
-        locale = client.locale,
-        revision = REVISION,
-    })
+local function initializeStore()
+    if store then
+        return
+    end
+    store = addon.Schema.open(AzerothLedgerDB, function(nextValue)
+        AzerothLedgerDB = nextValue
+    end)
+    addon.store = store
+    if #client.issues == 0 then
+        store:setEnvironment({
+            build = client.build,
+            interface = client.interface,
+            locale = client.locale,
+            revision = REVISION,
+        })
+    end
 end
 
 local function identity()
@@ -259,6 +266,7 @@ end
 
 if client.frame then
     for _, event in ipairs({
+        "ADDON_LOADED",
         "PLAYER_LOGIN",
         "BAG_UPDATE_DELAYED",
         "PLAYER_EQUIPMENT_CHANGED",
@@ -284,6 +292,15 @@ if client.frame then
         end
     end
     local ok = pcall(client.frame.SetScript, client.frame, "OnEvent", function(_, event, ...)
+        if event == "ADDON_LOADED" then
+            if ... == addonName then
+                initializeStore()
+            end
+            return
+        end
+        if not store then
+            return
+        end
         if event == "PLAYER_LOGIN" then
             scanAll()
             printStatus()
@@ -351,9 +368,8 @@ if client.frame then
         client.issues[#client.issues + 1] = "CreateFrame events (unusable)"
     end
 else
-    printStatus()
+    print("Azeroth Ledger: event frame unavailable; saved data was not opened")
 end
 
 addon.name = addonName
-addon.store = store
 AzerothLedger = addon

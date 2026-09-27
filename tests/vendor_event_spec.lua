@@ -108,6 +108,7 @@ local function event(name, ...)
 end
 
 local key = addon.Item.key(bread, 4540)
+event("ADDON_LOADED", "AzerothLedger")
 event("PLAYER_LOGIN")
 event("MERCHANT_SHOW")
 PickupMerchantItem(1)
