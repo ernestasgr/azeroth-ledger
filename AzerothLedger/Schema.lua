@@ -686,6 +686,13 @@ local function validVendorState(vendor)
     return true
 end
 
+local exchangeStatuses = { pending = true, unresolved = true, settled = true, canceled = true }
+
+local function validTransferred(action)
+    local transferred = action.transferred
+    return transferred == nil or (isInteger(transferred) and transferred >= 0 and transferred <= action.quantity)
+end
+
 local function validExchangeState(exchange)
     if
         type(exchange) ~= "table"
@@ -721,10 +728,10 @@ local function validExchangeState(exchange)
             or action.baselineGained < 0
             or type(action.discovery) ~= "boolean"
             or type(action.confirmed) ~= "boolean"
-            or (action.status ~= "pending" and action.status ~= "unresolved" and action.status ~= "settled" and action.status ~= "canceled")
+            or not exchangeStatuses[action.status]
             or (action.peerName ~= nil and not isName(action.peerName))
             or (action.peerRealm ~= nil and not isName(action.peerRealm))
-            or (action.transferred ~= nil and (not isInteger(action.transferred) or action.transferred < 0 or action.transferred > action.quantity))
+            or not validTransferred(action)
             or (action.isTransfer ~= nil and type(action.isTransfer) ~= "boolean")
         then
             return false
