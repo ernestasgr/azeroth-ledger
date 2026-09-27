@@ -42,6 +42,11 @@ local _, addon = ...
 ---@field kind 'vendor'
 ---@field name string
 
+---@class AzerothLedgerPlayerSource
+---@field kind 'player'
+---@field name string
+---@field realm string
+
 ---@class AzerothLedgerGain
 ---@field id string
 ---@field at integer
@@ -50,9 +55,9 @@ local _, addon = ...
 ---@field realm string
 ---@field level integer
 ---@field place string
----@field method 'Looted'|'Quest'|'Crafted'|'Vendor'
+---@field method 'Looted'|'Quest'|'Crafted'|'Vendor'|'Obtained'
 ---@field refunded? integer
----@field source? AzerothLedgerLootSource|AzerothLedgerVendorSource
+---@field source? AzerothLedgerLootSource|AzerothLedgerVendorSource|AzerothLedgerPlayerSource
 ---@field context? {kind: 'quest'|'recipe', id: integer, name?: string}
 
 ---@class AzerothLedgerLootSlot
@@ -207,6 +212,45 @@ local _, addon = ...
 ---@field character string
 ---@field realm string
 
+---@class AzerothLedgerExchangeIntent
+---@field channel 'mail'|'trade'
+---@field direction 'in'|'out'
+---@field key string
+---@field itemID integer
+---@field link string
+---@field quantity integer
+---@field peerName? string
+---@field peerRealm? string
+
+---@class AzerothLedgerExchangeAction: AzerothLedgerExchangeIntent
+---@field id integer
+---@field at integer
+---@field character string
+---@field realm string
+---@field level integer
+---@field place string
+---@field baseline integer
+---@field baselineGained integer
+---@field discovery boolean
+---@field confirmed boolean
+---@field status 'pending'|'unresolved'|'settled'|'canceled'
+
+---@class AzerothLedgerExchangeActivity
+---@field id integer
+---@field key string
+---@field channel 'mail'|'trade'
+---@field quantity integer
+---@field at integer
+---@field sender string
+---@field senderRealm string
+---@field recipient string
+---@field recipientRealm string
+
+---@class AzerothLedgerExchangeState
+---@field nextID integer
+---@field actions AzerothLedgerExchangeAction[]
+---@field journal AzerothLedgerExchangeActivity[]
+
 ---@class AzerothLedgerRecord
 ---@field key string
 ---@field itemID integer
@@ -230,6 +274,7 @@ local _, addon = ...
 ---@field loot? AzerothLedgerLootState
 ---@field rewards? AzerothLedgerRewardState
 ---@field vendor? AzerothLedgerVendorState
+---@field exchange? AzerothLedgerExchangeState
 
 ---@class AzerothLedgerEnvironment
 ---@field build string
@@ -262,11 +307,17 @@ local _, addon = ...
 ---@field vendorReceipt fun(self: AzerothLedgerStore, receipt: ALClaim, at: integer, actor: ALActor): boolean
 ---@field vendorActivity fun(self: AzerothLedgerStore): AzerothLedgerVendorActivity[]
 ---@field vendorUnresolved fun(self: AzerothLedgerStore): AzerothLedgerVendorEvidence[]
+---@field exchangeIntent fun(self: AzerothLedgerStore, intent: AzerothLedgerExchangeIntent, at: integer, actor: ALGainActor): integer|boolean
+---@field exchangeConfirm fun(self: AzerothLedgerStore, channel: 'mail'|'trade', direction: 'in'|'out', at: integer, actor: ALActor, ids?: integer|table<integer, boolean>): boolean
+---@field exchangeCancel fun(self: AzerothLedgerStore, channel: 'mail'|'trade', actor: ALActor): boolean
+---@field exchangeMarkUnresolved fun(self: AzerothLedgerStore, id: integer, actor: ALActor): boolean
+---@field exchangeActivity fun(self: AzerothLedgerStore): AzerothLedgerExchangeActivity[]
+---@field exchangeUnresolved fun(self: AzerothLedgerStore): AzerothLedgerExchangeAction[]
 ---@field pruneJournal fun(self: AzerothLedgerStore, limit: integer): boolean
 
 local CURRENT_SCHEMA = 2
 local areas = { bags = true, bank = true, equipped = true }
-local gainMethods = { Looted = true, Quest = true, Crafted = true, Vendor = true }
+local gainMethods = { Looted = true, Quest = true, Crafted = true, Vendor = true, Obtained = true }
 
 local function isInteger(value)
     return type(value) == "number" and value ~= math.huge and value ~= -math.huge and value == math.floor(value)
@@ -319,8 +370,12 @@ local function copyRecord(record)
             place = gain.place,
             method = gain.method,
             refunded = gain.refunded,
-            source = gain.source and { kind = gain.source.kind, guid = gain.source.guid, name = gain.source.name }
-                or nil,
+            source = gain.source and {
+                kind = gain.source.kind,
+                guid = gain.source.guid,
+                name = gain.source.name,
+                realm = gain.source.realm,
+            } or nil,
             context = gain.context and { kind = gain.context.kind, id = gain.context.id, name = gain.context.name }
                 or nil,
         }
@@ -427,6 +482,10 @@ local function validRecord(key, record)
                 end
             elseif gain.method == "Vendor" then
                 if gain.source.kind ~= "vendor" or not isName(gain.source.name) or gain.source.guid ~= nil then
+                    return false
+                end
+            elseif gain.method == "Obtained" then
+                if gain.source.kind ~= "player" or not isName(gain.source.name) or not isName(gain.source.realm) then
                     return false
                 end
             else
@@ -623,6 +682,71 @@ local function validVendorState(vendor)
     return true
 end
 
+local function validExchangeState(exchange)
+    if
+        type(exchange) ~= "table"
+        or not isInteger(exchange.nextID)
+        or type(exchange.actions) ~= "table"
+        or type(exchange.journal) ~= "table"
+    then
+        return false
+    end
+    local ids = {}
+    for _, action in ipairs(exchange.actions) do
+        if
+            type(action) ~= "table"
+            or not isInteger(action.id)
+            or action.id < 1
+            or action.id >= exchange.nextID
+            or ids[action.id]
+            or (action.channel ~= "mail" and action.channel ~= "trade")
+            or (action.direction ~= "in" and action.direction ~= "out")
+            or type(action.key) ~= "string"
+            or not isInteger(action.itemID)
+            or addon.Item.key(action.link, action.itemID) ~= action.key
+            or not isInteger(action.quantity)
+            or action.quantity < 1
+            or not isInteger(action.at)
+            or not isName(action.character)
+            or not isName(action.realm)
+            or not isInteger(action.level)
+            or type(action.place) ~= "string"
+            or not isInteger(action.baseline)
+            or action.baseline < 0
+            or not isInteger(action.baselineGained)
+            or action.baselineGained < 0
+            or type(action.discovery) ~= "boolean"
+            or type(action.confirmed) ~= "boolean"
+            or (action.status ~= "pending" and action.status ~= "unresolved" and action.status ~= "settled" and action.status ~= "canceled")
+            or (action.peerName ~= nil and not isName(action.peerName))
+            or (action.peerRealm ~= nil and not isName(action.peerRealm))
+            or (action.transferred ~= nil and (not isInteger(action.transferred) or action.transferred < 0 or action.transferred > action.quantity))
+            or (action.isTransfer ~= nil and type(action.isTransfer) ~= "boolean")
+        then
+            return false
+        end
+        ids[action.id] = true
+    end
+    for _, activity in ipairs(exchange.journal) do
+        if
+            type(activity) ~= "table"
+            or not isInteger(activity.id)
+            or type(activity.key) ~= "string"
+            or (activity.channel ~= "mail" and activity.channel ~= "trade")
+            or not isInteger(activity.quantity)
+            or activity.quantity < 1
+            or not isInteger(activity.at)
+            or not isName(activity.sender)
+            or not isName(activity.senderRealm)
+            or not isName(activity.recipient)
+            or not isName(activity.recipientRealm)
+        then
+            return false
+        end
+    end
+    return true
+end
+
 local Schema = {}
 
 ---@param raw any
@@ -672,6 +796,9 @@ function Schema.open(raw, save)
     if supported and raw.vendor ~= nil and not validVendorState(raw.vendor) then
         damagedCount = damagedCount + 1
     end
+    if supported and raw.exchange ~= nil and not validExchangeState(raw.exchange) then
+        damagedCount = damagedCount + 1
+    end
 
     local function saveFields(fields)
         local nextValue = {
@@ -683,6 +810,7 @@ function Schema.open(raw, save)
             loot = fields.loot or raw.loot,
             rewards = fields.rewards or raw.rewards,
             vendor = fields.vendor or raw.vendor,
+            exchange = fields.exchange or raw.exchange,
         }
         save(nextValue)
         raw = nextValue
@@ -1087,6 +1215,379 @@ function Schema.open(raw, save)
 
     local function bagQuantity(record, character, realm)
         return areaQuantity(record, character, realm, "bags")
+    end
+
+    local function characterGained(record, character, realm)
+        local quantity = 0
+        for _, gain in ipairs(record and record.gains or {}) do
+            if gain.character == character and gain.realm == realm then
+                quantity = quantity + gain.quantity - (gain.refunded or 0)
+            end
+        end
+        return quantity
+    end
+
+    local function exchangeState()
+        if raw.exchange == nil then
+            return { nextID = 1, actions = {}, journal = {} }
+        end
+        return validExchangeState(raw.exchange) and raw.exchange or nil
+    end
+
+    local function pruneExchange(state, at)
+        for index = #state.actions, 1, -1 do
+            local action = state.actions[index]
+            local age = at - action.at
+            if
+                age > 31 * 86400
+                or (
+                    age > 120
+                    and (
+                        action.status == "canceled"
+                        or (
+                            action.status == "settled"
+                            and (action.direction == "in" or action.transferred == action.quantity)
+                        )
+                    )
+                )
+            then
+                table.remove(state.actions, index)
+            end
+        end
+    end
+
+    function store.exchangeIntent(_self, intent, at, actor)
+        if
+            not readable
+            or type(intent) ~= "table"
+            or (intent.channel ~= "mail" and intent.channel ~= "trade")
+            or (intent.direction ~= "in" and intent.direction ~= "out")
+            or not isInteger(intent.itemID)
+            or intent.itemID < 1
+            or addon.Item.key(intent.link, intent.itemID) ~= intent.key
+            or not isInteger(intent.quantity)
+            or intent.quantity < 1
+            or (intent.peerName ~= nil and not isName(intent.peerName))
+            or (intent.peerRealm ~= nil and not isName(intent.peerRealm))
+            or not isInteger(at)
+            or type(actor) ~= "table"
+            or not isName(actor.character)
+            or not isName(actor.realm)
+            or not isInteger(actor.level)
+            or type(actor.place) ~= "string"
+        then
+            return false
+        end
+        local scope = raw.areas[areaKey(actor.character, actor.realm, "bags")]
+        local state = exchangeState()
+        if not state or type(scope) ~= "table" or not scope.complete then
+            return false
+        end
+        pruneExchange(state, at)
+        local record = valid[intent.key]
+        state.actions[#state.actions + 1] = {
+            id = state.nextID,
+            channel = intent.channel,
+            direction = intent.direction,
+            key = intent.key,
+            itemID = intent.itemID,
+            link = intent.link,
+            quantity = intent.quantity,
+            peerName = intent.peerName,
+            peerRealm = intent.peerRealm,
+            at = at,
+            character = actor.character,
+            realm = actor.realm,
+            level = actor.level,
+            place = actor.place,
+            baseline = bagQuantity(record, actor.character, actor.realm),
+            baselineGained = characterGained(record, actor.character, actor.realm),
+            discovery = record == nil,
+            confirmed = false,
+            status = "pending",
+        }
+        local id = state.nextID
+        state.nextID = id + 1
+        saveFields({ exchange = state })
+        return id
+    end
+
+    function store.exchangeConfirm(_self, channel, direction, at, actor, ids)
+        if
+            not readable
+            or (channel ~= "mail" and channel ~= "trade")
+            or (direction ~= "in" and direction ~= "out")
+            or not isInteger(at)
+            or type(actor) ~= "table"
+            or not isName(actor.character)
+            or not isName(actor.realm)
+        then
+            return false
+        end
+        local state = exchangeState()
+        if not state then
+            return false
+        end
+        local changed = false
+        for _, action in ipairs(state.actions) do
+            if
+                action.status == "pending"
+                and not action.confirmed
+                and action.channel == channel
+                and action.direction == direction
+                and action.character == actor.character
+                and action.realm == actor.realm
+                and at >= action.at
+                and at - action.at <= 120
+                and (ids == nil or ids == action.id or (type(ids) == "table" and ids[action.id]))
+            then
+                action.confirmed = true
+                changed = true
+            end
+        end
+        if changed then
+            saveFields({ exchange = state })
+        end
+        return changed
+    end
+
+    function store.exchangeCancel(_self, channel, actor)
+        local state = exchangeState()
+        if
+            not readable
+            or not state
+            or (channel ~= "mail" and channel ~= "trade")
+            or type(actor) ~= "table"
+            or not isName(actor.character)
+            or not isName(actor.realm)
+        then
+            return false
+        end
+        local changed = false
+        for _, action in ipairs(state.actions) do
+            if
+                action.channel == channel
+                and action.character == actor.character
+                and action.realm == actor.realm
+                and action.status ~= "settled"
+                and action.status ~= "canceled"
+            then
+                action.status = "canceled"
+                changed = true
+            end
+        end
+        if changed then
+            saveFields({ exchange = state })
+        end
+        return changed
+    end
+
+    function store.exchangeMarkUnresolved(_self, id, actor)
+        local state = exchangeState()
+        if
+            not readable
+            or not state
+            or not isInteger(id)
+            or type(actor) ~= "table"
+            or not isName(actor.character)
+            or not isName(actor.realm)
+        then
+            return false
+        end
+        for _, action in ipairs(state.actions) do
+            if
+                action.id == id
+                and action.status == "pending"
+                and action.character == actor.character
+                and action.realm == actor.realm
+            then
+                action.status = "unresolved"
+                action.confirmed = false
+                saveFields({ exchange = state })
+                return true
+            end
+        end
+        return false
+    end
+
+    function store.exchangeActivity(_self)
+        local state = exchangeState()
+        return state and copyArray(state.journal) or {}
+    end
+
+    function store.exchangeUnresolved(_self)
+        local state = exchangeState()
+        local result = {}
+        for _, action in ipairs(state and state.actions or {}) do
+            if action.status == "unresolved" then
+                local copy = {}
+                for key, value in pairs(action) do
+                    copy[key] = value
+                end
+                result[#result + 1] = copy
+            end
+        end
+        return result
+    end
+
+    local function settleExchange(state, snapshot, grouped, records)
+        if not state or snapshot.area ~= "bags" or not snapshot.complete then
+            return
+        end
+        pruneExchange(state, snapshot.seenAt)
+        for _, action in ipairs(state.actions) do
+            if
+                action.confirmed
+                and (action.status == "pending" or action.status == "unresolved")
+                and action.character == snapshot.character
+                and action.realm == snapshot.realm
+                and snapshot.seenAt >= action.at
+                and snapshot.seenAt - action.at <= 120
+            then
+                local group = grouped[action.key]
+                local current = group and group.quantity or 0
+                local delta = current - action.baseline
+                if action.direction == "out" then
+                    local reserved = 0
+                    for _, prior in ipairs(state.actions) do
+                        if
+                            prior.id < action.id
+                            and prior.status == "settled"
+                            and prior.direction == "out"
+                            and prior.key == action.key
+                            and prior.character == action.character
+                            and prior.realm == action.realm
+                            and prior.baseline == action.baseline
+                        then
+                            reserved = reserved + prior.quantity
+                        end
+                    end
+                    if
+                        action.peerName
+                        and action.peerRealm
+                        and action.baseline >= action.quantity + reserved
+                        and -delta >= action.quantity + reserved
+                    then
+                        action.status = "settled"
+                    else
+                        action.status = "unresolved"
+                    end
+                elseif delta > 0 then
+                    local record = records[action.key]
+                    local otherGains =
+                        math.max(0, characterGained(record, action.character, action.realm) - action.baselineGained)
+                    local reserved = 0
+                    for _, prior in ipairs(state.actions) do
+                        if
+                            prior.id < action.id
+                            and prior.status == "settled"
+                            and prior.isTransfer
+                            and prior.key == action.key
+                            and prior.character == action.character
+                            and prior.realm == action.realm
+                            and prior.baseline == action.baseline
+                        then
+                            reserved = reserved + prior.quantity
+                        end
+                    end
+                    local quantity = math.min(action.quantity, delta - otherGains - reserved)
+                    if quantity > 0 and record then
+                        local ownSender
+                        local senderCandidates = 0
+                        local senderKnown = false
+                        for _, character in ipairs(store:characters()) do
+                            if
+                                character.character == action.peerName
+                                and (not action.peerRealm or character.realm == action.peerRealm)
+                            then
+                                senderKnown = true
+                            end
+                        end
+                        if senderKnown then
+                            for _, outgoing in ipairs(state.actions) do
+                                if
+                                    outgoing.status == "settled"
+                                    and outgoing.direction == "out"
+                                    and outgoing.channel == action.channel
+                                    and outgoing.key == action.key
+                                    and outgoing.quantity - (outgoing.transferred or 0) >= quantity
+                                    and outgoing.character == action.peerName
+                                    and (not action.peerRealm or outgoing.realm == action.peerRealm)
+                                    and outgoing.peerName == action.character
+                                    and outgoing.peerRealm == action.realm
+                                then
+                                    ownSender = outgoing
+                                    senderCandidates = senderCandidates + 1
+                                end
+                            end
+                        end
+                        if not action.peerName then
+                            action.status = "unresolved"
+                        elseif ownSender and senderCandidates == 1 then
+                            ownSender.transferred = (ownSender.transferred or 0) + quantity
+                            action.peerRealm = ownSender.realm
+                            action.isTransfer = true
+                            state.journal[#state.journal + 1] = {
+                                id = action.id,
+                                key = action.key,
+                                channel = action.channel,
+                                quantity = quantity,
+                                at = action.at,
+                                sender = ownSender.character,
+                                senderRealm = ownSender.realm,
+                                recipient = action.character,
+                                recipientRealm = action.realm,
+                            }
+                            while #state.journal > 50 do
+                                table.remove(state.journal, 1)
+                            end
+                            action.quantity = quantity
+                            action.status = "settled"
+                        elseif senderKnown then
+                            action.status = "unresolved"
+                        else
+                            record = copyRecord(record)
+                            local gain = {
+                                id = "exchange:" .. action.id .. ":" .. action.key,
+                                at = action.at,
+                                quantity = quantity,
+                                character = action.character,
+                                realm = action.realm,
+                                level = action.level,
+                                place = action.place,
+                                method = "Obtained",
+                                source = action.peerName
+                                        and action.peerRealm
+                                        and { kind = "player", name = action.peerName, realm = action.peerRealm }
+                                    or nil,
+                            }
+                            record.gains[#record.gains + 1] = gain
+                            record.totalGained = record.totalGained + quantity
+                            record.firstGained = record.firstGained and math.min(record.firstGained, action.at)
+                                or action.at
+                            record.lastGained = record.lastGained and math.max(record.lastGained, action.at)
+                                or action.at
+                            if action.discovery then
+                                record.firstSeenUnits = math.max(0, record.firstSeenUnits - quantity)
+                                for _, seen in ipairs(record.characters) do
+                                    if seen.name == action.character and seen.realm == action.realm then
+                                        seen.firstSeenUnits = math.max(0, seen.firstSeenUnits - quantity)
+                                        break
+                                    end
+                                end
+                            end
+                            records[action.key] = record
+                            action.quantity = quantity
+                            action.status = "settled"
+                        end
+                    else
+                        action.status = "unresolved"
+                    end
+                else
+                    action.status = "unresolved"
+                end
+            end
+        end
     end
 
     local function vendorState()
@@ -1828,6 +2329,10 @@ function Schema.open(raw, save)
                 nextRecords
             )
         end
+        local exchange = exchangeState()
+        if snapshot.area == "bags" and snapshot.complete and type(oldScope) == "table" and oldScope.complete then
+            settleExchange(exchange, snapshot, grouped, nextRecords)
+        end
         local nextAreas = {}
         for key, state in pairs(raw.areas) do
             nextAreas[key] = state
@@ -1838,7 +2343,7 @@ function Schema.open(raw, save)
             character = snapshot.character,
             realm = snapshot.realm,
         }
-        saveFields({ records = nextRecords, areas = nextAreas, vendor = vendor })
+        saveFields({ records = nextRecords, areas = nextAreas, vendor = vendor, exchange = exchange })
         for key, record in pairs(nextRecords) do
             if valid[key] or grouped[key] then
                 valid[key] = copyRecord(record)

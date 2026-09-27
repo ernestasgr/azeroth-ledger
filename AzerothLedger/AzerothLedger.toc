@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: Azeroth Ledger
 ## Notes: Safe SavedVariables ledger bootstrap for WoW Forever
-## Version: 0.4.3
+## Version: 0.5.0
 ## SavedVariables: AzerothLedgerDB
 
 Item.lua
@@ -11,5 +11,6 @@ Scan.lua
 Loot.lua
 Reward.lua
 Vendor.lua
+Exchange.lua
 Collection.lua
 Main.lua

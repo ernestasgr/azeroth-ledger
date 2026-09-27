@@ -1,6 +1,6 @@
 local addonName, addon = ...
 
-local REVISION = "0.4.3"
+local REVISION = "0.5.0"
 local store
 local client = addon.Client.inspect(_G)
 local bankOpen = false
@@ -11,6 +11,17 @@ local merchantEquippedSlots
 local buybackItems
 local craftRecipeID
 local questOfferSequence = 0
+local inboxItems
+local outboxItems
+local mailOpen = false
+local tradeOpen = false
+local tradePrepared = false
+local tradePreparedIDs
+local tradePeer
+local mailTakeID
+local mailTakeAmbiguous = false
+local mailAwaitingBag = false
+local mailSendIDs
 
 local function initializeStore()
     if store then
@@ -177,6 +188,93 @@ if type(C_Container) == "table" then
     end)
 end
 
+local function exchangeIntent(intent)
+    local context = playerContext()
+    if context and intent then
+        return store:exchangeIntent(intent, context.at, context)
+    end
+end
+
+local function exchangeConfirm(channel, direction, ids)
+    local context = playerContext()
+    if context and store:exchangeConfirm(channel, direction, context.at, context, ids) then
+        scan("bags")
+    end
+end
+
+local function hookExchange(method, callback)
+    if type(hooksecurefunc) ~= "function" or type(_G[method]) ~= "function" then
+        client.issues[#client.issues + 1] = method .. " (exchange hook unavailable)"
+        return
+    end
+    local ok = pcall(hooksecurefunc, method, callback)
+    if not ok then
+        client.issues[#client.issues + 1] = method .. " (exchange hook unusable)"
+    end
+end
+
+hookExchange("TakeInboxItem", function(index, attachment)
+    local intent = inboxItems and inboxItems[index .. ":" .. attachment]
+    if mailOpen and intent then
+        if mailTakeID or mailAwaitingBag then
+            mailTakeAmbiguous = true
+            local context = playerContext()
+            if context and mailTakeID then
+                store:exchangeMarkUnresolved(mailTakeID, context)
+            end
+            mailTakeID = nil
+        end
+        if mailTakeAmbiguous then
+            local context = playerContext()
+            local id = exchangeIntent(intent)
+            if context and id then
+                store:exchangeMarkUnresolved(id, context)
+            end
+        else
+            mailTakeID = exchangeIntent(intent)
+        end
+        inboxItems[index .. ":" .. attachment] = nil
+    end
+end)
+hookExchange("SendMail", function(recipient)
+    if not mailOpen then
+        return
+    end
+    local character, realm = identity()
+    local peer = addon.Exchange.player(recipient, nil, realm)
+    local items = outboxItems and #outboxItems > 0 and outboxItems or addon.Exchange.outbox(_G)
+    if mailSendIDs then
+        mailSendIDs = nil
+        return
+    end
+    mailSendIDs = {}
+    for _, intent in ipairs(items or {}) do
+        intent.peerName = peer and peer.name or nil
+        intent.peerRealm = peer and peer.realm or nil
+        local id = exchangeIntent(intent)
+        if id then
+            mailSendIDs[id] = true
+        end
+    end
+    outboxItems = nil
+end)
+
+local function prepareTrade()
+    if not tradeOpen or tradePrepared then
+        return
+    end
+    tradePreparedIDs = {}
+    for _, direction in ipairs({ "in", "out" }) do
+        for _, intent in ipairs(addon.Exchange.trade(_G, direction, tradePeer) or {}) do
+            local id = exchangeIntent(intent)
+            if id then
+                tradePreparedIDs[id] = true
+            end
+        end
+    end
+    tradePrepared = true
+end
+
 local function rewardReceipt(receipt)
     local context = playerContext()
     if not receipt or not context then
@@ -285,6 +383,18 @@ if client.frame then
         "TRADE_SKILL_CRAFT_BEGIN",
         "UPDATE_TRADESKILL_CAST_STOPPED",
         "TRADE_SKILL_CLOSE",
+        "MAIL_SHOW",
+        "MAIL_CLOSED",
+        "MAIL_INBOX_UPDATE",
+        "MAIL_SEND_INFO_UPDATE",
+        "MAIL_SEND_SUCCESS",
+        "MAIL_SUCCESS",
+        "TRADE_SHOW",
+        "TRADE_ACCEPT_UPDATE",
+        "TRADE_PLAYER_ITEM_CHANGED",
+        "TRADE_TARGET_ITEM_CHANGED",
+        "TRADE_CLOSED",
+        "UI_INFO_MESSAGE",
     }) do
         local ok = pcall(client.frame.RegisterEvent, client.frame, event)
         if not ok then
@@ -305,6 +415,8 @@ if client.frame then
             scanAll()
             printStatus()
         elseif event == "BAG_UPDATE_DELAYED" then
+            mailAwaitingBag = false
+            mailTakeAmbiguous = false
             if bankOpen then
                 scanAll()
             else
@@ -337,6 +449,74 @@ if client.frame then
             buybackItems = nil
         elseif event == "MERCHANT_UPDATE" then
             buybackItems = addon.Vendor.buybacks(_G)
+        elseif event == "MAIL_SHOW" then
+            mailOpen = true
+            mailTakeID = nil
+            mailTakeAmbiguous = false
+            mailAwaitingBag = false
+            mailSendIDs = nil
+            scan("bags")
+            inboxItems = addon.Exchange.inbox(_G)
+            outboxItems = addon.Exchange.outbox(_G)
+        elseif event == "MAIL_CLOSED" then
+            mailOpen = false
+            inboxItems = nil
+            outboxItems = nil
+            mailTakeID = nil
+            mailSendIDs = nil
+        elseif event == "MAIL_INBOX_UPDATE" then
+            inboxItems = addon.Exchange.inbox(_G)
+        elseif event == "MAIL_SEND_INFO_UPDATE" then
+            outboxItems = addon.Exchange.outbox(_G)
+        elseif event == "MAIL_SEND_SUCCESS" then
+            if mailSendIDs then
+                exchangeConfirm("mail", "out", mailSendIDs)
+                mailSendIDs = nil
+            end
+        elseif event == "MAIL_SUCCESS" then
+            if mailTakeID and not mailTakeAmbiguous then
+                exchangeConfirm("mail", "in", mailTakeID)
+                mailTakeID = nil
+                mailAwaitingBag = true
+            end
+        elseif event == "TRADE_SHOW" then
+            tradeOpen = true
+            tradePrepared = false
+            tradePreparedIDs = nil
+            local character, realm = identity()
+            if character and realm then
+                store:exchangeCancel("trade", { character = character, realm = realm })
+            end
+            scan("bags")
+            local getUnitName = rawget(_G, "GetUnitName")
+            local ok, name = false, nil
+            if type(getUnitName) == "function" then
+                ok, name = pcall(getUnitName, "NPC", true)
+            end
+            tradePeer = ok and addon.Exchange.player(name) or nil
+        elseif event == "TRADE_PLAYER_ITEM_CHANGED" or event == "TRADE_TARGET_ITEM_CHANGED" then
+            local character, realm = identity()
+            if tradePrepared and character and realm then
+                store:exchangeCancel("trade", { character = character, realm = realm })
+            end
+            tradePrepared = false
+            tradePreparedIDs = nil
+        elseif event == "TRADE_ACCEPT_UPDATE" then
+            local playerAccepted, targetAccepted = ...
+            if playerAccepted == 1 and targetAccepted == 1 then
+                prepareTrade()
+            end
+        elseif event == "TRADE_CLOSED" then
+            tradeOpen = false
+        elseif event == "UI_INFO_MESSAGE" then
+            local messageID, message = ...
+            local completed = rawget(_G, "ERR_TRADE_COMPLETE")
+            if tradePrepared and type(completed) == "string" and (message == completed or messageID == completed) then
+                exchangeConfirm("trade", "in", tradePreparedIDs)
+                exchangeConfirm("trade", "out", tradePreparedIDs)
+                tradePrepared = false
+                tradePreparedIDs = nil
+            end
         elseif event == "LOOT_OPENED" then
             lootOpen()
         elseif event == "LOOT_CLOSED" then
