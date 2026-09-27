@@ -28,5 +28,6 @@ globals = {
     "GetMerchantItemLink",
     "GetMerchantItemInfo",
     "BuyMerchantItem",
+    "PickupMerchantItem",
     "BuybackItem",
 }

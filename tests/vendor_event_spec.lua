@@ -79,6 +79,9 @@ end
 BuyMerchantItem = function(_index)
     bagQuantity = bagQuantity + 1
 end
+PickupMerchantItem = function(_index)
+    bagQuantity = bagQuantity + 1
+end
 BuybackItem = function(_index)
     buybackQuantity = 0
     bagQuantity = bagQuantity + 1
@@ -104,10 +107,10 @@ end
 local key = addon.Item.key(bread, 4540)
 event("PLAYER_LOGIN")
 event("MERCHANT_SHOW")
-BuyMerchantItem(1)
-event("CHAT_MSG_LOOT", "You receive item: " .. bread .. ".")
+PickupMerchantItem(1)
+assert(#AzerothLedgerDB.vendor.actions == 1, "merchant pickup must record item-specific action")
 event("BAG_UPDATE_DELAYED")
-assert(addon.store:find(key).totalGained == 1)
+assert(addon.store:find(key).totalGained == 1, "merchant purchase without loot chat must count")
 
 C_Container.ContainerRefundItemPurchase(0, 1)
 event("BAG_UPDATE_DELAYED")
@@ -126,6 +129,10 @@ event("BAG_UPDATE_DELAYED")
 assert(addon.store:find(key).totalGained == 1)
 assert(#addon.store:vendorActivity() == 3)
 
+BuyMerchantItem(1)
+event("BAG_UPDATE_DELAYED")
+assert(addon.store:find(key).totalGained == 2, "direct purchase without loot chat must count")
+
 assert(addon.store:lootOpen({
     character = "Ada",
     realm = "Realm",
@@ -134,8 +141,8 @@ assert(addon.store:lootOpen({
     at = clock,
     slots = { { key = key, quantity = 1 } },
 }))
-bagQuantity = 2
+bagQuantity = 3
 event("CHAT_MSG_LOOT", "You receive item: " .. bread .. ".")
 event("BAG_UPDATE_DELAYED")
-assert(addon.store:find(key).totalGained == 1)
+assert(addon.store:find(key).totalGained == 2)
 print("vendor_event_spec: passed")

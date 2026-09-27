@@ -109,7 +109,7 @@ local function replay()
         end
 end
 
-function tests.SaleThenPurchaseNeedsReceiptAndIncrease(_self)
+function tests.SaleThenPurchaseNeedsActionAndIncrease(_self)
     local store, bags, action, receipt, restore = replay()
     bags(2)
     WoWUnit.IsTrue(action("sale", 2))
@@ -130,6 +130,13 @@ function tests.SaleThenPurchaseNeedsReceiptAndIncrease(_self)
     WoWUnit.IsTrue(lines:find("+5 Vendor", 1, true) ~= nil)
     WoWUnit.IsTrue(lines:find("Sale x2", 1, true) ~= nil)
     WoWUnit.AreEqual(1, #store:vendorActivity())
+end
+
+function tests.BagIncreaseWithoutPurchaseActionHasNoGain(_self)
+    local store, bags = replay()
+    bags(0)
+    bags(1)
+    WoWUnit.AreEqual(0, store:find(key).totalGained)
 end
 
 function tests.PurchaseRefundAndDuplicateReversal(_self)
@@ -174,13 +181,11 @@ function tests.SaleBuybackAndIndependentPurchase(_self)
     WoWUnit.IsTrue(lines:find("Buyback x1", 1, true) ~= nil)
 end
 
-function tests.ReceiptAfterBagUpdateCountsOnce(_self)
+function tests.BagIncreaseCountsPurchaseWithoutChatReceipt(_self)
     local store, bags, action, receipt = replay()
     bags(0)
     WoWUnit.IsTrue(action("purchase", 2))
     bags(2)
-    WoWUnit.AreEqual(0, store:find(key).totalGained)
-    WoWUnit.IsTrue(receipt(2))
     WoWUnit.AreEqual(2, store:find(key).totalGained)
     WoWUnit.IsTrue(not receipt(2))
     WoWUnit.AreEqual(2, store:find(key).totalGained)

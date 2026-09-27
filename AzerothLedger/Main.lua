@@ -137,6 +137,9 @@ end
 hookVendor(_G, "BuyMerchantItem", function(index, count)
     vendorAction(addon.Vendor.purchase(_G, index, count))
 end)
+hookVendor(_G, "PickupMerchantItem", function(index)
+    vendorAction(addon.Vendor.purchase(_G, index))
+end)
 hookVendor(_G, "BuybackItem", function(index)
     local cached = buybackItems and buybackItems[index]
     if cached then

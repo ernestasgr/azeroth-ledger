@@ -1235,9 +1235,9 @@ function Schema.open(raw, save)
                 local delta = current - action.baseline
                 local record = records[action.key]
                 if action.kind == "purchase" then
-                    if action.receiptQuantity > 0 and delta > 0 and record then
+                    if delta > 0 and record then
                         local otherGains = math.max(0, record.totalGained - action.baselineGained)
-                        local quantity = math.min(action.quantity, action.receiptQuantity, delta - otherGains)
+                        local quantity = math.min(action.quantity, delta - otherGains)
                         if quantity > 0 then
                             record = copyRecord(record)
                             local gain = {
