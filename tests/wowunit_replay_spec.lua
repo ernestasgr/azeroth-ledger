@@ -1,14 +1,15 @@
 local addon = {}
-for _, source in ipairs({ "Item", "Schema", "Scan", "Reward", "Collection" }) do
+for _, source in ipairs({ "Item", "Schema", "Scan", "Reward", "Vendor", "Collection" }) do
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
 end
 AzerothLedger = addon
 date = os.date
 
-local group
+local groups = {}
 WoWUnit = setmetatable({}, {
     __call = function()
-        group = {}
+        local group = {}
+        groups[#groups + 1] = group
         return group
     end,
 })
@@ -57,7 +58,10 @@ UIParent = frame()
 GameFontNormal = {}
 
 assert(loadfile("AzerothLedger_Tests/Smoke.lua"))("AzerothLedger_Tests", {})
-for name, test in pairs(group) do
-    test(group)
-    print(name .. ": passed")
+assert(loadfile("AzerothLedger_Tests/Vendor.lua"))("AzerothLedger_Tests", {})
+for _, group in ipairs(groups) do
+    for name, test in pairs(group) do
+        test(group)
+        print(name .. ": passed")
+    end
 end

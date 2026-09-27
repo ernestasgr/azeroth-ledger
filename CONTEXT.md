@@ -8,7 +8,7 @@ Azeroth Ledger keeps a Collection of items seen on your characters and a Journal
 One entry for each item or built-in gear variant seen across the characters and realms this addon has recorded on your WoW account. Character and realm filters narrow the list. This is the addon's list, not the game's Collections window.
 
 **Journal**:
-A recent log of items gained, moves between your own characters, and vendor refunds or buybacks. Each entry keeps its quantity. Removing old entries does not change lifetime counts.
+A recent log of items gained, moves between your own characters, and vendor sales, refunds, or buybacks. Each entry keeps its quantity. Removing old entries does not change lifetime counts.
 
 **Gear variant**:
 A built-in version of gear, such as a sword "of the Bear" or one with another built-in bonus. Enchants, gems, durability, and the character holding it do not make a new variant. Keep every full item link seen.
@@ -31,8 +31,8 @@ The number of units confirmed gained from outside your recorded characters, minu
 **Transfer**:
 A known move between your own characters. Show it in the Journal with sender and recipient when known, without adding to Total gained or the discovery count.
 
-**Refund and buyback**:
-A completed refund removes the refunded purchase from Total gained. Buying back a sold item restores it without a new gain. Keep both actions in the Journal.
+**Vendor sale, refund, and buyback**:
+Selling an item leaves Total gained unchanged. A completed refund removes the uniquely linked purchase from Total gained. Buying back a sold item restores it without a new gain. Keep all three actions in the Journal.
 
 **Last seen**:
 Where, when, and how many of an item the addon last checked on a character. A partial check can show that an item is present; proving it absent requires complete checks of relevant bags, bank, and gear. A closed bank or an offline character can leave current ownership unknown.

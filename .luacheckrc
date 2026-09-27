@@ -19,4 +19,5 @@ globals = {
     "UIParent",
     "GameFontNormal",
     "AzerothLedger",
+    "hooksecurefunc",
 }

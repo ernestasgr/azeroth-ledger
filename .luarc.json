@@ -19,6 +19,7 @@
     "GetInventoryItemLink",
     "UIParent",
     "GameFontNormal",
-    "AzerothLedger"
+    "AzerothLedger",
+    "hooksecurefunc"
   ]
 }

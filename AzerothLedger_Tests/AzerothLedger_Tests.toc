@@ -4,3 +4,4 @@
 ## Dependencies: AzerothLedger, WoWUnit
 
 Smoke.lua
+Vendor.lua

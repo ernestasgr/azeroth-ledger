@@ -67,6 +67,19 @@ local legacy = open({
 })
 assert(legacy:diagnostic().kind == "damaged")
 assert(legacy:find("2672:0").gains[1].id == "legacy:1")
+local vendorEvidence = { nextID = 2, actions = { "damaged action" }, journal = {} }
+local damagedVendor = open({ schema = 2, records = {}, areas = {}, vendor = vendorEvidence })
+assert(damagedVendor:diagnostic().kind == "damaged")
+assert(damagedVendor:scan({
+    character = "Ada",
+    realm = "Realm",
+    area = "bags",
+    seenAt = 1234,
+    complete = true,
+    items = {},
+}))
+assert(saved.vendor == vendorEvidence)
+assert(not damagedVendor:pruneJournal(0))
 local future = { schema = 9, records = {}, areas = {} }
 local unsupported = open(future)
 assert(unsupported:diagnostic().kind == "unsupported")

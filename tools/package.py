@@ -10,7 +10,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 ROOT = Path(__file__).resolve().parents[1]
 ADDON = ROOT / "AzerothLedger"
 TESTS = ROOT / "AzerothLedger_Tests"
-SOURCE_ORDER = ("Item.lua", "Schema.lua", "Client.lua", "Scan.lua", "Loot.lua", "Reward.lua", "Collection.lua", "Main.lua")
+SOURCE_ORDER = ("Item.lua", "Schema.lua", "Client.lua", "Scan.lua", "Loot.lua", "Reward.lua", "Vendor.lua", "Collection.lua", "Main.lua")
 
 
 def manifest_files(path: Path) -> list[str]:
@@ -24,7 +24,7 @@ def manifest_files(path: Path) -> list[str]:
 def check() -> list[Path]:
     toc = ADDON / "AzerothLedger.toc"
     assert manifest_files(toc) == list(SOURCE_ORDER), "main TOC load order changed"
-    assert manifest_files(TESTS / "AzerothLedger_Tests.toc") == ["Smoke.lua"]
+    assert manifest_files(TESTS / "AzerothLedger_Tests.toc") == ["Smoke.lua", "Vendor.lua"]
 
     main = toc.read_text(encoding="utf-8")
     companion = (TESTS / "AzerothLedger_Tests.toc").read_text(encoding="utf-8")

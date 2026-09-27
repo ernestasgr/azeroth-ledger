@@ -77,7 +77,7 @@ assert(choiceRecord.firstSeenUnits == 0)
 assert(choiceRecord.gains[1].method == "Quest" and choiceRecord.gains[1].context.id == 92463)
 local lines = table.concat(addon.Collection.lines(choice, "Ada", "Realm"), "\n")
 assert(lines:find("+1 Quest", 1, true) and lines:find("Garden Work", 1, true))
-assert(lines:find("Recent gains", 1, true))
+assert(lines:find("Recent activity", 1, true))
 
 local fixed, fixedBags = scenario()
 fixedBags(2000, 2, 0, 0)

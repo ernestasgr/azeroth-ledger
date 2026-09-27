@@ -1,11 +1,12 @@
 local addonName, addon = ...
 
-local REVISION = "0.3.0"
+local REVISION = "0.4.0"
 local store = addon.Schema.open(AzerothLedgerDB, function(nextValue)
     AzerothLedgerDB = nextValue
 end)
 local client = addon.Client.inspect(_G)
 local bankOpen = false
+local merchantOpen = false
 local craftRecipeID
 local questOfferSequence = 0
 
@@ -75,15 +76,47 @@ local function lootMessage(message)
     local receipt = addon.Loot.receipt(_G, message)
     local at = now()
     local character, realm = identity()
-    if
-        receipt
-        and at
-        and character
-        and realm
-        and store:lootReceipt(receipt, at, { character = character, realm = realm })
-    then
-        addon.Collection.refresh(store, character, realm)
+    if receipt and at and character and realm then
+        local actor = { character = character, realm = realm }
+        if (merchantOpen and store:vendorReceipt(receipt, at, actor)) or store:lootReceipt(receipt, at, actor) then
+            addon.Collection.refresh(store, character, realm)
+        end
     end
+end
+
+local function vendorAction(action)
+    local context = playerContext()
+    if merchantOpen and action and context and store:vendorAction(action, context.at, context) then
+        addon.Collection.refresh(store, context.character, context.realm)
+    end
+end
+
+local function hookVendor(target, method, callback)
+    if type(hooksecurefunc) ~= "function" or type(target) ~= "table" or type(target[method]) ~= "function" then
+        client.issues[#client.issues + 1] = method .. " (vendor hook unavailable)"
+        return
+    end
+    local ok = pcall(hooksecurefunc, target, method, callback)
+    if not ok then
+        client.issues[#client.issues + 1] = method .. " (vendor hook unusable)"
+    end
+end
+
+hookVendor(_G, "BuyMerchantItem", function(index, count)
+    vendorAction(addon.Vendor.purchase(_G, index, count))
+end)
+hookVendor(_G, "BuybackItem", function(index)
+    vendorAction(addon.Vendor.buyback(_G, index))
+end)
+if type(C_Container) == "table" then
+    hookVendor(C_Container, "UseContainerItem", function(bag, slot)
+        if merchantOpen then
+            vendorAction(addon.Vendor.container(_G, "sale", bag, slot))
+        end
+    end)
+    hookVendor(C_Container, "ContainerRefundItemPurchase", function(bag, slot, isEquipped)
+        vendorAction(addon.Vendor.container(_G, "refund", bag, slot, isEquipped))
+    end)
 end
 
 local function rewardReceipt(receipt)
@@ -180,6 +213,8 @@ if client.frame then
         "PLAYER_EQUIPMENT_CHANGED",
         "BANKFRAME_OPENED",
         "BANKFRAME_CLOSED",
+        "MERCHANT_SHOW",
+        "MERCHANT_CLOSED",
         "LOOT_OPENED",
         "LOOT_CLOSED",
         "CHAT_MSG_LOOT",
@@ -214,6 +249,12 @@ if client.frame then
         elseif event == "BANKFRAME_CLOSED" then
             bankOpen = false
             scan("bank")
+        elseif event == "MERCHANT_SHOW" then
+            merchantOpen = true
+            scan("bags")
+        elseif event == "MERCHANT_CLOSED" then
+            scan("bags")
+            merchantOpen = false
         elseif event == "LOOT_OPENED" then
             lootOpen()
         elseif event == "LOOT_CLOSED" then
