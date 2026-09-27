@@ -38,6 +38,8 @@ jobs:
           lua tests/quest_event_spec.lua
           lua tests/scan_spec.lua
           lua tests/wowunit_replay_spec.lua
+          lua tests/vendor_event_spec.lua
+          lua tests/saved_variables_event_spec.lua
       - name: Format and lint
         run: |
           .tools/stylua/stylua --check AzerothLedger AzerothLedger_Tests tests
