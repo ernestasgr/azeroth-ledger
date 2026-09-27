@@ -1,12 +1,13 @@
 local addonName, addon = ...
 
-local REVISION = "0.4.1"
+local REVISION = "0.4.2"
 local store = addon.Schema.open(AzerothLedgerDB, function(nextValue)
     AzerothLedgerDB = nextValue
 end)
 local client = addon.Client.inspect(_G)
 local bankOpen = false
 local merchantOpen = false
+local merchantName
 local merchantSlots
 local merchantEquippedSlots
 local buybackItems
@@ -27,6 +28,14 @@ local function identity()
         return nil, nil
     end
     return UnitName("player"), GetRealmName()
+end
+
+local function readMerchantName()
+    if type(UnitName) ~= "function" then
+        return nil
+    end
+    local ok, name = pcall(UnitName, "npc")
+    return ok and type(name) == "string" and name ~= "" and name or nil
 end
 
 local function scan(area, checkedAt)
@@ -100,6 +109,9 @@ end
 
 local function vendorAction(action)
     local context = playerContext()
+    if context then
+        context.vendorName = merchantName or readMerchantName()
+    end
     if merchantOpen and action and context and store:vendorAction(action, context.at, context) then
         addon.Collection.refresh(store, context.character, context.realm)
     end
@@ -294,6 +306,7 @@ if client.frame then
             scan("bank")
         elseif event == "MERCHANT_SHOW" then
             merchantOpen = true
+            merchantName = readMerchantName()
             scan("bags")
             scan("equipped")
             buybackItems = addon.Vendor.buybacks(_G)
@@ -301,6 +314,7 @@ if client.frame then
             scan("bags")
             scan("equipped")
             merchantOpen = false
+            merchantName = nil
             merchantSlots = nil
             merchantEquippedSlots = nil
             buybackItems = nil

@@ -200,7 +200,8 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                     local label = sourceText(gain.source)
                     sources[label] = (sources[label] or 0) + gain.quantity
                 elseif gain.method == "Vendor" then
-                    sources.Vendor = (sources.Vendor or 0) + gain.quantity - (gain.refunded or 0)
+                    local label = gain.source and sourceText(gain.source) or "Vendor"
+                    sources[label] = (sources[label] or 0) + gain.quantity - (gain.refunded or 0)
                 end
                 methods[gain.method] = (methods[gain.method] or 0) + gain.quantity - (gain.refunded or 0)
             end
@@ -271,6 +272,7 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                         .. " • "
                         .. gain.place
                         .. (gain.method == "Looted" and (" • source " .. sourceText(source)) or "")
+                        .. (gain.method == "Vendor" and source and (" • vendor " .. sourceText(source)) or "")
                         .. (gain.method == "Quest" and (" • quest " .. contextText(gain.context)) or "")
                         .. (gain.method == "Crafted" and (" • recipe " .. contextText(gain.context)) or "")
                     lines[#lines + 1] = detail
@@ -296,7 +298,8 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                     .. " • "
                     .. action.character
                     .. "-"
-                    .. action.realm,
+                    .. action.realm
+                    .. (action.vendorName and (" • vendor " .. action.vendorName) or ""),
             }
         end
     end

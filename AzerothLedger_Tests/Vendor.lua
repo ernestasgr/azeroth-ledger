@@ -79,14 +79,24 @@ local function replay()
         }))
         at = at + 1
     end
-    local function action(kind, quantity)
-        local result = store:vendorAction({
-            kind = kind,
-            key = key,
-            itemID = 4540,
-            link = bread,
-            quantity = quantity,
-        }, at, { character = "Ada", realm = "Realm", level = 12, place = "Elwynn Forest" })
+    local function action(kind, quantity, vendorName)
+        local result = store:vendorAction(
+            {
+                kind = kind,
+                key = key,
+                itemID = 4540,
+                link = bread,
+                quantity = quantity,
+            },
+            at,
+            {
+                character = "Ada",
+                realm = "Realm",
+                level = 12,
+                place = "Elwynn Forest",
+                vendorName = vendorName,
+            }
+        )
         at = at + 1
         return result
     end
@@ -109,6 +119,24 @@ local function replay()
             end)
             return store
         end
+end
+
+function tests.NamedVendorSurvivesRestoreAndRefund(_self)
+    local store, bags, action, _, restore = replay()
+    bags(0)
+    WoWUnit.IsTrue(action("purchase", 1, "Dermot Johns"))
+    bags(1)
+    store = restore()
+    local gain = store:find(key).gains[1]
+    WoWUnit.AreEqual("vendor", gain.source.kind)
+    WoWUnit.AreEqual("Dermot Johns", gain.source.name)
+    local lines = table.concat(addon.Collection.lines(store, "Ada", "Realm"), "\n")
+    WoWUnit.IsTrue(lines:find("Source total: Dermot Johns 1", 1, true) ~= nil)
+    WoWUnit.IsTrue(lines:find("vendor Dermot Johns", 1, true) ~= nil)
+    WoWUnit.IsTrue(action("refund", 1, "Dermot Johns"))
+    bags(0)
+    WoWUnit.AreEqual(0, store:find(key).totalGained)
+    WoWUnit.AreEqual("Dermot Johns", store:vendorActivity()[1].vendorName)
 end
 
 function tests.SaleThenPurchaseNeedsActionAndIncrease(_self)

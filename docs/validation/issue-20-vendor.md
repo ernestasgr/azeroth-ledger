@@ -8,6 +8,8 @@ The user bought a Mining Pick from Brother Danil. The Collection screenshot show
 
 A second right-click purchase of Thin Cloth Bracers from Dermot Johns at 15:43 also left Total gained at 0 and the vendor action list empty. `/al status` reported no hook installation issue. The client has `C_MerchantFrame.GetItemInfo`; the addon's purchase adapter required the removed `GetMerchantItemInfo` global and silently returned no action. Version 0.4.1 uses the Forever API. Its replay runs with only `C_MerchantFrame.GetItemInfo` available and verifies that the right-click action and measured bag increase produce one gain.
 
+After installing 0.4.1, a Thin Cloth Gloves purchase at 16:01 displayed Total gained 1, Method total Vendor 1, and Source total Vendor 1. This confirms live purchase credit, but the merchant name was missing. With Dermot Johns's merchant window open, `UnitName("npc")` returned `Dermot Johns`. Version 0.4.2 stores that name with new vendor actions and gains and displays it in the source total and activity detail; the in-client name check is pending.
+
 The earlier Forever trace on build 70009 recorded an item-specific `CHAT_MSG_LOOT` receipt for five Tough Hunks of Bread and a matching bag increase during an open merchant session. It also included gray-item sales. This trace predates the issue 20 code and did not record a locale, refund, buyback, or failed purchase. See [the original trace summary](forever-client.md).
 
 ## Pending in-client controls
@@ -16,7 +18,8 @@ Run the updated addon and `AzerothLedgerVendor` WoWUnit group in the Forever bet
 
 | Control | Expected result | Status |
 | --- | --- | --- |
-| Buy one item and one stack | One Vendor gain per item-specific purchase action and measured increase, with or without a chat line; no duplicate vendor activity row | Failed on 0.4.0; 0.4.1 retest pending |
+| Buy one item and one stack | One Vendor gain per item-specific purchase action and measured increase, with or without a chat line; no duplicate vendor activity row | One-item purchase passed on 0.4.1; stack pending |
+| Capture merchant name | Named vendor source total and purchase detail when `UnitName("npc")` is available | 0.4.2 retest pending |
 | Open merchant and trigger money or merchant updates | No gain without a purchase action and measured increase | Pending |
 | Sell, then purchase the same item | Sale activity and a separate new gain | Pending |
 | Refund a uniquely linked purchase | Refund activity and a matching debit from Total gained, method, and source totals | Pending |

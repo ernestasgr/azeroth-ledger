@@ -43,6 +43,9 @@ An item seen before but absent from complete checks of the selected characters' 
 **Source**:
 A mob, boss, chest, or other container tied to the specific looted item by evidence. A nearby mob or a loot message alone is not enough. Record a quest, vendor, or player separately when known; leave the source unknown when the game does not prove it.
 
+**Vendor source**:
+The merchant's name observed during the purchase. If the merchant's identity was not captured, the gain remains a Vendor gain with an unnamed source. A later refund reduces that purchase's source total.
+
 **Found once**:
 Exactly one confirmed unit gained from outside your recorded characters, with none seen beforehand. An item known only from an initial scan does not qualify.
 

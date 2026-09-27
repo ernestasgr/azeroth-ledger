@@ -38,6 +38,10 @@ local _, addon = ...
 ---@field guid string
 ---@field name? string
 
+---@class AzerothLedgerVendorSource
+---@field kind 'vendor'
+---@field name string
+
 ---@class AzerothLedgerGain
 ---@field id string
 ---@field at integer
@@ -48,7 +52,7 @@ local _, addon = ...
 ---@field place string
 ---@field method 'Looted'|'Quest'|'Crafted'|'Vendor'
 ---@field refunded? integer
----@field source? AzerothLedgerLootSource
+---@field source? AzerothLedgerLootSource|AzerothLedgerVendorSource
 ---@field context? {kind: 'quest'|'recipe', id: integer, name?: string}
 
 ---@class AzerothLedgerLootSlot
@@ -123,6 +127,7 @@ local _, addon = ...
 ---@class AzerothLedgerGainActor: AzerothLedgerActor
 ---@field level integer
 ---@field place string
+---@field vendorName? string
 
 ---@alias ALGainActor AzerothLedgerGainActor
 
@@ -175,6 +180,7 @@ local _, addon = ...
 ---@field linkedGainID? string
 ---@field linkedSaleID? integer
 ---@field restored? boolean
+---@field vendorName? string
 
 ---@class AzerothLedgerVendorActivity
 ---@field id integer
@@ -184,6 +190,7 @@ local _, addon = ...
 ---@field at integer
 ---@field character string
 ---@field realm string
+---@field vendorName? string
 
 ---@class AzerothLedgerVendorState
 ---@field nextID integer
@@ -411,14 +418,18 @@ local function validRecord(key, record)
             return false
         end
         if gain.source ~= nil then
-            if
-                gain.method ~= "Looted"
-                or type(gain.source) ~= "table"
-                or (gain.source.name ~= nil and not isName(gain.source.name))
-            then
+            if type(gain.source) ~= "table" or (gain.source.name ~= nil and not isName(gain.source.name)) then
                 return false
             end
-            if (gain.source.kind ~= "mob" and gain.source.kind ~= "container") or not isName(gain.source.guid) then
+            if gain.method == "Looted" then
+                if (gain.source.kind ~= "mob" and gain.source.kind ~= "container") or not isName(gain.source.guid) then
+                    return false
+                end
+            elseif gain.method == "Vendor" then
+                if gain.source.kind ~= "vendor" or not isName(gain.source.name) or gain.source.guid ~= nil then
+                    return false
+                end
+            else
                 return false
             end
         end
@@ -586,6 +597,7 @@ local function validVendorState(vendor)
             or (action.linkedGainID ~= nil and type(action.linkedGainID) ~= "string")
             or (action.linkedSaleID ~= nil and not isInteger(action.linkedSaleID))
             or (action.restored ~= nil and type(action.restored) ~= "boolean")
+            or (action.vendorName ~= nil and not isName(action.vendorName))
         then
             return false
         end
@@ -603,6 +615,7 @@ local function validVendorState(vendor)
             or not isInteger(entry.at)
             or not isName(entry.character)
             or not isName(entry.realm)
+            or (entry.vendorName ~= nil and not isName(entry.vendorName))
         then
             return false
         end
@@ -1097,6 +1110,7 @@ function Schema.open(raw, save)
                 at = action.at,
                 character = action.character,
                 realm = action.realm,
+                vendorName = action.vendorName,
             }
             while #state.journal > 50 do
                 table.remove(state.journal, 1)
@@ -1138,6 +1152,7 @@ function Schema.open(raw, save)
             or not isName(actor.realm)
             or not isInteger(actor.level)
             or type(actor.place) ~= "string"
+            or (actor.vendorName ~= nil and not isName(actor.vendorName))
         then
             return false
         end
@@ -1179,6 +1194,7 @@ function Schema.open(raw, save)
             realm = actor.realm,
             level = actor.level,
             place = actor.place,
+            vendorName = actor.vendorName,
             baseline = areaQuantity(record, actor.character, actor.realm, actionArea),
             baselineGained = record and record.totalGained or 0,
             receiptQuantity = 0,
@@ -1249,6 +1265,7 @@ function Schema.open(raw, save)
                                 level = action.level,
                                 place = action.place,
                                 method = "Vendor",
+                                source = action.vendorName and { kind = "vendor", name = action.vendorName } or nil,
                             }
                             record.gains[#record.gains + 1] = gain
                             record.totalGained = record.totalGained + quantity

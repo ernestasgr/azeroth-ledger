@@ -4,6 +4,7 @@ local frame = { registered = {} }
 local clock = 1000
 local bagQuantity = 0
 local buybackQuantity = 0
+date = os.date
 
 function frame:RegisterEvent(event)
     self.registered[event] = true
@@ -27,8 +28,8 @@ end
 GetServerTime = function()
     return clock
 end
-UnitName = function()
-    return "Ada"
+UnitName = function(unit)
+    return unit == "npc" and "Dermot Johns" or "Ada"
 end
 GetRealmName = function()
     return "Realm"
@@ -113,6 +114,9 @@ PickupMerchantItem(1)
 assert(#AzerothLedgerDB.vendor.actions == 1, "merchant pickup must record item-specific action")
 event("BAG_UPDATE_DELAYED")
 assert(addon.store:find(key).totalGained == 1, "merchant purchase without loot chat must count")
+local purchaseLines = table.concat(addon.Collection.lines(addon.store, "Ada", "Realm"), "\n")
+assert(purchaseLines:find("Source total: Dermot Johns 1", 1, true), "vendor name must be a source")
+assert(purchaseLines:find("vendor Dermot Johns", 1, true), "purchase detail must name the vendor")
 
 C_Container.ContainerRefundItemPurchase(0, 1)
 event("BAG_UPDATE_DELAYED")
