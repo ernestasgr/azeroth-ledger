@@ -20,4 +20,13 @@ globals = {
     "GameFontNormal",
     "AzerothLedger",
     "hooksecurefunc",
+    "LOOT_ITEM_SELF",
+    "LOOT_ITEM_SELF_MULTIPLE",
+    "GetNumBuybackItems",
+    "GetBuybackItemLink",
+    "GetBuybackItemInfo",
+    "GetMerchantItemLink",
+    "GetMerchantItemInfo",
+    "BuyMerchantItem",
+    "BuybackItem",
 }

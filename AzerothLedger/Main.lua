@@ -7,6 +7,9 @@ end)
 local client = addon.Client.inspect(_G)
 local bankOpen = false
 local merchantOpen = false
+local merchantSlots
+local merchantEquippedSlots
+local buybackItems
 local craftRecipeID
 local questOfferSequence = 0
 
@@ -33,6 +36,11 @@ local function scan(area, checkedAt)
             snapshot.seenAt = checkedAt
         end
         store:scan(snapshot)
+        if area == "bags" and merchantOpen then
+            merchantSlots = addon.Vendor.slots(_G)
+        elseif area == "equipped" and merchantOpen then
+            merchantEquippedSlots = addon.Vendor.equippedSlots(_G)
+        end
         addon.Collection.refresh(store, snapshot.character, snapshot.realm)
     end
 end
@@ -78,7 +86,13 @@ local function lootMessage(message)
     local character, realm = identity()
     if receipt and at and character and realm then
         local actor = { character = character, realm = realm }
-        if (merchantOpen and store:vendorReceipt(receipt, at, actor)) or store:lootReceipt(receipt, at, actor) then
+        local accepted
+        if merchantOpen then
+            accepted = store:vendorReceipt(receipt, at, actor)
+        else
+            accepted = store:lootReceipt(receipt, at, actor)
+        end
+        if accepted then
             addon.Collection.refresh(store, character, realm)
         end
     end
@@ -89,6 +103,24 @@ local function vendorAction(action)
     if merchantOpen and action and context and store:vendorAction(action, context.at, context) then
         addon.Collection.refresh(store, context.character, context.realm)
     end
+end
+
+local function containerAction(kind, bag, slot, isEquipped)
+    if isEquipped then
+        local cached = merchantEquippedSlots and merchantEquippedSlots[slot]
+        if cached then
+            merchantEquippedSlots[slot] = nil
+        end
+        return cached or addon.Vendor.equipped(_G, slot)
+    end
+    local slotKey = tostring(bag) .. ":" .. tostring(slot)
+    local cached = merchantSlots and merchantSlots[slotKey]
+    if cached then
+        merchantSlots[slotKey] = nil
+        cached.kind = kind
+        return cached
+    end
+    return addon.Vendor.container(_G, kind, bag, slot, isEquipped)
 end
 
 local function hookVendor(target, method, callback)
@@ -106,16 +138,20 @@ hookVendor(_G, "BuyMerchantItem", function(index, count)
     vendorAction(addon.Vendor.purchase(_G, index, count))
 end)
 hookVendor(_G, "BuybackItem", function(index)
-    vendorAction(addon.Vendor.buyback(_G, index))
+    local cached = buybackItems and buybackItems[index]
+    if cached then
+        buybackItems[index] = nil
+    end
+    vendorAction(cached or addon.Vendor.buyback(_G, index))
 end)
 if type(C_Container) == "table" then
     hookVendor(C_Container, "UseContainerItem", function(bag, slot)
         if merchantOpen then
-            vendorAction(addon.Vendor.container(_G, "sale", bag, slot))
+            vendorAction(containerAction("sale", bag, slot))
         end
     end)
     hookVendor(C_Container, "ContainerRefundItemPurchase", function(bag, slot, isEquipped)
-        vendorAction(addon.Vendor.container(_G, "refund", bag, slot, isEquipped))
+        vendorAction(containerAction("refund", bag, slot, isEquipped))
     end)
 end
 
@@ -215,6 +251,7 @@ if client.frame then
         "BANKFRAME_CLOSED",
         "MERCHANT_SHOW",
         "MERCHANT_CLOSED",
+        "MERCHANT_UPDATE",
         "LOOT_OPENED",
         "LOOT_CLOSED",
         "CHAT_MSG_LOOT",
@@ -240,6 +277,9 @@ if client.frame then
                 scanAll()
             else
                 scan("bags")
+                if merchantOpen then
+                    scan("equipped")
+                end
             end
         elseif event == "PLAYER_EQUIPMENT_CHANGED" then
             scanAll()
@@ -252,9 +292,17 @@ if client.frame then
         elseif event == "MERCHANT_SHOW" then
             merchantOpen = true
             scan("bags")
+            scan("equipped")
+            buybackItems = addon.Vendor.buybacks(_G)
         elseif event == "MERCHANT_CLOSED" then
             scan("bags")
+            scan("equipped")
             merchantOpen = false
+            merchantSlots = nil
+            merchantEquippedSlots = nil
+            buybackItems = nil
+        elseif event == "MERCHANT_UPDATE" then
+            buybackItems = addon.Vendor.buybacks(_G)
         elseif event == "LOOT_OPENED" then
             lootOpen()
         elseif event == "LOOT_CLOSED" then

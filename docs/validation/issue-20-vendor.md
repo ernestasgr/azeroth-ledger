@@ -14,8 +14,9 @@ Run the installed addon and `AzerothLedgerVendor` WoWUnit group in the Forever b
 | Open merchant and trigger money or merchant updates | No gain without receipt and increase | Pending |
 | Sell, then purchase the same item | Sale activity and a separate new gain | Pending |
 | Refund a uniquely linked purchase | Refund activity and a matching debit from Total gained, method, and source totals | Pending |
+| Refund a purchased equipped item | Equipped-item decrease and the same linked debit | Pending |
 | Sell and buy back | Two activity rows and no new gain for the buyback | Pending |
 | Full-bag failed purchase | No gain; unresolved evidence retained | Pending |
 | Two eligible same-item purchases followed by one refund | No guessed debit; unresolved evidence retained | Pending |
 
-The hooks run after the native merchant and container calls. The live controls must confirm that item links and quantities remain readable at that point and that the bag updates and chat receipts arrive in the expected order. The code leaves evidence unresolved when a unique link cannot be established.
+The hooks run after the native merchant and container calls. The addon keeps the last merchant-session bag-slot, equipped-slot, and buyback snapshots so a native call that removes an item immediately does not erase its action identity. The live controls must confirm those snapshots are current and that bag updates, equipment changes, and chat receipts arrive in the expected order. The code leaves evidence unresolved when a unique link cannot be established.

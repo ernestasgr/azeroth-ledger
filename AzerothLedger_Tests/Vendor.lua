@@ -18,7 +18,16 @@ function tests.MerchantAdapterKeepsExactItemAndUnitCount(_self)
         GetBuybackItemInfo = function()
             return "Bread", nil, 10, 3
         end,
+        GetNumBuybackItems = function()
+            return 1
+        end,
+        GetInventoryItemLink = function()
+            return bread
+        end,
         C_Container = {
+            GetContainerNumSlots = function(bag)
+                return bag == 0 and 1 or 0
+            end,
             GetContainerItemInfo = function()
                 return { hyperlink = bread, stackCount = 2 }
             end,
@@ -33,6 +42,19 @@ function tests.MerchantAdapterKeepsExactItemAndUnitCount(_self)
     WoWUnit.AreEqual(3, addon.Vendor.buyback(api, 1).quantity)
     WoWUnit.AreEqual(2, addon.Vendor.container(api, "sale", 0, 1).quantity)
     WoWUnit.AreEqual(2, addon.Vendor.container(api, "refund", 0, 1).quantity)
+    WoWUnit.AreEqual("equipped", addon.Vendor.equipped(api, 7).area)
+    WoWUnit.AreEqual(key, addon.Vendor.equippedSlots(api)[7].key)
+    local slots = addon.Vendor.slots(api)
+    local buybacks = addon.Vendor.buybacks(api)
+    api.C_Container.GetContainerItemInfo = function()
+        return nil
+    end
+    api.GetBuybackItemLink = function()
+        return nil
+    end
+    WoWUnit.AreEqual(nil, addon.Vendor.container(api, "sale", 0, 1))
+    WoWUnit.AreEqual(key, slots["0:1"].key)
+    WoWUnit.AreEqual(key, buybacks[1].key)
 end
 
 local function replay()
@@ -162,6 +184,48 @@ function tests.ReceiptAfterBagUpdateCountsOnce(_self)
     WoWUnit.AreEqual(2, store:find(key).totalGained)
     WoWUnit.IsTrue(not receipt(2))
     WoWUnit.AreEqual(2, store:find(key).totalGained)
+end
+
+function tests.EquippedRefundDebitsItsPurchase(_self)
+    local gear = "|Hitem:263409::::::::|h[Gardening Pants]|h"
+    local gearKey = addon.Item.key(gear, 263409)
+    local store = addon.Schema.open(nil, function() end)
+    local at = 2000
+    local actor = { character = "Ada", realm = "Realm", level = 12, place = "Elwynn Forest" }
+    local function scan(area, quantity)
+        local items = quantity > 0 and { { itemID = 263409, link = gear, quantity = quantity } } or {}
+        WoWUnit.IsTrue(store:scan({
+            character = "Ada",
+            realm = "Realm",
+            area = area,
+            seenAt = at,
+            complete = true,
+            items = items,
+        }))
+        at = at + 1
+    end
+    scan("bags", 0)
+    scan("equipped", 0)
+    WoWUnit.IsTrue(
+        store:vendorAction({ kind = "purchase", key = gearKey, itemID = 263409, link = gear, quantity = 1 }, at, actor)
+    )
+    at = at + 1
+    WoWUnit.IsTrue(store:vendorReceipt({ key = gearKey, quantity = 1 }, at, actor))
+    at = at + 1
+    scan("bags", 1)
+    scan("bags", 0)
+    scan("equipped", 1)
+    WoWUnit.IsTrue(
+        store:vendorAction(
+            { kind = "refund", key = gearKey, itemID = 263409, link = gear, quantity = 1, area = "equipped" },
+            at,
+            actor
+        )
+    )
+    at = at + 1
+    scan("equipped", 0)
+    WoWUnit.AreEqual(0, store:find(gearKey).totalGained)
+    WoWUnit.AreEqual("refund", store:vendorActivity()[1].kind)
 end
 
 function tests.FailedPurchaseAmbiguousRefundAndPrunedJournal(_self)

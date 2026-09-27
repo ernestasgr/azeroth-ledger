@@ -156,6 +156,7 @@ local _, addon = ...
 ---@field itemID integer
 ---@field link string
 ---@field quantity integer
+---@field area? 'bags'|'equipped'
 
 ---@class AzerothLedgerVendorAction: AzerothLedgerVendorIntent
 ---@field id integer
@@ -168,6 +169,7 @@ local _, addon = ...
 ---@field baselineGained integer
 ---@field receiptQuantity integer
 ---@field status 'pending'|'confirmed'|'unresolved'
+---@field area 'bags'|'equipped'
 ---@field linkedGainID? string
 ---@field linkedSaleID? integer
 ---@field restored? boolean
@@ -551,6 +553,7 @@ local function validVendorState(vendor)
             or ids[action.id]
             or not vendorKinds[action.kind]
             or not vendorStatuses[action.status]
+            or (action.area ~= "bags" and action.area ~= "equipped")
             or type(action.key) ~= "string"
             or not isInteger(action.itemID)
             or addon.Item.key(action.link, action.itemID) ~= action.key
@@ -1046,14 +1049,18 @@ function Schema.open(raw, save)
         return true
     end
 
-    local function bagQuantity(record, character, realm)
+    local function areaQuantity(record, character, realm, area)
         local quantity = 0
         for _, observation in ipairs(record and record.observations or {}) do
-            if observation.character == character and observation.realm == realm and observation.area == "bags" then
+            if observation.character == character and observation.realm == realm and observation.area == area then
                 quantity = observation.quantity
             end
         end
         return quantity
+    end
+
+    local function bagQuantity(record, character, realm)
+        return areaQuantity(record, character, realm, "bags")
     end
 
     local function vendorState()
@@ -1121,7 +1128,11 @@ function Schema.open(raw, save)
         then
             return false
         end
-        local scope = store:area(actor.character, actor.realm, "bags")
+        local actionArea = action.area or "bags"
+        if actionArea ~= "bags" and (actionArea ~= "equipped" or action.kind ~= "refund") then
+            return false
+        end
+        local scope = store:area(actor.character, actor.realm, actionArea)
         if not scope or not scope.complete then
             return false
         end
@@ -1155,10 +1166,11 @@ function Schema.open(raw, save)
             realm = actor.realm,
             level = actor.level,
             place = actor.place,
-            baseline = bagQuantity(record, actor.character, actor.realm),
+            baseline = areaQuantity(record, actor.character, actor.realm, actionArea),
             baselineGained = record and record.totalGained or 0,
             receiptQuantity = 0,
             status = "pending",
+            area = actionArea,
         }
         if action.kind == "refund" then
             entry.linkedGainID = linkedVendorGain(record, actor.character, actor.realm, action.quantity)
@@ -1195,10 +1207,11 @@ function Schema.open(raw, save)
         return true
     end
 
-    local function settleVendor(state, at, character, realm, grouped, records)
+    local function settleVendor(state, area, at, character, realm, grouped, records)
         for _, action in ipairs(state.actions) do
             if
                 action.status == "pending"
+                and action.area == area
                 and action.character == character
                 and action.realm == realm
                 and at >= action.at
@@ -1331,7 +1344,7 @@ function Schema.open(raw, save)
             records[key] = record
         end
         local grouped = { [receipt.key] = { quantity = bagQuantity(valid[receipt.key], actor.character, actor.realm) } }
-        settleVendor(state, at, actor.character, actor.realm, grouped, records)
+        settleVendor(state, "bags", at, actor.character, actor.realm, grouped, records)
         saveFields({ vendor = state, records = records })
         if records[receipt.key] then
             valid[receipt.key] = copyRecord(records[receipt.key])
@@ -1770,12 +1783,20 @@ function Schema.open(raw, save)
         local vendor = vendorState()
         if
             vendor
-            and snapshot.area == "bags"
+            and (snapshot.area == "bags" or snapshot.area == "equipped")
             and snapshot.complete
             and type(oldScope) == "table"
             and oldScope.complete
         then
-            settleVendor(vendor, snapshot.seenAt, snapshot.character, snapshot.realm, grouped, nextRecords)
+            settleVendor(
+                vendor,
+                snapshot.area,
+                snapshot.seenAt,
+                snapshot.character,
+                snapshot.realm,
+                grouped,
+                nextRecords
+            )
         end
         local nextAreas = {}
         for key, state in pairs(raw.areas) do
