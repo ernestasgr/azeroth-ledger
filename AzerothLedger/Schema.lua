@@ -38,6 +38,10 @@ local _, addon = ...
 ---@field guid string
 ---@field name? string
 
+---@class AzerothLedgerVendorSource
+---@field kind 'vendor'
+---@field name string
+
 ---@class AzerothLedgerGain
 ---@field id string
 ---@field at integer
@@ -46,8 +50,9 @@ local _, addon = ...
 ---@field realm string
 ---@field level integer
 ---@field place string
----@field method 'Looted'|'Quest'|'Crafted'
----@field source? AzerothLedgerLootSource
+---@field method 'Looted'|'Quest'|'Crafted'|'Vendor'
+---@field refunded? integer
+---@field source? AzerothLedgerLootSource|AzerothLedgerVendorSource
 ---@field context? {kind: 'quest'|'recipe', id: integer, name?: string}
 
 ---@class AzerothLedgerLootSlot
@@ -122,6 +127,7 @@ local _, addon = ...
 ---@class AzerothLedgerGainActor: AzerothLedgerActor
 ---@field level integer
 ---@field place string
+---@field vendorName? string
 
 ---@alias ALGainActor AzerothLedgerGainActor
 
@@ -149,6 +155,58 @@ local _, addon = ...
 ---@field nextID integer
 ---@field sessions AzerothLedgerRewardSession[]
 
+---@class AzerothLedgerVendorIntent
+---@field kind 'purchase'|'sale'|'refund'|'buyback'
+---@field key string
+---@field itemID integer
+---@field link string
+---@field quantity integer
+---@field area? 'bags'|'equipped'
+
+---@alias ALVendorIntent AzerothLedgerVendorIntent
+
+---@class AzerothLedgerVendorAction: AzerothLedgerVendorIntent
+---@field id integer
+---@field at integer
+---@field character string
+---@field realm string
+---@field level integer
+---@field place string
+---@field baseline integer
+---@field baselineGained integer
+---@field receiptQuantity integer
+---@field status 'pending'|'confirmed'|'unresolved'
+---@field area 'bags'|'equipped'
+---@field linkedGainID? string
+---@field linkedSaleID? integer
+---@field restored? boolean
+---@field vendorName? string
+
+---@class AzerothLedgerVendorActivity
+---@field id integer
+---@field kind 'sale'|'refund'|'buyback'
+---@field key string
+---@field quantity integer
+---@field at integer
+---@field character string
+---@field realm string
+---@field vendorName? string
+
+---@class AzerothLedgerVendorState
+---@field nextID integer
+---@field actions AzerothLedgerVendorAction[]
+---@field journal AzerothLedgerVendorActivity[]
+
+---@class AzerothLedgerVendorEvidence
+---@field id integer
+---@field kind 'purchase'|'sale'|'refund'|'buyback'
+---@field key string
+---@field quantity integer
+---@field at integer
+---@field status 'pending'|'unresolved'
+---@field character string
+---@field realm string
+
 ---@class AzerothLedgerRecord
 ---@field key string
 ---@field itemID integer
@@ -171,6 +229,7 @@ local _, addon = ...
 ---@field areas table<string, AzerothLedgerAreaState>
 ---@field loot? AzerothLedgerLootState
 ---@field rewards? AzerothLedgerRewardState
+---@field vendor? AzerothLedgerVendorState
 
 ---@class AzerothLedgerEnvironment
 ---@field build string
@@ -199,9 +258,15 @@ local _, addon = ...
 ---@field lootReceipt fun(self: AzerothLedgerStore, receipt: ALClaim, at: integer, actor: AzerothLedgerActor): boolean
 ---@field rewardReceipt fun(self: AzerothLedgerStore, receipt: ALReward, at: integer, actor: ALGainActor): boolean
 ---@field questTurnedIn fun(self: AzerothLedgerStore, questID: integer, at: integer, actor: ALActor): boolean
+---@field vendorAction fun(self: AzerothLedgerStore, action: ALVendorIntent, at: integer, actor: ALGainActor): boolean
+---@field vendorReceipt fun(self: AzerothLedgerStore, receipt: ALClaim, at: integer, actor: ALActor): boolean
+---@field vendorActivity fun(self: AzerothLedgerStore): AzerothLedgerVendorActivity[]
+---@field vendorUnresolved fun(self: AzerothLedgerStore): AzerothLedgerVendorEvidence[]
+---@field pruneJournal fun(self: AzerothLedgerStore, limit: integer): boolean
 
 local CURRENT_SCHEMA = 2
 local areas = { bags = true, bank = true, equipped = true }
+local gainMethods = { Looted = true, Quest = true, Crafted = true, Vendor = true }
 
 local function isInteger(value)
     return type(value) == "number" and value ~= math.huge and value ~= -math.huge and value == math.floor(value)
@@ -209,6 +274,16 @@ end
 
 local function isName(value)
     return type(value) == "string" and #value > 0 and #value <= 128
+end
+
+local function validRefunded(gain)
+    return gain.refunded == nil
+        or (
+            gain.method == "Vendor"
+            and isInteger(gain.refunded)
+            and gain.refunded >= 0
+            and gain.refunded <= gain.quantity
+        )
 end
 
 local function areaKey(character, realm, area)
@@ -243,6 +318,7 @@ local function copyRecord(record)
             level = gain.level,
             place = gain.place,
             method = gain.method,
+            refunded = gain.refunded,
             source = gain.source and { kind = gain.source.kind, guid = gain.source.guid, name = gain.source.name }
                 or nil,
             context = gain.context and { kind = gain.context.kind, id = gain.context.id, name = gain.context.name }
@@ -335,20 +411,25 @@ local function validRecord(key, record)
             or not isName(gain.realm)
             or not isInteger(gain.level)
             or type(gain.place) ~= "string"
-            or (gain.method ~= "Looted" and gain.method ~= "Quest" and gain.method ~= "Crafted")
+            or not gainMethods[gain.method]
+            or not validRefunded(gain)
             or gainIDs[gain.id]
         then
             return false
         end
         if gain.source ~= nil then
-            if
-                gain.method ~= "Looted"
-                or type(gain.source) ~= "table"
-                or (gain.source.name ~= nil and not isName(gain.source.name))
-            then
+            if type(gain.source) ~= "table" or (gain.source.name ~= nil and not isName(gain.source.name)) then
                 return false
             end
-            if (gain.source.kind ~= "mob" and gain.source.kind ~= "container") or not isName(gain.source.guid) then
+            if gain.method == "Looted" then
+                if (gain.source.kind ~= "mob" and gain.source.kind ~= "container") or not isName(gain.source.guid) then
+                    return false
+                end
+            elseif gain.method == "Vendor" then
+                if gain.source.kind ~= "vendor" or not isName(gain.source.name) or gain.source.guid ~= nil then
+                    return false
+                end
+            else
                 return false
             end
         end
@@ -356,6 +437,7 @@ local function validRecord(key, record)
             if
                 type(gain.context) ~= "table"
                 or gain.method == "Looted"
+                or gain.method == "Vendor"
                 or gain.context.kind ~= (gain.method == "Quest" and "quest" or "recipe")
                 or not isInteger(gain.context.id)
                 or gain.context.id < 1
@@ -365,12 +447,12 @@ local function validRecord(key, record)
             end
         end
         gainIDs[gain.id] = true
-        gained = gained + gain.quantity
+        gained = gained + gain.quantity - (gain.refunded or 0)
     end
     if gained ~= record.totalGained then
         return false
     end
-    if gained > 0 and (not isInteger(record.firstGained) or not isInteger(record.lastGained)) then
+    if #record.gains > 0 and (not isInteger(record.firstGained) or not isInteger(record.lastGained)) then
         return false
     end
     return true
@@ -472,6 +554,75 @@ local function validRewardState(rewards)
     return true
 end
 
+local vendorKinds = { purchase = true, sale = true, refund = true, buyback = true }
+local vendorStatuses = { pending = true, confirmed = true, unresolved = true }
+
+local function validVendorState(vendor)
+    if
+        type(vendor) ~= "table"
+        or not isInteger(vendor.nextID)
+        or vendor.nextID < 1
+        or type(vendor.actions) ~= "table"
+        or type(vendor.journal) ~= "table"
+    then
+        return false
+    end
+    local ids = {}
+    for _, action in ipairs(vendor.actions) do
+        if
+            type(action) ~= "table"
+            or not isInteger(action.id)
+            or action.id < 1
+            or action.id >= vendor.nextID
+            or ids[action.id]
+            or not vendorKinds[action.kind]
+            or not vendorStatuses[action.status]
+            or (action.area ~= "bags" and action.area ~= "equipped")
+            or type(action.key) ~= "string"
+            or not isInteger(action.itemID)
+            or addon.Item.key(action.link, action.itemID) ~= action.key
+            or not isInteger(action.quantity)
+            or action.quantity < 1
+            or not isInteger(action.at)
+            or not isName(action.character)
+            or not isName(action.realm)
+            or not isInteger(action.level)
+            or type(action.place) ~= "string"
+            or not isInteger(action.baseline)
+            or action.baseline < 0
+            or not isInteger(action.baselineGained)
+            or action.baselineGained < 0
+            or not isInteger(action.receiptQuantity)
+            or action.receiptQuantity < 0
+            or (action.linkedGainID ~= nil and type(action.linkedGainID) ~= "string")
+            or (action.linkedSaleID ~= nil and not isInteger(action.linkedSaleID))
+            or (action.restored ~= nil and type(action.restored) ~= "boolean")
+            or (action.vendorName ~= nil and not isName(action.vendorName))
+        then
+            return false
+        end
+        ids[action.id] = true
+    end
+    for _, entry in ipairs(vendor.journal) do
+        if
+            type(entry) ~= "table"
+            or not isInteger(entry.id)
+            or not vendorKinds[entry.kind]
+            or entry.kind == "purchase"
+            or type(entry.key) ~= "string"
+            or not isInteger(entry.quantity)
+            or entry.quantity < 1
+            or not isInteger(entry.at)
+            or not isName(entry.character)
+            or not isName(entry.realm)
+            or (entry.vendorName ~= nil and not isName(entry.vendorName))
+        then
+            return false
+        end
+    end
+    return true
+end
+
 local Schema = {}
 
 ---@param raw any
@@ -518,6 +669,9 @@ function Schema.open(raw, save)
     if supported and raw.rewards ~= nil and not validRewardState(raw.rewards) then
         damagedCount = damagedCount + 1
     end
+    if supported and raw.vendor ~= nil and not validVendorState(raw.vendor) then
+        damagedCount = damagedCount + 1
+    end
 
     local function saveFields(fields)
         local nextValue = {
@@ -528,6 +682,7 @@ function Schema.open(raw, save)
             areas = fields.areas or raw.areas,
             loot = fields.loot or raw.loot,
             rewards = fields.rewards or raw.rewards,
+            vendor = fields.vendor or raw.vendor,
         }
         save(nextValue)
         raw = nextValue
@@ -920,14 +1075,351 @@ function Schema.open(raw, save)
         return true
     end
 
-    local function bagQuantity(record, character, realm)
+    local function areaQuantity(record, character, realm, area)
         local quantity = 0
         for _, observation in ipairs(record and record.observations or {}) do
-            if observation.character == character and observation.realm == realm and observation.area == "bags" then
+            if observation.character == character and observation.realm == realm and observation.area == area then
                 quantity = observation.quantity
             end
         end
         return quantity
+    end
+
+    local function bagQuantity(record, character, realm)
+        return areaQuantity(record, character, realm, "bags")
+    end
+
+    local function vendorState()
+        if raw.vendor == nil then
+            return { nextID = 1, actions = {}, journal = {} }
+        end
+        if validVendorState(raw.vendor) then
+            return raw.vendor
+        end
+        return nil
+    end
+
+    local function vendorResult(state, action, status)
+        action.status = status
+        if status == "confirmed" and action.kind ~= "purchase" then
+            state.journal[#state.journal + 1] = {
+                id = action.id,
+                kind = action.kind,
+                key = action.key,
+                quantity = action.quantity,
+                at = action.at,
+                character = action.character,
+                realm = action.realm,
+                vendorName = action.vendorName,
+            }
+            while #state.journal > 50 do
+                table.remove(state.journal, 1)
+            end
+        end
+    end
+
+    local function linkedVendorGain(record, character, realm, quantity)
+        local match
+        for _, gain in ipairs(record and record.gains or {}) do
+            if
+                gain.method == "Vendor"
+                and gain.character == character
+                and gain.realm == realm
+                and gain.quantity - (gain.refunded or 0) >= quantity
+            then
+                if match then
+                    return nil
+                end
+                match = gain.id
+            end
+        end
+        return match
+    end
+
+    function store.vendorAction(_self, action, at, actor)
+        if
+            not readable
+            or type(action) ~= "table"
+            or not vendorKinds[action.kind]
+            or not isInteger(action.itemID)
+            or action.itemID < 1
+            or addon.Item.key(action.link, action.itemID) ~= action.key
+            or not isInteger(action.quantity)
+            or action.quantity < 1
+            or not isInteger(at)
+            or type(actor) ~= "table"
+            or not isName(actor.character)
+            or not isName(actor.realm)
+            or not isInteger(actor.level)
+            or type(actor.place) ~= "string"
+            or (actor.vendorName ~= nil and not isName(actor.vendorName))
+        then
+            return false
+        end
+        local actionArea = action.area or "bags"
+        if actionArea ~= "bags" and (actionArea ~= "equipped" or action.kind ~= "refund") then
+            return false
+        end
+        local scope = store:area(actor.character, actor.realm, actionArea)
+        if not scope or not scope.complete then
+            return false
+        end
+        local record = valid[action.key]
+        if record and not validRecord(action.key, record) then
+            return false
+        end
+        local state = vendorState()
+        if not state then
+            return false
+        end
+        for _, previous in ipairs(state.actions) do
+            if
+                previous.status == "pending"
+                and previous.key == action.key
+                and previous.character == actor.character
+                and previous.realm == actor.realm
+            then
+                vendorResult(state, previous, "unresolved")
+            end
+        end
+        local entry = {
+            id = state.nextID,
+            kind = action.kind,
+            key = action.key,
+            itemID = action.itemID,
+            link = action.link,
+            quantity = action.quantity,
+            at = at,
+            character = actor.character,
+            realm = actor.realm,
+            level = actor.level,
+            place = actor.place,
+            vendorName = actor.vendorName,
+            baseline = areaQuantity(record, actor.character, actor.realm, actionArea),
+            baselineGained = record and record.totalGained or 0,
+            receiptQuantity = 0,
+            status = "pending",
+            area = actionArea,
+        }
+        if action.kind == "refund" then
+            entry.linkedGainID = linkedVendorGain(record, actor.character, actor.realm, action.quantity)
+            if not entry.linkedGainID then
+                entry.status = "unresolved"
+            end
+        elseif action.kind == "buyback" then
+            local match
+            for _, sale in ipairs(state.actions) do
+                if
+                    sale.kind == "sale"
+                    and sale.status == "confirmed"
+                    and not sale.restored
+                    and sale.key == action.key
+                    and sale.quantity == action.quantity
+                    and sale.character == actor.character
+                    and sale.realm == actor.realm
+                then
+                    if match then
+                        match = nil
+                        break
+                    end
+                    match = sale
+                end
+            end
+            entry.linkedSaleID = match and match.id or nil
+            if not entry.linkedSaleID then
+                entry.status = "unresolved"
+            end
+        end
+        state.nextID = state.nextID + 1
+        state.actions[#state.actions + 1] = entry
+        saveFields({ vendor = state })
+        return true
+    end
+
+    local function settleVendor(state, area, at, character, realm, grouped, records)
+        for _, action in ipairs(state.actions) do
+            if
+                action.status == "pending"
+                and action.area == area
+                and action.character == character
+                and action.realm == realm
+                and at >= action.at
+                and at - action.at <= 120
+            then
+                local group = grouped[action.key]
+                local current = group and group.quantity or 0
+                local delta = current - action.baseline
+                local record = records[action.key]
+                if action.kind == "purchase" then
+                    if delta > 0 and record then
+                        local otherGains = math.max(0, record.totalGained - action.baselineGained)
+                        local quantity = math.min(action.quantity, delta - otherGains)
+                        if quantity > 0 then
+                            record = copyRecord(record)
+                            local gain = {
+                                id = "vendor:" .. action.id .. ":" .. action.key,
+                                at = action.at,
+                                quantity = quantity,
+                                character = action.character,
+                                realm = action.realm,
+                                level = action.level,
+                                place = action.place,
+                                method = "Vendor",
+                                source = action.vendorName and { kind = "vendor", name = action.vendorName } or nil,
+                            }
+                            record.gains[#record.gains + 1] = gain
+                            record.totalGained = record.totalGained + quantity
+                            record.firstGained = record.firstGained and math.min(record.firstGained, action.at)
+                                or action.at
+                            record.lastGained = record.lastGained and math.max(record.lastGained, action.at)
+                                or action.at
+                            if not valid[action.key] then
+                                record.firstSeenUnits = math.max(0, record.firstSeenUnits - quantity)
+                                for _, seen in ipairs(record.characters) do
+                                    if seen.name == action.character and seen.realm == action.realm then
+                                        seen.firstSeenUnits = math.max(0, seen.firstSeenUnits - quantity)
+                                        break
+                                    end
+                                end
+                            end
+                            records[action.key] = record
+                            vendorResult(state, action, "confirmed")
+                        end
+                    end
+                elseif action.kind == "refund" and delta == -action.quantity and record then
+                    record = copyRecord(record)
+                    local linked
+                    for _, gain in ipairs(record.gains) do
+                        if
+                            gain.id == action.linkedGainID
+                            and gain.method == "Vendor"
+                            and gain.quantity - (gain.refunded or 0) >= action.quantity
+                        then
+                            linked = gain
+                            break
+                        end
+                    end
+                    if linked and record.totalGained >= action.quantity then
+                        linked.refunded = (linked.refunded or 0) + action.quantity
+                        record.totalGained = record.totalGained - action.quantity
+                        records[action.key] = record
+                        vendorResult(state, action, "confirmed")
+                    else
+                        vendorResult(state, action, "unresolved")
+                    end
+                elseif action.kind == "sale" and delta == -action.quantity then
+                    vendorResult(state, action, "confirmed")
+                elseif action.kind == "buyback" and delta == action.quantity then
+                    for _, sale in ipairs(state.actions) do
+                        if sale.id == action.linkedSaleID and sale.status == "confirmed" and not sale.restored then
+                            sale.restored = true
+                            vendorResult(state, action, "confirmed")
+                            break
+                        end
+                    end
+                end
+            end
+        end
+        for index = #state.actions, 1, -1 do
+            local action = state.actions[index]
+            if action.status == "pending" and at - action.at > 120 then
+                vendorResult(state, action, "unresolved")
+            elseif action.status == "confirmed" and at - action.at > 7200 then
+                table.remove(state.actions, index)
+            end
+        end
+    end
+
+    function store.vendorReceipt(_self, receipt, at, actor)
+        if
+            not readable
+            or type(receipt) ~= "table"
+            or type(receipt.key) ~= "string"
+            or not isInteger(receipt.quantity)
+            or receipt.quantity < 1
+            or not isInteger(at)
+            or type(actor) ~= "table"
+            or not isName(actor.character)
+            or not isName(actor.realm)
+        then
+            return false
+        end
+        local state = vendorState()
+        if not state then
+            return false
+        end
+        local match
+        for _, action in ipairs(state.actions) do
+            if
+                action.kind == "purchase"
+                and action.status == "pending"
+                and action.key == receipt.key
+                and action.character == actor.character
+                and action.realm == actor.realm
+                and at >= action.at
+                and at - action.at <= 120
+            then
+                if match then
+                    return false
+                end
+                match = action
+            end
+        end
+        if not match then
+            return false
+        end
+        match.receiptQuantity = math.min(match.quantity, match.receiptQuantity + receipt.quantity)
+        local records = {}
+        for key, record in pairs(raw.records) do
+            records[key] = record
+        end
+        local grouped = { [receipt.key] = { quantity = bagQuantity(valid[receipt.key], actor.character, actor.realm) } }
+        settleVendor(state, "bags", at, actor.character, actor.realm, grouped, records)
+        saveFields({ vendor = state, records = records })
+        if records[receipt.key] then
+            valid[receipt.key] = copyRecord(records[receipt.key])
+        end
+        return true
+    end
+
+    function store.vendorActivity(_self)
+        local state = vendorState()
+        return state and copyArray(state.journal) or {}
+    end
+
+    function store.vendorUnresolved(_self)
+        local result = {}
+        local state = vendorState()
+        for _, action in ipairs(state and state.actions or {}) do
+            if action.status ~= "confirmed" then
+                result[#result + 1] = {
+                    id = action.id,
+                    kind = action.kind,
+                    key = action.key,
+                    quantity = action.quantity,
+                    at = action.at,
+                    status = action.status,
+                    character = action.character,
+                    realm = action.realm,
+                }
+            end
+        end
+        return result
+    end
+
+    function store.pruneJournal(_self, limit)
+        if not readable or not isInteger(limit) or limit < 0 then
+            return false
+        end
+        local state = vendorState()
+        if not state then
+            return false
+        end
+        while #state.journal > limit do
+            table.remove(state.journal, 1)
+        end
+        saveFields({ vendor = state })
+        return true
     end
 
     local function rewardSessions(at)
@@ -1318,6 +1810,24 @@ function Schema.open(raw, save)
                 end
             end
         end
+        local vendor = vendorState()
+        if
+            vendor
+            and (snapshot.area == "bags" or snapshot.area == "equipped")
+            and snapshot.complete
+            and type(oldScope) == "table"
+            and oldScope.complete
+        then
+            settleVendor(
+                vendor,
+                snapshot.area,
+                snapshot.seenAt,
+                snapshot.character,
+                snapshot.realm,
+                grouped,
+                nextRecords
+            )
+        end
         local nextAreas = {}
         for key, state in pairs(raw.areas) do
             nextAreas[key] = state
@@ -1328,7 +1838,7 @@ function Schema.open(raw, save)
             character = snapshot.character,
             realm = snapshot.realm,
         }
-        saveFields({ records = nextRecords, areas = nextAreas })
+        saveFields({ records = nextRecords, areas = nextAreas, vendor = vendor })
         for key, record in pairs(nextRecords) do
             if valid[key] or grouped[key] then
                 valid[key] = copyRecord(record)

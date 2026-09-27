@@ -1,21 +1,33 @@
 local addonName, addon = ...
 
-local REVISION = "0.3.0"
-local store = addon.Schema.open(AzerothLedgerDB, function(nextValue)
-    AzerothLedgerDB = nextValue
-end)
+local REVISION = "0.4.3"
+local store
 local client = addon.Client.inspect(_G)
 local bankOpen = false
+local merchantOpen = false
+local merchantName
+local merchantSlots
+local merchantEquippedSlots
+local buybackItems
 local craftRecipeID
 local questOfferSequence = 0
 
-if #client.issues == 0 then
-    store:setEnvironment({
-        build = client.build,
-        interface = client.interface,
-        locale = client.locale,
-        revision = REVISION,
-    })
+local function initializeStore()
+    if store then
+        return
+    end
+    store = addon.Schema.open(AzerothLedgerDB, function(nextValue)
+        AzerothLedgerDB = nextValue
+    end)
+    addon.store = store
+    if #client.issues == 0 then
+        store:setEnvironment({
+            build = client.build,
+            interface = client.interface,
+            locale = client.locale,
+            revision = REVISION,
+        })
+    end
 end
 
 local function identity()
@@ -25,6 +37,14 @@ local function identity()
     return UnitName("player"), GetRealmName()
 end
 
+local function readMerchantName()
+    if type(UnitName) ~= "function" then
+        return nil
+    end
+    local ok, name = pcall(UnitName, "npc")
+    return ok and type(name) == "string" and name ~= "" and name or nil
+end
+
 local function scan(area, checkedAt)
     local snapshot = addon.Scan.capture(_G, area, bankOpen)
     if snapshot then
@@ -32,6 +52,11 @@ local function scan(area, checkedAt)
             snapshot.seenAt = checkedAt
         end
         store:scan(snapshot)
+        if area == "bags" and merchantOpen then
+            merchantSlots = addon.Vendor.slots(_G)
+        elseif area == "equipped" and merchantOpen then
+            merchantEquippedSlots = addon.Vendor.equippedSlots(_G)
+        end
         addon.Collection.refresh(store, snapshot.character, snapshot.realm)
     end
 end
@@ -75,15 +100,81 @@ local function lootMessage(message)
     local receipt = addon.Loot.receipt(_G, message)
     local at = now()
     local character, realm = identity()
-    if
-        receipt
-        and at
-        and character
-        and realm
-        and store:lootReceipt(receipt, at, { character = character, realm = realm })
-    then
-        addon.Collection.refresh(store, character, realm)
+    if receipt and at and character and realm then
+        local actor = { character = character, realm = realm }
+        local accepted
+        if merchantOpen then
+            accepted = store:vendorReceipt(receipt, at, actor)
+        else
+            accepted = store:lootReceipt(receipt, at, actor)
+        end
+        if accepted then
+            addon.Collection.refresh(store, character, realm)
+        end
     end
+end
+
+local function vendorAction(action)
+    local context = playerContext()
+    if context then
+        context.vendorName = merchantName or readMerchantName()
+    end
+    if merchantOpen and action and context and store:vendorAction(action, context.at, context) then
+        addon.Collection.refresh(store, context.character, context.realm)
+    end
+end
+
+local function containerAction(kind, bag, slot, isEquipped)
+    if isEquipped then
+        local cached = merchantEquippedSlots and merchantEquippedSlots[slot]
+        if cached then
+            merchantEquippedSlots[slot] = nil
+        end
+        return cached or addon.Vendor.equipped(_G, slot)
+    end
+    local slotKey = tostring(bag) .. ":" .. tostring(slot)
+    local cached = merchantSlots and merchantSlots[slotKey]
+    if cached then
+        merchantSlots[slotKey] = nil
+        cached.kind = kind
+        return cached
+    end
+    return addon.Vendor.container(_G, kind, bag, slot, isEquipped)
+end
+
+local function hookVendor(target, method, callback)
+    if type(hooksecurefunc) ~= "function" or type(target) ~= "table" or type(target[method]) ~= "function" then
+        client.issues[#client.issues + 1] = method .. " (vendor hook unavailable)"
+        return
+    end
+    local ok = pcall(hooksecurefunc, target, method, callback)
+    if not ok then
+        client.issues[#client.issues + 1] = method .. " (vendor hook unusable)"
+    end
+end
+
+hookVendor(_G, "BuyMerchantItem", function(index, count)
+    vendorAction(addon.Vendor.purchase(_G, index, count))
+end)
+hookVendor(_G, "PickupMerchantItem", function(index)
+    vendorAction(addon.Vendor.purchase(_G, index))
+end)
+hookVendor(_G, "BuybackItem", function(index)
+    local cached = buybackItems and buybackItems[index]
+    if cached then
+        buybackItems[index] = nil
+    end
+    vendorAction(cached or addon.Vendor.buyback(_G, index))
+end)
+if type(C_Container) == "table" then
+    hookVendor(C_Container, "UseContainerItem", function(bag, slot)
+        if merchantOpen then
+            vendorAction(containerAction("sale", bag, slot))
+        end
+    end)
+    hookVendor(C_Container, "ContainerRefundItemPurchase", function(bag, slot, isEquipped)
+        vendorAction(containerAction("refund", bag, slot, isEquipped))
+    end)
 end
 
 local function rewardReceipt(receipt)
@@ -175,11 +266,15 @@ end
 
 if client.frame then
     for _, event in ipairs({
+        "ADDON_LOADED",
         "PLAYER_LOGIN",
         "BAG_UPDATE_DELAYED",
         "PLAYER_EQUIPMENT_CHANGED",
         "BANKFRAME_OPENED",
         "BANKFRAME_CLOSED",
+        "MERCHANT_SHOW",
+        "MERCHANT_CLOSED",
+        "MERCHANT_UPDATE",
         "LOOT_OPENED",
         "LOOT_CLOSED",
         "CHAT_MSG_LOOT",
@@ -197,6 +292,15 @@ if client.frame then
         end
     end
     local ok = pcall(client.frame.SetScript, client.frame, "OnEvent", function(_, event, ...)
+        if event == "ADDON_LOADED" then
+            if ... == addonName then
+                initializeStore()
+            end
+            return
+        end
+        if not store then
+            return
+        end
         if event == "PLAYER_LOGIN" then
             scanAll()
             printStatus()
@@ -205,6 +309,9 @@ if client.frame then
                 scanAll()
             else
                 scan("bags")
+                if merchantOpen then
+                    scan("equipped")
+                end
             end
         elseif event == "PLAYER_EQUIPMENT_CHANGED" then
             scanAll()
@@ -214,6 +321,22 @@ if client.frame then
         elseif event == "BANKFRAME_CLOSED" then
             bankOpen = false
             scan("bank")
+        elseif event == "MERCHANT_SHOW" then
+            merchantOpen = true
+            merchantName = readMerchantName()
+            scan("bags")
+            scan("equipped")
+            buybackItems = addon.Vendor.buybacks(_G)
+        elseif event == "MERCHANT_CLOSED" then
+            scan("bags")
+            scan("equipped")
+            merchantOpen = false
+            merchantName = nil
+            merchantSlots = nil
+            merchantEquippedSlots = nil
+            buybackItems = nil
+        elseif event == "MERCHANT_UPDATE" then
+            buybackItems = addon.Vendor.buybacks(_G)
         elseif event == "LOOT_OPENED" then
             lootOpen()
         elseif event == "LOOT_CLOSED" then
@@ -245,9 +368,8 @@ if client.frame then
         client.issues[#client.issues + 1] = "CreateFrame events (unusable)"
     end
 else
-    printStatus()
+    print("Azeroth Ledger: event frame unavailable; saved data was not opened")
 end
 
 addon.name = addonName
-addon.store = store
 AzerothLedger = addon

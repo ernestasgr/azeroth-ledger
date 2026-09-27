@@ -75,7 +75,7 @@ _G.GetQuestItemInfo = function(kind)
 end
 SlashCmdList = {}
 
-for _, source in ipairs({ "Item", "Schema", "Client", "Scan", "Loot", "Reward", "Collection", "Main" }) do
+for _, source in ipairs({ "Item", "Schema", "Client", "Scan", "Loot", "Reward", "Vendor", "Collection", "Main" }) do
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
 end
 
@@ -85,6 +85,7 @@ local function event(name, ...)
     end
 end
 
+event("ADDON_LOADED", "AzerothLedger")
 event("PLAYER_LOGIN")
 clock = 1010
 event("QUEST_COMPLETE")

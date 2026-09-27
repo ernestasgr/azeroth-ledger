@@ -199,8 +199,11 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                 if gain.method == "Looted" then
                     local label = sourceText(gain.source)
                     sources[label] = (sources[label] or 0) + gain.quantity
+                elseif gain.method == "Vendor" then
+                    local label = gain.source and sourceText(gain.source) or "Vendor"
+                    sources[label] = (sources[label] or 0) + gain.quantity - (gain.refunded or 0)
                 end
-                methods[gain.method] = (methods[gain.method] or 0) + gain.quantity
+                methods[gain.method] = (methods[gain.method] or 0) + gain.quantity - (gain.refunded or 0)
             end
             if record.totalGained > 0 then
                 local methodLabels = {}
@@ -209,7 +212,9 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                 end
                 table.sort(methodLabels)
                 for _, method in ipairs(methodLabels) do
-                    lines[#lines + 1] = "  Method total: " .. method .. " " .. methods[method]
+                    if methods[method] > 0 then
+                        lines[#lines + 1] = "  Method total: " .. method .. " " .. methods[method]
+                    end
                 end
                 local labels = {}
                 for label in pairs(sources) do
@@ -217,7 +222,9 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                 end
                 table.sort(labels)
                 for _, label in ipairs(labels) do
-                    lines[#lines + 1] = "  Source total: " .. label .. " " .. sources[label]
+                    if sources[label] > 0 then
+                        lines[#lines + 1] = "  Source total: " .. label .. " " .. sources[label]
+                    end
                 end
             end
             for _, seen in ipairs(record.characters) do
@@ -265,12 +272,45 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                         .. " • "
                         .. gain.place
                         .. (gain.method == "Looted" and (" • source " .. sourceText(source)) or "")
+                        .. (gain.method == "Vendor" and source and (" • vendor " .. sourceText(source)) or "")
                         .. (gain.method == "Quest" and (" • quest " .. contextText(gain.context)) or "")
                         .. (gain.method == "Crafted" and (" • recipe " .. contextText(gain.context)) or "")
                     lines[#lines + 1] = detail
                     recent[#recent + 1] = { at = gain.at, text = name .. detail }
                 end
             end
+        end
+    end
+    for _, action in ipairs(store:vendorActivity()) do
+        if matchesFilter(filterCharacter, filterRealm, action.character, action.realm) then
+            local record = store:find(action.key)
+            local name = record and record.links[1]:match("%[([^%]]+)%]") or action.key
+            local labels = { sale = "Sale", refund = "Refund", buyback = "Buyback" }
+            recent[#recent + 1] = {
+                at = action.at,
+                text = name
+                    .. "  "
+                    .. stamp(action.at)
+                    .. " • "
+                    .. labels[action.kind]
+                    .. " x"
+                    .. action.quantity
+                    .. " • "
+                    .. action.character
+                    .. "-"
+                    .. action.realm
+                    .. (action.vendorName and (" • vendor " .. action.vendorName) or ""),
+            }
+        end
+    end
+    for _, action in ipairs(store:vendorUnresolved()) do
+        if matchesFilter(filterCharacter, filterRealm, action.character, action.realm) then
+            lines[#lines + 1] = "Vendor evidence unresolved: "
+                .. action.kind
+                .. " x"
+                .. action.quantity
+                .. " • "
+                .. stamp(action.at)
         end
     end
     if shown == 0 then
@@ -280,7 +320,7 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
         table.sort(recent, function(left, right)
             return left.at > right.at
         end)
-        lines[#lines + 1] = "Recent gains"
+        lines[#lines + 1] = "Recent activity"
         for index = 1, math.min(#recent, 10) do
             lines[#lines + 1] = recent[index].text
         end

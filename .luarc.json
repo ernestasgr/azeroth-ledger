@@ -19,6 +19,17 @@
     "GetInventoryItemLink",
     "UIParent",
     "GameFontNormal",
-    "AzerothLedger"
+    "AzerothLedger",
+    "hooksecurefunc",
+    "LOOT_ITEM_SELF",
+    "LOOT_ITEM_SELF_MULTIPLE",
+    "GetNumBuybackItems",
+    "GetBuybackItemLink",
+    "GetBuybackItemInfo",
+    "GetMerchantItemLink",
+    "C_MerchantFrame",
+    "BuyMerchantItem",
+    "PickupMerchantItem",
+    "BuybackItem"
   ]
 }
