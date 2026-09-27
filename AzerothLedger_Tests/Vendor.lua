@@ -122,11 +122,11 @@ local function replay()
 end
 
 function tests.NamedVendorSurvivesRestoreAndRefund(_self)
-    local store, bags, action, _, restore = replay()
+    local _, bags, action, _, restore = replay()
     bags(0)
     WoWUnit.IsTrue(action("purchase", 1, "Dermot Johns"))
     bags(1)
-    store = restore()
+    local store = restore()
     local gain = store:find(key).gains[1]
     WoWUnit.AreEqual("vendor", gain.source.kind)
     WoWUnit.AreEqual("Dermot Johns", gain.source.name)
