@@ -8,7 +8,7 @@ local Vendor = {}
 
 ---@class AzerothLedgerMerchantApi
 ---@field GetMerchantItemLink? fun(index: integer): string?
----@field GetMerchantItemInfo? fun(index: integer): string?, any, number?, integer?
+---@field C_MerchantFrame? { GetItemInfo?: fun(index: integer): { stackCount?: integer }? }
 ---@field GetBuybackItemLink? fun(index: integer): string?
 ---@field GetBuybackItemInfo? fun(index: integer): string?, any, number?, integer?
 ---@field GetNumBuybackItems? fun(): integer
@@ -30,11 +30,17 @@ end
 ---@return AzerothLedgerVendorIntent?
 function Vendor.purchase(api, index, count)
     local ok, result = pcall(function()
-        if type(api.GetMerchantItemLink) ~= "function" or type(api.GetMerchantItemInfo) ~= "function" then
+        local merchant = api.C_MerchantFrame
+        if
+            type(api.GetMerchantItemLink) ~= "function"
+            or type(merchant) ~= "table"
+            or type(merchant.GetItemInfo) ~= "function"
+        then
             return nil
         end
         local link = api.GetMerchantItemLink(index)
-        local _, _, _, stack = api.GetMerchantItemInfo(index)
+        local info = merchant.GetItemInfo(index)
+        local stack = type(info) == "table" and info.stackCount or nil
         return item("purchase", link, count or stack or 1)
     end)
     return ok and result or nil

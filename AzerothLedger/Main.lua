@@ -1,6 +1,6 @@
 local addonName, addon = ...
 
-local REVISION = "0.4.0"
+local REVISION = "0.4.1"
 local store = addon.Schema.open(AzerothLedgerDB, function(nextValue)
     AzerothLedgerDB = nextValue
 end)

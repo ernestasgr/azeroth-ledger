@@ -26,7 +26,7 @@ globals = {
     "GetBuybackItemLink",
     "GetBuybackItemInfo",
     "GetMerchantItemLink",
-    "GetMerchantItemInfo",
+    "C_MerchantFrame",
     "BuyMerchantItem",
     "PickupMerchantItem",
     "BuybackItem",

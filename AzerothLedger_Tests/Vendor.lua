@@ -9,9 +9,11 @@ function tests.MerchantAdapterKeepsExactItemAndUnitCount(_self)
         GetMerchantItemLink = function()
             return bread
         end,
-        GetMerchantItemInfo = function()
-            return "Bread", nil, 10, 5
-        end,
+        C_MerchantFrame = {
+            GetItemInfo = function()
+                return { name = "Bread", price = 10, stackCount = 5 }
+            end,
+        },
         GetBuybackItemLink = function()
             return bread
         end,

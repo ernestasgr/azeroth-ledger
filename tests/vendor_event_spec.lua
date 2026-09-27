@@ -64,9 +64,11 @@ C_Container = {
 GetMerchantItemLink = function()
     return bread
 end
-GetMerchantItemInfo = function()
-    return "Bread", nil, 10, 1
-end
+C_MerchantFrame = {
+    GetItemInfo = function()
+        return { name = "Bread", price = 10, stackCount = 1 }
+    end,
+}
 GetNumBuybackItems = function()
     return buybackQuantity
 end
@@ -145,4 +147,5 @@ bagQuantity = 3
 event("CHAT_MSG_LOOT", "You receive item: " .. bread .. ".")
 event("BAG_UPDATE_DELAYED")
 assert(addon.store:find(key).totalGained == 2)
+
 print("vendor_event_spec: passed")

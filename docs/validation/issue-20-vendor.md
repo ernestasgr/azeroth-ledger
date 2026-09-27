@@ -6,6 +6,8 @@ The WoWUnit `AzerothLedgerVendor` group replays sale followed by purchase, purch
 
 The user bought a Mining Pick from Brother Danil. The Collection screenshot shows item 2901 in a bag, first seen at 15:07, with Total gained 0. The saved account data records build 1.60.1.70009, locale enUS, addon revision 0.4.0, a complete bag scan with one Mining Pick, and an empty vendor action list. The purchase click path, chat receipt, WoWUnit result, and Lua errors were not captured. The replay now covers both `PickupMerchantItem` and `BuyMerchantItem` followed by an item increase without a chat receipt.
 
+A second right-click purchase of Thin Cloth Bracers from Dermot Johns at 15:43 also left Total gained at 0 and the vendor action list empty. `/al status` reported no hook installation issue. The client has `C_MerchantFrame.GetItemInfo`; the addon's purchase adapter required the removed `GetMerchantItemInfo` global and silently returned no action. Version 0.4.1 uses the Forever API. Its replay runs with only `C_MerchantFrame.GetItemInfo` available and verifies that the right-click action and measured bag increase produce one gain.
+
 The earlier Forever trace on build 70009 recorded an item-specific `CHAT_MSG_LOOT` receipt for five Tough Hunks of Bread and a matching bag increase during an open merchant session. It also included gray-item sales. This trace predates the issue 20 code and did not record a locale, refund, buyback, or failed purchase. See [the original trace summary](forever-client.md).
 
 ## Pending in-client controls
@@ -14,7 +16,7 @@ Run the updated addon and `AzerothLedgerVendor` WoWUnit group in the Forever bet
 
 | Control | Expected result | Status |
 | --- | --- | --- |
-| Buy one item and one stack | One Vendor gain per item-specific purchase action and measured increase, with or without a chat line; no duplicate vendor activity row | Failed on 0.4.0; retest pending |
+| Buy one item and one stack | One Vendor gain per item-specific purchase action and measured increase, with or without a chat line; no duplicate vendor activity row | Failed on 0.4.0; 0.4.1 retest pending |
 | Open merchant and trigger money or merchant updates | No gain without a purchase action and measured increase | Pending |
 | Sell, then purchase the same item | Sale activity and a separate new gain | Pending |
 | Refund a uniquely linked purchase | Refund activity and a matching debit from Total gained, method, and source totals | Pending |
