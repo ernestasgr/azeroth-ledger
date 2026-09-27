@@ -158,6 +158,8 @@ local _, addon = ...
 ---@field quantity integer
 ---@field area? 'bags'|'equipped'
 
+---@alias ALVendorIntent AzerothLedgerVendorIntent
+
 ---@class AzerothLedgerVendorAction: AzerothLedgerVendorIntent
 ---@field id integer
 ---@field at integer
@@ -249,7 +251,7 @@ local _, addon = ...
 ---@field lootReceipt fun(self: AzerothLedgerStore, receipt: ALClaim, at: integer, actor: AzerothLedgerActor): boolean
 ---@field rewardReceipt fun(self: AzerothLedgerStore, receipt: ALReward, at: integer, actor: ALGainActor): boolean
 ---@field questTurnedIn fun(self: AzerothLedgerStore, questID: integer, at: integer, actor: ALActor): boolean
----@field vendorAction fun(self: AzerothLedgerStore, action: AzerothLedgerVendorIntent, at: integer, actor: ALGainActor): boolean
+---@field vendorAction fun(self: AzerothLedgerStore, action: ALVendorIntent, at: integer, actor: ALGainActor): boolean
 ---@field vendorReceipt fun(self: AzerothLedgerStore, receipt: ALClaim, at: integer, actor: ALActor): boolean
 ---@field vendorActivity fun(self: AzerothLedgerStore): AzerothLedgerVendorActivity[]
 ---@field vendorUnresolved fun(self: AzerothLedgerStore): AzerothLedgerVendorEvidence[]
@@ -257,6 +259,7 @@ local _, addon = ...
 
 local CURRENT_SCHEMA = 2
 local areas = { bags = true, bank = true, equipped = true }
+local gainMethods = { Looted = true, Quest = true, Crafted = true, Vendor = true }
 
 local function isInteger(value)
     return type(value) == "number" and value ~= math.huge and value ~= -math.huge and value == math.floor(value)
@@ -264,6 +267,16 @@ end
 
 local function isName(value)
     return type(value) == "string" and #value > 0 and #value <= 128
+end
+
+local function validRefunded(gain)
+    return gain.refunded == nil
+        or (
+            gain.method == "Vendor"
+            and isInteger(gain.refunded)
+            and gain.refunded >= 0
+            and gain.refunded <= gain.quantity
+        )
 end
 
 local function areaKey(character, realm, area)
@@ -391,8 +404,8 @@ local function validRecord(key, record)
             or not isName(gain.realm)
             or not isInteger(gain.level)
             or type(gain.place) ~= "string"
-            or (gain.method ~= "Looted" and gain.method ~= "Quest" and gain.method ~= "Crafted" and gain.method ~= "Vendor")
-            or (gain.refunded ~= nil and (gain.method ~= "Vendor" or not isInteger(gain.refunded) or gain.refunded < 0 or gain.refunded > gain.quantity))
+            or not gainMethods[gain.method]
+            or not validRefunded(gain)
             or gainIDs[gain.id]
         then
             return false
@@ -1113,7 +1126,7 @@ function Schema.open(raw, save)
         if
             not readable
             or type(action) ~= "table"
-            or (action.kind ~= "purchase" and action.kind ~= "sale" and action.kind ~= "refund" and action.kind ~= "buyback")
+            or not vendorKinds[action.kind]
             or not isInteger(action.itemID)
             or action.itemID < 1
             or addon.Item.key(action.link, action.itemID) ~= action.key
