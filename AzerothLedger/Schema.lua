@@ -136,6 +136,10 @@ local _, addon = ...
 
 ---@alias ALGainActor AzerothLedgerGainActor
 
+---@alias ALStore AzerothLedgerStore
+---@alias ALExIntent AzerothLedgerExchangeIntent
+---@alias ALExIds integer|table<integer, boolean>
+
 ---@class AzerothLedgerRewardSession
 ---@field id integer
 ---@field key string
@@ -307,8 +311,8 @@ local _, addon = ...
 ---@field vendorReceipt fun(self: AzerothLedgerStore, receipt: ALClaim, at: integer, actor: ALActor): boolean
 ---@field vendorActivity fun(self: AzerothLedgerStore): AzerothLedgerVendorActivity[]
 ---@field vendorUnresolved fun(self: AzerothLedgerStore): AzerothLedgerVendorEvidence[]
----@field exchangeIntent fun(self: AzerothLedgerStore, intent: AzerothLedgerExchangeIntent, at: integer, actor: ALGainActor): integer|boolean
----@field exchangeConfirm fun(self: AzerothLedgerStore, channel: 'mail'|'trade', direction: 'in'|'out', at: integer, actor: ALActor, ids?: integer|table<integer, boolean>): boolean
+---@field exchangeIntent fun(self: ALStore, intent: ALExIntent, at: integer, actor: ALGainActor): integer|boolean
+---@field exchangeConfirm fun(self: ALStore, c: string, d: string, at: integer, a: ALActor, ids?: ALExIds): boolean
 ---@field exchangeCancel fun(self: AzerothLedgerStore, channel: 'mail'|'trade', actor: ALActor): boolean
 ---@field exchangeMarkUnresolved fun(self: AzerothLedgerStore, id: integer, actor: ALActor): boolean
 ---@field exchangeActivity fun(self: AzerothLedgerStore): AzerothLedgerExchangeActivity[]

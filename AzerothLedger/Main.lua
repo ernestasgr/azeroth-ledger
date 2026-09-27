@@ -240,7 +240,7 @@ hookExchange("SendMail", function(recipient)
     if not mailOpen then
         return
     end
-    local character, realm = identity()
+    local _, realm = identity()
     local peer = addon.Exchange.player(recipient, nil, realm)
     local items = outboxItems and #outboxItems > 0 and outboxItems or addon.Exchange.outbox(_G)
     if mailSendIDs then
