@@ -36,6 +36,7 @@ jobs:
           lua tests/collection_spec.lua
           lua tests/reward_spec.lua
           lua tests/quest_event_spec.lua
+          lua tests/quest_delayed_event_spec.lua
           lua tests/scan_spec.lua
           lua tests/wowunit_replay_spec.lua
           lua tests/vendor_event_spec.lua
@@ -46,8 +47,10 @@ jobs:
           luacheck AzerothLedger AzerothLedger_Tests tests
       - name: LuaLS diagnostics
         run: |
-          .tools/luals/bin/lua-language-server --check="${PWD}" --checklevel=Warning --check_format=json --check_out_path="${PWD}/check.json" --logpath="${PWD}"
+          status=0
+          .tools/luals/bin/lua-language-server --check="${PWD}" --checklevel=Warning --check_format=json --check_out_path="${PWD}/check.json" --logpath="${PWD}" || status=$?
           python3 tools/check_luals.py
+          exit "$status"
       - name: Package contents and order
         run: python3 tools/package.py --output dist/AzerothLedger.zip
       - name: Local installer behavior

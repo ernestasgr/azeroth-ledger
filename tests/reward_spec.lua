@@ -216,4 +216,46 @@ explicitBags(9011, 1, 1, 0)
 assert(explicit:find(questKey).totalGained == 0)
 assert(explicit:find(boltKey).totalGained == 1)
 
+local late, lateBags, lateRestore = scenario()
+local function scanEquipped(store, at, quantity)
+    local items = quantity > 0 and { { link = questLink, itemID = 263409, quantity = quantity } } or {}
+    assert(store:scan({
+        character = "Ada",
+        realm = "Realm",
+        area = "equipped",
+        seenAt = at,
+        complete = true,
+        items = items,
+    }))
+end
+lateBags(10000, 2, 0, 0)
+scanEquipped(late, 10000, 0)
+assert(late:questPrepared(92463, 10010, actor))
+assert(not late:questPrepared(92463, 10010, actor))
+assert(late:questTurnedIn(92463, 10011, actor))
+lateBags(10012, 3, 0, 0)
+scanEquipped(late, 10012, 0)
+late = lateRestore()
+assert(late:rewardReceipt(quest, 10013, actor))
+lateBags(10014, 3, 0, 0)
+scanEquipped(late, 10014, 0)
+assert(late:find(questKey).totalGained == 1)
+assert(late:find(questKey).firstSeenUnits == 2)
+assert(late:rewardReceipt(quest, 10015, actor))
+lateBags(10016, 3, 0, 0)
+scanEquipped(late, 10016, 0)
+assert(late:find(questKey).totalGained == 1)
+
+local moved, movedBags = scenario()
+movedBags(11000, 1, 0, 0)
+scanEquipped(moved, 11000, 0)
+assert(moved:questPrepared(92463, 11010, actor))
+assert(moved:questTurnedIn(92463, 11011, actor))
+movedBags(11012, 0, 0, 0)
+scanEquipped(moved, 11012, 1)
+assert(moved:rewardReceipt(quest, 11013, actor))
+movedBags(11014, 0, 0, 0)
+scanEquipped(moved, 11014, 1)
+assert(moved:find(questKey).totalGained == 0)
+
 print("reward_spec: passed")

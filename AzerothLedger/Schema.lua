@@ -159,10 +159,21 @@ local _, addon = ...
 ---@field choiceGroup? string
 ---@field specific? boolean
 ---@field ambiguous? boolean
+---@field questPreparationID? integer
+
+---@class AzerothLedgerQuestPreparation
+---@field id integer
+---@field questID integer
+---@field character string
+---@field realm string
+---@field at integer
+---@field confirmed boolean
+---@field baseline table<string, {quantity: integer, gained: integer}>
 
 ---@class AzerothLedgerRewardState
 ---@field nextID integer
 ---@field sessions AzerothLedgerRewardSession[]
+---@field preparations? AzerothLedgerQuestPreparation[]
 
 ---@class AzerothLedgerVendorIntent
 ---@field kind 'purchase'|'sale'|'refund'|'buyback'
@@ -306,6 +317,7 @@ local _, addon = ...
 ---@field lootClose fun(self: AzerothLedgerStore, at: integer): boolean
 ---@field lootReceipt fun(self: AzerothLedgerStore, receipt: ALClaim, at: integer, actor: AzerothLedgerActor): boolean
 ---@field rewardReceipt fun(self: AzerothLedgerStore, receipt: ALReward, at: integer, actor: ALGainActor): boolean
+---@field questPrepared fun(self: AzerothLedgerStore, questID: integer, at: integer, actor: ALActor): boolean
 ---@field questTurnedIn fun(self: AzerothLedgerStore, questID: integer, at: integer, actor: ALActor): boolean
 ---@field vendorAction fun(self: AzerothLedgerStore, action: ALVendorIntent, at: integer, actor: ALGainActor): boolean
 ---@field vendorReceipt fun(self: AzerothLedgerStore, receipt: ALClaim, at: integer, actor: ALActor): boolean
@@ -603,15 +615,52 @@ local function validRewardSession(session)
         and (session.choiceGroup == nil or (type(session.choiceGroup) == "string" and session.choiceGroup ~= ""))
         and (session.specific == nil or type(session.specific) == "boolean")
         and (session.ambiguous == nil or type(session.ambiguous) == "boolean")
+        and (
+            session.questPreparationID == nil
+            or (isInteger(session.questPreparationID) and session.questPreparationID > 0)
+        )
 end
 
 local function validRewardState(rewards)
-    if type(rewards) ~= "table" or not isInteger(rewards.nextID) or type(rewards.sessions) ~= "table" then
+    if
+        type(rewards) ~= "table"
+        or not isInteger(rewards.nextID)
+        or type(rewards.sessions) ~= "table"
+        or (rewards.preparations ~= nil and type(rewards.preparations) ~= "table")
+    then
         return false
     end
     for _, session in ipairs(rewards.sessions) do
         if not validRewardSession(session) then
             return false
+        end
+    end
+    for _, preparation in ipairs(rewards.preparations or {}) do
+        if
+            type(preparation) ~= "table"
+            or not isInteger(preparation.id)
+            or preparation.id < 1
+            or not isInteger(preparation.questID)
+            or preparation.questID < 1
+            or not isName(preparation.character)
+            or not isName(preparation.realm)
+            or not isInteger(preparation.at)
+            or type(preparation.confirmed) ~= "boolean"
+            or type(preparation.baseline) ~= "table"
+        then
+            return false
+        end
+        for key, item in pairs(preparation.baseline) do
+            if
+                type(key) ~= "string"
+                or type(item) ~= "table"
+                or not isInteger(item.quantity)
+                or item.quantity < 0
+                or not isInteger(item.gained)
+                or item.gained < 0
+            then
+                return false
+            end
         end
     end
     return true
@@ -1946,6 +1995,94 @@ function Schema.open(raw, save)
         return result
     end
 
+    local function questPreparations(at)
+        local result = {}
+        local rewards = raw.rewards
+        local preparations = type(rewards) == "table" and rewards.preparations or nil
+        for _, preparation in ipairs(type(preparations) == "table" and preparations or {}) do
+            if at >= preparation.at and at - preparation.at <= 120 then
+                result[#result + 1] = preparation
+            end
+        end
+        return result
+    end
+
+    local function questPreparation(questID, at, actor)
+        local preparations = questPreparations(at)
+        for index = #preparations, 1, -1 do
+            local preparation = preparations[index]
+            if
+                preparation.questID == questID
+                and preparation.character == actor.character
+                and preparation.realm == actor.realm
+            then
+                return preparation
+            end
+        end
+        return nil
+    end
+
+    function store.questPrepared(_self, questID, at, actor)
+        if
+            not readable
+            or not isInteger(questID)
+            or questID < 1
+            or not isInteger(at)
+            or type(actor) ~= "table"
+            or not isName(actor.character)
+            or not isName(actor.realm)
+        then
+            return false
+        end
+        local area = store:area(actor.character, actor.realm, "bags")
+        local equippedArea = store:area(actor.character, actor.realm, "equipped")
+        if
+            not area
+            or not area.complete
+            or area.seenAt > at
+            or not equippedArea
+            or not equippedArea.complete
+            or equippedArea.seenAt ~= area.seenAt
+        then
+            return false
+        end
+        local existing = questPreparation(questID, at, actor)
+        if existing and not existing.confirmed then
+            return false
+        end
+        local rewards = type(raw.rewards) == "table" and raw.rewards or nil
+        local nextID = (rewards and isInteger(rewards.nextID) and rewards.nextID or 0) + 1
+        local baseline = {}
+        for key, record in pairs(valid) do
+            baseline[key] = {
+                quantity = bagQuantity(record, actor.character, actor.realm)
+                    + areaQuantity(record, actor.character, actor.realm, "equipped"),
+                gained = record.totalGained,
+            }
+        end
+        local preparations = {}
+        for _, preparation in ipairs(questPreparations(at)) do
+            if
+                preparation.questID ~= questID
+                or preparation.character ~= actor.character
+                or preparation.realm ~= actor.realm
+            then
+                preparations[#preparations + 1] = preparation
+            end
+        end
+        preparations[#preparations + 1] = {
+            id = nextID,
+            questID = questID,
+            character = actor.character,
+            realm = actor.realm,
+            at = at,
+            confirmed = false,
+            baseline = baseline,
+        }
+        saveFields({ rewards = { nextID = nextID, sessions = rewardSessions(at), preparations = preparations } })
+        return true
+    end
+
     ---@param receipt AzerothLedgerRewardReceipt
     ---@param at integer
     ---@param actor AzerothLedgerGainActor
@@ -1977,16 +2114,19 @@ function Schema.open(raw, save)
         if not validRewardContext(context, receipt.method) then
             return false
         end
+        local preparation = receipt.method == "Quest" and context and questPreparation(context.id, at, actor) or nil
         local sessions = rewardSessions(at)
         local session
         for _, existing in ipairs(sessions) do
+            local awaitingReward = not existing.confirmed or existing.awarded < existing.quantity
             if
                 existing.key == receipt.key
                 and existing.method == receipt.method
                 and existing.character == actor.character
                 and existing.realm == actor.realm
                 and (not receipt.preview or existing.choiceGroup == receipt.choiceGroup)
-                and (receipt.method ~= "Quest" or not existing.confirmed or existing.awarded < existing.quantity)
+                and (not preparation or existing.questPreparationID == preparation.id)
+                and (receipt.method ~= "Quest" or preparation or awaitingReward)
                 and (
                     (not existing.context and not context)
                     or (existing.context and context and existing.context.id == context.id)
@@ -2000,6 +2140,7 @@ function Schema.open(raw, save)
         local nextID = rewards and rewards.nextID or 0
         if not session then
             nextID = (isInteger(nextID) and nextID or 0) + 1
+            local before = preparation and preparation.baseline[receipt.key] or nil
             session = {
                 id = nextID,
                 key = receipt.key,
@@ -2010,14 +2151,17 @@ function Schema.open(raw, save)
                 level = actor.level,
                 place = actor.place,
                 at = at,
-                baseline = bagQuantity(valid[receipt.key], actor.character, actor.realm),
-                baselineGained = valid[receipt.key] and valid[receipt.key].totalGained or 0,
+                baseline = preparation and (before and before.quantity or 0)
+                    or bagQuantity(valid[receipt.key], actor.character, actor.realm),
+                baselineGained = preparation and (before and before.gained or 0)
+                    or (valid[receipt.key] and valid[receipt.key].totalGained or 0),
                 quantity = 0,
                 awarded = 0,
-                discovery = not valid[receipt.key],
-                confirmed = receipt.method == "Crafted",
+                discovery = preparation and not before or not valid[receipt.key],
+                confirmed = receipt.method == "Crafted" or (preparation and preparation.confirmed) or false,
                 choiceGroup = receipt.choiceGroup,
                 specific = receipt.method == "Quest" and not receipt.preview or nil,
+                questPreparationID = preparation and preparation.id or nil,
             }
             sessions[#sessions + 1] = session
         end
@@ -2029,7 +2173,7 @@ function Schema.open(raw, save)
         else
             session.quantity = session.quantity + receipt.quantity
         end
-        saveFields({ rewards = { nextID = nextID, sessions = sessions } })
+        saveFields({ rewards = { nextID = nextID, sessions = sessions, preparations = questPreparations(at) } })
         return true
     end
 
@@ -2046,6 +2190,11 @@ function Schema.open(raw, save)
             return false
         end
         local changed = false
+        local preparation = questPreparation(questID, at, actor)
+        if preparation and not preparation.confirmed then
+            preparation.confirmed = true
+            changed = true
+        end
         for _, session in ipairs(rewardSessions(at)) do
             if
                 session.method == "Quest"
@@ -2060,7 +2209,14 @@ function Schema.open(raw, save)
             end
         end
         if changed then
-            saveFields({})
+            local rewards = raw.rewards
+            saveFields({
+                rewards = {
+                    nextID = rewards.nextID,
+                    sessions = rewardSessions(at),
+                    preparations = questPreparations(at),
+                },
+            })
         end
         return changed
     end
@@ -2191,7 +2347,10 @@ function Schema.open(raw, save)
             return false
         end
         local nextRecords = {}
-        local activeRewards = snapshot.area == "bags" and snapshot.complete and rewardSessions(snapshot.seenAt) or {}
+        local activeRewards = (snapshot.area == "bags" or snapshot.area == "equipped")
+                and snapshot.complete
+                and rewardSessions(snapshot.seenAt)
+            or {}
         for key, record in pairs(raw.records) do
             nextRecords[key] = record
         end
@@ -2286,6 +2445,7 @@ function Schema.open(raw, save)
                 for _, reward in ipairs(activeRewards) do
                     if
                         reward.key == key
+                        and not reward.questPreparationID
                         and reward.character == snapshot.character
                         and reward.realm == snapshot.realm
                         and choiceIsProven(reward, activeRewards, grouped)
@@ -2319,6 +2479,36 @@ function Schema.open(raw, save)
                         }
                         nextRecords[key] = record
                     end
+                end
+            end
+        end
+        local bagArea = store:area(snapshot.character, snapshot.realm, "bags")
+        if
+            snapshot.area == "equipped"
+            and snapshot.complete
+            and bagArea
+            and bagArea.complete
+            and bagArea.seenAt == snapshot.seenAt
+        then
+            local quantities = {}
+            for _, reward in ipairs(activeRewards) do
+                if reward.questPreparationID then
+                    local record = nextRecords[reward.key]
+                    local equipped = grouped[reward.key]
+                    quantities[reward.key] = {
+                        quantity = bagQuantity(record, snapshot.character, snapshot.realm)
+                            + (equipped and equipped.quantity or 0),
+                    }
+                end
+            end
+            for _, reward in ipairs(activeRewards) do
+                if
+                    reward.questPreparationID
+                    and reward.character == snapshot.character
+                    and reward.realm == snapshot.realm
+                    and choiceIsProven(reward, activeRewards, quantities)
+                then
+                    awardReward(reward, reward.key, quantities[reward.key].quantity, nextRecords)
                 end
             end
         end

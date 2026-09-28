@@ -72,10 +72,15 @@ local function scan(area, checkedAt)
     end
 end
 
-local function scanAll()
+local function scanPossessions()
     local checkedAt = type(GetServerTime) == "function" and GetServerTime() or nil
     scan("bags", checkedAt)
     scan("equipped", checkedAt)
+    return checkedAt
+end
+
+local function scanAll()
+    local checkedAt = scanPossessions()
     scan("bank", checkedAt)
 end
 
@@ -281,15 +286,31 @@ local function rewardReceipt(receipt)
         return
     end
     if store:rewardReceipt(receipt, context.at, context) then
+        if receipt.method == "Quest" then
+            scanPossessions()
+        end
         addon.Collection.refresh(store, context.character, context.realm)
     end
 end
 
 local function questOffer()
-    scan("bags")
+    scanPossessions()
     local offer = addon.Reward.offer(_G)
     local context = playerContext()
-    if not offer or not context then
+    if not context then
+        return
+    end
+    local questID = offer and offer.questID or nil
+    if not questID and type(_G.GetQuestID) == "function" then
+        local ok, id = pcall(_G.GetQuestID)
+        if ok then
+            questID = id
+        end
+    end
+    if questID then
+        store:questPrepared(questID, context.at, context)
+    end
+    if not offer then
         return
     end
     questOfferSequence = questOfferSequence + 1
@@ -420,10 +441,7 @@ if client.frame then
             if bankOpen then
                 scanAll()
             else
-                scan("bags")
-                if merchantOpen then
-                    scan("equipped")
-                end
+                scanPossessions()
             end
         elseif event == "PLAYER_EQUIPMENT_CHANGED" then
             scanAll()
@@ -534,7 +552,7 @@ if client.frame then
             local questID = ...
             local context = playerContext()
             if context and store:questTurnedIn(questID, context.at, context) then
-                scan("bags")
+                scanPossessions()
             end
         elseif event == "TRADE_SKILL_ITEM_CRAFTED_RESULT" then
             rewardReceipt(addon.Reward.craft(_G, ..., craftRecipeID))

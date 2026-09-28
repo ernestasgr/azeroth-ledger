@@ -12,6 +12,10 @@ Use the default labels `needs-triage`, `needs-info`, `ready-for-agent`, `ready-f
 
 Use the single-context layout. See `docs/agents/domain.md`.
 
+### WoW API reference
+
+Use the [generated Blizzard API documentation](https://github.com/Gethe/wow-ui-source/tree/live/Interface/AddOns/Blizzard_APIDocumentationGenerated) as a general reference. For Forever beta behavior, check the installed client's `BlizzardInterfaceCode` export and confirm event order in-client; the `live` branch may differ from this build.
+
 ## Finish addon implementations
 
 Before finishing an implementation, run the checks in `.github/workflows/verify.yml`: Lua 5.1 syntax and all `tests/*.lua` behavior tests, StyLua, Luacheck, LuaLS diagnostics, and package validation. If a tool is unavailable locally, wait for the PR's `verify` check and report which checks ran only in CI. Fix failures before calling the work done.
