@@ -220,22 +220,10 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
             if record.lastGained then
                 lines[#lines + 1] = "  Latest confirmed gain " .. stamp(record.lastGained)
             end
-            local sources = {}
-            local methods = {}
-            for _, gain in ipairs(record.gains) do
-                if gain.method == "Looted" then
-                    local label = sourceText(gain.source)
-                    sources[label] = (sources[label] or 0) + gain.quantity
-                elseif gain.method == "Vendor" then
-                    local label = gain.source and sourceText(gain.source) or "Vendor"
-                    sources[label] = (sources[label] or 0) + gain.quantity - (gain.refunded or 0)
-                elseif gain.method == "Obtained" then
-                    local label = sourceText(gain.source)
-                    sources[label] = (sources[label] or 0) + gain.quantity
-                end
-                methods[gain.method] = (methods[gain.method] or 0) + gain.quantity - (gain.refunded or 0)
-            end
-            if record.totalGained > 0 then
+            local breakdown = assert(store:breakdown(record.key))
+            local sources = breakdown.sources
+            local methods = breakdown.methods
+            if breakdown.recorded > 0 then
                 local methodLabels = {}
                 for method in pairs(methods) do
                     methodLabels[#methodLabels + 1] = method

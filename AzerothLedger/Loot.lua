@@ -25,6 +25,66 @@ local function receiptPattern(formatString)
     return "^" .. pattern .. "$"
 end
 
+local function pack(...)
+    return { n = select("#", ...), ... }
+end
+
+local function source(api, guid)
+    local kind = type(guid) == "string" and guid:match("^([^-]+)%-")
+    if kind ~= "Creature" and kind ~= "Vehicle" and kind ~= "GameObject" then
+        return nil
+    end
+    local result = { kind = kind == "GameObject" and "container" or "mob", guid = guid }
+    if kind ~= "GameObject" and type(api.UnitGUID) == "function" and type(api.UnitName) == "function" then
+        local targetOK, targetGUID = pcall(api.UnitGUID, "target")
+        if targetOK and targetGUID == guid then
+            local nameOK, name = pcall(api.UnitName, "target")
+            if nameOK and type(name) == "string" and name ~= "" then
+                result.name = name
+            end
+        end
+    end
+    return result
+end
+
+local function sourceShares(api, slot, key, slotQuantity)
+    if type(api.GetLootSourceInfo) ~= "function" then
+        return nil
+    end
+    local ok, values = pcall(function()
+        return pack(api.GetLootSourceInfo(slot))
+    end)
+    if not ok or values.n == 0 or values.n > 200 or values.n % 2 ~= 0 then
+        return nil
+    end
+    local result = {}
+    local total = 0
+    for index = 1, values.n, 2 do
+        local guid, quantity = values[index], values[index + 1]
+        if
+            type(guid) ~= "string"
+            or type(quantity) ~= "number"
+            or quantity <= 0
+            or quantity == math.huge
+            or quantity ~= math.floor(quantity)
+        then
+            return nil
+        end
+        total = total + quantity
+        result[#result + 1] = {
+            key = key,
+            quantity = quantity,
+            source = source(api, guid),
+            slot = slot,
+            sourceIndex = (index + 1) / 2,
+        }
+    end
+    if slotQuantity and slotQuantity ~= total then
+        return nil
+    end
+    return result
+end
+
 ---@param api AzerothLedgerLootApi
 ---@param message string
 ---@return AzerothLedgerLootReceipt?
@@ -73,7 +133,6 @@ function Loot.open(api)
             local itemID = tonumber(link:match("|Hitem:(%d+)"))
             local key = itemID and addon.Item.key(link, itemID)
             if key then
-                local source
                 local slotQuantity
                 if type(api.GetLootSlotInfo) == "function" then
                     local infoOK, _, _, quantity = pcall(api.GetLootSlotInfo, slot)
@@ -81,32 +140,14 @@ function Loot.open(api)
                         slotQuantity = quantity
                     end
                 end
-                if type(api.GetLootSourceInfo) == "function" then
-                    local sourceOK, guid, quantity, other = pcall(api.GetLootSourceInfo, slot)
-                    if sourceOK and type(guid) == "string" and type(quantity) == "number" and other == nil then
-                        if not slotQuantity and quantity > 0 and quantity == math.floor(quantity) then
-                            slotQuantity = quantity
-                        end
-                        local kind = guid:match("^([^-]+)%-")
-                        if kind == "Creature" or kind == "Vehicle" or kind == "GameObject" then
-                            source = { kind = kind == "GameObject" and "container" or "mob", guid = guid }
-                            if
-                                kind ~= "GameObject"
-                                and type(api.UnitGUID) == "function"
-                                and type(api.UnitName) == "function"
-                            then
-                                local targetOK, targetGUID = pcall(api.UnitGUID, "target")
-                                if targetOK and targetGUID == guid then
-                                    local nameOK, name = pcall(api.UnitName, "target")
-                                    if nameOK and type(name) == "string" and name ~= "" then
-                                        source.name = name
-                                    end
-                                end
-                            end
-                        end
+                local shares = sourceShares(api, slot, key, slotQuantity)
+                if shares then
+                    for _, share in ipairs(shares) do
+                        slots[#slots + 1] = share
                     end
+                else
+                    slots[#slots + 1] = { key = key, quantity = slotQuantity, slot = slot, sourceIndex = 1 }
                 end
-                slots[#slots + 1] = { key = key, source = source, quantity = slotQuantity, slot = slot }
             end
         end
     end

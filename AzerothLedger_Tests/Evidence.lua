@@ -277,3 +277,104 @@ function tests.CorrectionsMoveMethodsAndRejectStaleOrUnderflowingProof(_self)
     WoWUnit.AreEqual(1, store:breakdown(key).methods.Quest)
     WoWUnit.AreEqual(6, store:breakdown(key).recorded)
 end
+
+function tests.ProvenShareCanCoexistWithUnknownAndImproveLater(_self)
+    local store, scan = fixture()
+    local first = { kind = "mob", guid = "Creature-0-1-2-3-4-5", name = "Boar" }
+    local second = { kind = "container", guid = "GameObject-0-1-2-3-6-7", name = "Chest" }
+    WoWUnit.IsTrue(store:lootOpen({
+        character = "Ada",
+        realm = "Realm",
+        at = 1010,
+        level = 12,
+        place = "Forest",
+        slots = {
+            { key = key, quantity = 1, source = first },
+            { key = key, quantity = 2 },
+        },
+    }))
+    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 3 }, 1011, actor))
+    scan(1012, 8)
+    WoWUnit.AreEqual(8, store:breakdown(key).recorded)
+    WoWUnit.AreEqual(1, store:breakdown(key).sources.Boar)
+    WoWUnit.AreEqual(2, store:breakdown(key).sources.Unknown)
+    WoWUnit.IsTrue(store:lootSourceProof({
+        { key = key, quantity = 1, source = first },
+        { key = key, quantity = 2, source = second },
+    }, 1013, actor))
+    WoWUnit.AreEqual(8, store:breakdown(key).recorded)
+    WoWUnit.AreEqual(2, store:breakdown(key).sources.Chest)
+    WoWUnit.AreEqual(nil, store:breakdown(key).sources.Unknown)
+    WoWUnit.IsTrue(not store:lootSourceProof({
+        { key = key, quantity = 1, source = first },
+        { key = key, quantity = 2, source = second },
+    }, 1014, actor))
+    WoWUnit.AreEqual(2, #store:find(key).gains)
+    WoWUnit.AreEqual(3, store:find(key).totalGained)
+end
+
+function tests.LootAdapterPreservesEverySourcePair(_self)
+    local store, scan = fixture()
+    local api = {
+        GetNumLootItems = function()
+            return 1
+        end,
+        GetLootSlotLink = function()
+            return link
+        end,
+        GetLootSlotInfo = function()
+            return nil, nil, 3
+        end,
+        GetLootSourceInfo = function()
+            return "Creature-0-1-2-3-4-5", 1, "GameObject-0-1-2-3-6-7", 2
+        end,
+    }
+    local slots = addon.Loot.open(api)
+    WoWUnit.AreEqual(2, #slots)
+    WoWUnit.IsTrue(
+        store:lootOpen({ character = "Ada", realm = "Realm", at = 1010, level = 12, place = "Forest", slots = slots })
+    )
+    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 3 }, 1011, actor))
+    scan(1012, 8)
+    WoWUnit.AreEqual(1, store:breakdown(key).sources["Creature-0-1-2-3-4-5"])
+    WoWUnit.AreEqual(2, store:breakdown(key).sources["GameObject-0-1-2-3-6-7"])
+    api.UnitGUID = function()
+        return "Creature-0-1-2-3-4-5"
+    end
+    api.UnitName = function()
+        return "Boar"
+    end
+    WoWUnit.IsTrue(store:lootSourceProof(addon.Loot.open(api), 1013, actor))
+    WoWUnit.AreEqual(1, store:breakdown(key).sources.Boar)
+    WoWUnit.AreEqual(8, store:breakdown(key).recorded)
+    WoWUnit.IsTrue(not store:lootSourceProof(addon.Loot.open(api), 1014, actor))
+    WoWUnit.AreEqual(2, #store:find(key).gains)
+    api.GetLootSourceInfo = function()
+        return "Creature-0-1-2-3-4-5", 1, "GameObject-0-1-2-3-6-7", 1
+    end
+    local mismatched = addon.Loot.open(api)
+    WoWUnit.AreEqual(1, #mismatched)
+    WoWUnit.AreEqual(nil, mismatched[1].source)
+    WoWUnit.AreEqual(3, mismatched[1].quantity)
+end
+
+function tests.MalformedScanCannotExpireOrChangeEvidence(_self)
+    local store, _, open = fixture()
+    WoWUnit.IsTrue(open(1010))
+    WoWUnit.IsTrue(not store:scan({
+        character = "Ada",
+        realm = "Realm",
+        area = "bags",
+        seenAt = 1070,
+        complete = true,
+        items = { { itemID = 0, quantity = 1 } },
+    }))
+    WoWUnit.AreEqual(0, #store:unresolved())
+    WoWUnit.IsTrue(not store:lootReceipt({ key = key, quantity = 0 }, 1070, actor))
+    WoWUnit.AreEqual(0, #store:unresolved())
+    WoWUnit.IsTrue(not store:lootSourceProof({ { key = key, quantity = 1, source = {} } }, 1070, actor))
+    WoWUnit.AreEqual(0, #store:unresolved())
+    WoWUnit.AreEqual(0, store:find(key).totalGained)
+    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1011, actor))
+    WoWUnit.AreEqual(0, store:find(key).totalGained)
+end

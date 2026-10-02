@@ -1,5 +1,5 @@
 local addon = {}
-for _, source in ipairs({ "Item", "Schema", "Scan", "Reward", "Vendor", "Exchange", "Collection" }) do
+for _, source in ipairs({ "Item", "Schema", "Scan", "Loot", "Reward", "Vendor", "Exchange", "Collection" }) do
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
 end
 AzerothLedger = addon

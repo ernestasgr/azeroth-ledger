@@ -67,6 +67,7 @@ local _, addon = ...
 ---@field source? AzerothLedgerLootSource
 ---@field quantity? integer
 ---@field slot? integer
+---@field sourceIndex? integer
 
 ---@class AzerothLedgerLootContext
 ---@field character string
@@ -95,7 +96,7 @@ local _, addon = ...
 ---@class AzerothLedgerLootSessionSlot
 ---@field source? AzerothLedgerLootSource
 ---@field limit? integer
----@field shares? {source?: AzerothLedgerLootSource, quantity?: integer, slot: integer}[]
+---@field shares? {source?: AzerothLedgerLootSource, quantity?: integer, slot: integer, sourceIndex: integer}[]
 
 ---@class AzerothLedgerLootSession
 ---@field id integer
@@ -1573,6 +1574,21 @@ function Schema.open(raw, save)
             end
         end
         if not gain then
+            for index, share in ipairs(shares) do
+                for _, entry in ipairs(record.gains) do
+                    if
+                        entry.id == gainID .. ":share:" .. index
+                        and entry.quantity == share.quantity
+                        and not entry.corrections
+                        and share.source
+                    then
+                        entry.source = copyValue(share.source)
+                    end
+                end
+            end
+            return
+        end
+        if gain.corrections then
             return
         end
         if #shares == 1 then
@@ -1586,13 +1602,17 @@ function Schema.open(raw, save)
             return
         end
         local proven = 0
+        local knownSource = false
         for _, share in ipairs(shares) do
-            if not share.source or not isInteger(share.quantity) or share.quantity < 1 then
+            if not isInteger(share.quantity) or share.quantity < 1 then
                 return
+            end
+            if share.source then
+                knownSource = true
             end
             proven = proven + share.quantity
         end
-        if proven ~= gain.quantity then
+        if proven ~= gain.quantity or not knownSource then
             return
         end
         for index, entry in ipairs(record.gains) do
@@ -1706,8 +1726,12 @@ function Schema.open(raw, save)
             if type(slot) == "table" and type(slot.key) == "string" then
                 if slots[slot.key] then
                     local shares = slots[slot.key].shares
-                    shares[#shares + 1] =
-                        { source = copyValue(slot.source), quantity = slot.quantity, slot = slot.slot or index }
+                    shares[#shares + 1] = {
+                        source = copyValue(slot.source),
+                        quantity = slot.quantity,
+                        slot = slot.slot or index,
+                        sourceIndex = slot.sourceIndex or 1,
+                    }
                     slots[slot.key].source = nil
                     if slots[slot.key].limit and isInteger(slot.quantity) and slot.quantity > 0 then
                         slots[slot.key].limit = slots[slot.key].limit + slot.quantity
@@ -1716,10 +1740,15 @@ function Schema.open(raw, save)
                     end
                 else
                     slots[slot.key] = {
-                        source = slot.source,
+                        source = copyValue(slot.source),
                         limit = isInteger(slot.quantity) and slot.quantity > 0 and slot.quantity or nil,
                         shares = {
-                            { source = copyValue(slot.source), quantity = slot.quantity, slot = slot.slot or index },
+                            {
+                                source = copyValue(slot.source),
+                                quantity = slot.quantity,
+                                slot = slot.slot or index,
+                                sourceIndex = slot.sourceIndex or 1,
+                            },
                         },
                     }
                     local record = valid[slot.key]
@@ -1788,8 +1817,20 @@ function Schema.open(raw, save)
             or type(actor) ~= "table"
             or not isName(actor.character)
             or not isName(actor.realm)
-            or not store:expireEvidence(at)
         then
+            return false
+        end
+        for _, proof in ipairs(slots) do
+            if
+                type(proof) ~= "table"
+                or type(proof.key) ~= "string"
+                or not validLootSource(proof.source)
+                or (proof.quantity ~= nil and (not isInteger(proof.quantity) or proof.quantity < 1))
+            then
+                return false
+            end
+        end
+        if not store:expireEvidence(at) then
             return false
         end
         local current = activeSession(at)
@@ -1806,6 +1847,7 @@ function Schema.open(raw, save)
             for _, share in ipairs(slot and slot.shares or {}) do
                 if
                     share.slot == (proof.slot or index)
+                    and share.sourceIndex == (proof.sourceIndex or 1)
                     and share.quantity == proof.quantity
                     and proof.source
                     and (not share.source or (share.source.guid == proof.source.guid and share.source.kind == proof.source.kind))
@@ -2986,6 +3028,21 @@ function Schema.open(raw, save)
         then
             return false
         end
+        for _, item in ipairs(snapshot.items) do
+            if
+                type(item) ~= "table"
+                or not isInteger(item.itemID)
+                or item.itemID <= 0
+                or not isInteger(item.quantity)
+                or item.quantity <= 0
+            then
+                return false
+            end
+        end
+        local priorScope = raw.areas[areaKey(snapshot.character, snapshot.realm, snapshot.area)]
+        if type(priorScope) == "table" and isInteger(priorScope.seenAt) and snapshot.seenAt < priorScope.seenAt then
+            return false
+        end
         if not store:expireEvidence(snapshot.seenAt) then
             return false
         end
@@ -3277,6 +3334,64 @@ function Schema.open(raw, save)
 
     -- Count incoming candidate signals at the public boundary, across all
     -- channels for each character. Overflow is retained before it can match.
+    local function validCandidate(name, detail, actor)
+        if name == "questPrepared" then
+            return isInteger(detail) and detail > 0
+        end
+        if type(detail) ~= "table" then
+            return false
+        end
+        if name == "lootOpen" then
+            if not isInteger(detail.level) or type(detail.place) ~= "string" or type(detail.slots) ~= "table" then
+                return false
+            end
+            for _, slot in ipairs(detail.slots) do
+                if
+                    type(slot) ~= "table"
+                    or type(slot.key) ~= "string"
+                    or not validLootSource(slot.source)
+                    or (slot.quantity ~= nil and (not isInteger(slot.quantity) or slot.quantity < 1))
+                then
+                    return false
+                end
+            end
+            return true
+        end
+        if type(detail.key) ~= "string" or not isInteger(detail.quantity) or detail.quantity < 1 then
+            return false
+        end
+        if name == "lootReceipt" or name == "vendorReceipt" then
+            return true
+        end
+        if not isInteger(actor.level) or type(actor.place) ~= "string" then
+            return false
+        end
+        if name == "rewardReceipt" then
+            return (detail.method == "Quest" or detail.method == "Crafted")
+                and validRewardContext(detail.context, detail.method)
+                and (detail.preview == nil or type(detail.preview) == "boolean")
+                and (
+                    detail.choiceGroup == nil
+                    or (isName(detail.choiceGroup) and detail.method == "Quest" and detail.preview == true)
+                )
+        end
+        if
+            not isInteger(detail.itemID)
+            or detail.itemID < 1
+            or addon.Item.key(detail.link, detail.itemID) ~= detail.key
+        then
+            return false
+        end
+        if name == "vendorAction" then
+            return vendorKinds[detail.kind] == true
+                and (detail.area == nil or detail.area == "bags" or detail.area == "equipped")
+                and (actor.vendorName == nil or isName(actor.vendorName))
+        end
+        return (detail.channel == "mail" or detail.channel == "trade")
+            and (detail.direction == "in" or detail.direction == "out")
+            and (detail.peerName == nil or isName(detail.peerName))
+            and (detail.peerRealm == nil or isName(detail.peerRealm))
+    end
     for _, name in ipairs({
         "lootOpen",
         "lootReceipt",
@@ -3299,6 +3414,7 @@ function Schema.open(raw, save)
                 and type(actor) == "table"
                 and isName(actor.character)
                 and isName(actor.realm)
+                and validCandidate(name, detail, actor)
             then
                 local payload = type(detail) == "table" and detail or { value = detail }
                 local cost = name == "lootOpen" and type(payload.slots) == "table" and #payload.slots or 1
