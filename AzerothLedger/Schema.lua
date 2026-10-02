@@ -356,8 +356,15 @@ local _, addon = ...
 ---@field evidenceSummary fun(self: AzerothLedgerStore): AzerothLedgerEvidenceState
 ---@field expireEvidence fun(self: AzerothLedgerStore, at: integer): boolean
 ---@field correctGain fun(self: AzerothLedgerStore, proof: AzerothLedgerGainCorrection): boolean
----@field breakdown fun(self: AzerothLedgerStore, key: string): {recorded: integer, methods: table<string, integer>, sources: table<string, integer>}?
----@field lootSourceProof fun(self: AzerothLedgerStore, slots: AzerothLedgerLootSlot[], at: integer, actor: AzerothLedgerActor): boolean
+---@field breakdown fun(self: ALStore, key: string): AzerothLedgerBreakdown?
+---@field lootSourceProof fun(self: ALStore, slots: ALLootSlots, at: integer, actor: ALActor): boolean
+
+---@alias ALLootSlots AzerothLedgerLootSlot[]
+
+---@class AzerothLedgerBreakdown
+---@field recorded integer
+---@field methods table<string, integer>
+---@field sources table<string, integer>
 
 ---@class AzerothLedgerGainCorrection
 ---@field id string
@@ -1370,7 +1377,7 @@ function Schema.open(raw, save)
         return result
     end
 
-    local function candidate(kind, detail, at, actor, cost)
+    local function reserveCandidate(kind, detail, at, actor, cost)
         if not endCorrelation(at, "expired") then
             return false
         end
@@ -3418,7 +3425,7 @@ function Schema.open(raw, save)
             then
                 local payload = type(detail) == "table" and detail or { value = detail }
                 local cost = name == "lootOpen" and type(payload.slots) == "table" and #payload.slots or 1
-                if not candidate(name, payload, at, actor, math.max(1, cost)) then
+                if not reserveCandidate(name, payload, at, actor, math.max(1, cost)) then
                     return false
                 end
             end

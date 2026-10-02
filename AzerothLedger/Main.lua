@@ -444,9 +444,9 @@ if client.frame then
         if not store then
             return
         end
-        local at = now()
-        if at then
-            store:expireEvidence(at)
+        local eventAt = now()
+        if eventAt then
+            store:expireEvidence(eventAt)
         end
         if event == "PLAYER_LOGIN" then
             scanAll()
