@@ -1,5 +1,16 @@
 local addon = {}
-for _, source in ipairs({ "Item", "Schema", "Scan", "Loot", "Reward", "Vendor", "Exchange", "Collection" }) do
+for _, source in ipairs({
+    "Item",
+    "Schema",
+    "Client",
+    "Scan",
+    "Loot",
+    "Reward",
+    "Vendor",
+    "Exchange",
+    "Collection",
+    "Book",
+}) do
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
 end
 AzerothLedger = addon
@@ -37,8 +48,28 @@ local function frame()
         "EnableMouseWheel",
         "Clear",
         "AddMessage",
+        "SetWidth",
+        "SetHeight",
+        "SetText",
+        "SetScale",
+        "EnableKeyboard",
+        "SetPropagateKeyboardInput",
+        "RegisterEvent",
+        "SetAutoFocus",
+        "SetMaxLetters",
+        "SetHyperlinksEnabled",
+        "LockHighlight",
+        "UnlockHighlight",
+        "ScrollToTop",
     }) do
         result[method] = function() end
+    end
+    result.CreateFontString = frame
+    result.GetWidth = function()
+        return 1600
+    end
+    result.GetHeight = function()
+        return 900
     end
     function result:Show()
         self.shown = true
@@ -61,6 +92,7 @@ assert(loadfile("AzerothLedger_Tests/Smoke.lua"))("AzerothLedger_Tests", {})
 assert(loadfile("AzerothLedger_Tests/Vendor.lua"))("AzerothLedger_Tests", {})
 assert(loadfile("AzerothLedger_Tests/Exchange.lua"))("AzerothLedger_Tests", {})
 assert(loadfile("AzerothLedger_Tests/Evidence.lua"))("AzerothLedger_Tests", {})
+assert(loadfile("AzerothLedger_Tests/Collection.lua"))("AzerothLedger_Tests", {})
 for _, group in ipairs(groups) do
     for name, test in pairs(group) do
         test(group)

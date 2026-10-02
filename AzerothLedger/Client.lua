@@ -70,4 +70,42 @@ function Client.inspect(api)
     return result
 end
 
+---@param api table
+---@param record {links: string[]}
+---@return AzerothLedgerItemMetadata
+function Client.itemMetadata(api, record)
+    local read = api.C_Item and api.C_Item.GetItemInfo
+    if type(read) ~= "function" then
+        return { category = "Unknown", loading = true }
+    end
+    local ok, name, _, quality, _, _, _, _, _, _, _, _, classID = pcall(read, record.links[1])
+    if not ok or type(name) ~= "string" or type(quality) ~= "number" or type(classID) ~= "number" then
+        return { category = "Unknown", loading = true }
+    end
+    local categories = { [2] = "Weapons", [4] = "Armour", [9] = "Recipes", [7] = "Materials", [0] = "Consumables" }
+    return { category = quality == 0 and "Junk" or categories[classID] or "Other" }
+end
+
+---@param api table
+---@return string, 'zone'|'dungeon'|nil
+function Client.place(api)
+    if type(api.GetRealZoneText) ~= "function" then
+        return "Unknown", nil
+    end
+    local ok, place = pcall(api.GetRealZoneText)
+    if not ok or type(place) ~= "string" or place == "" then
+        return "Unknown", nil
+    end
+    if type(api.IsInInstance) == "function" then
+        local readable, inside, kind = pcall(api.IsInInstance)
+        if readable and inside == false then
+            return place, "zone"
+        end
+        if readable and inside == true and (kind == "party" or kind == "raid") then
+            return place, "dungeon"
+        end
+    end
+    return place, nil
+end
+
 addon.Client = Client

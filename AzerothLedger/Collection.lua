@@ -1,10 +1,6 @@
 local _, addon = ...
 
 local Collection = {}
-local frame
-local content
-local activeFilterCharacter
-local activeFilterRealm
 
 ---@class AzerothLedgerCollectionApi
 ---@field CreateFrame? fun(frameType: string, name?: string, parent?: table, template?: string): table
@@ -386,67 +382,195 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
     return lines
 end
 
----@param api AzerothLedgerCollectionApi
----@param store AzerothLedgerStore
+---@class AzerothLedgerCollectionFilter
+---@field search? string
+---@field category? string
+---@field character? string
+---@field realm? string
+---@field historical? boolean
+---@field foundOnce? boolean
+---@field place? string
+---@field placeKind? string
+---@field view? string
+
+---@class AzerothLedgerItemMetadata
+---@field category string
+---@field loading? boolean
+
+---@class AzerothLedgerCollectionRow
+---@field key string
+---@field name string
+---@field record AzerothLedgerRecord
+---@field category string
+---@field loading? boolean
+---@field ownership string
+---@field discoveredAt integer
+
+---@param store ALStore
+---@param character string
+---@param realm string
+---@param filter? AzerothLedgerCollectionFilter
+---@param metadata? fun(record: AzerothLedgerRecord): AzerothLedgerItemMetadata
+-- Queries are projections of permanent facts; filters never edit the ledger.
+function Collection.query(store, character, realm, filter, metadata)
+    filter = filter or {}
+    local records = store:list()
+    local result = { rows = {}, discoveryCount = #records, loading = 0, places = {} }
+    local places = {}
+    for _, record in ipairs(records) do
+        local matches = false
+        local discoveredAt
+        for _, seen in ipairs(record.characters) do
+            if matchesFilter(filter.character, filter.realm, seen.name, seen.realm) then
+                matches = true
+                discoveredAt = math.min(discoveredAt or seen.firstSeen, seen.firstSeen)
+            end
+        end
+        local placeMatches = not filter.place
+        for _, gain in ipairs(record.gains) do
+            if
+                gain.place ~= ""
+                and gain.place ~= "Unknown"
+                and matchesFilter(filter.character, filter.realm, gain.character, gain.realm)
+            then
+                local kind = gain.placeKind or "place"
+                local key = kind .. ":" .. gain.place
+                places[key] = { key = key, name = gain.place, kind = kind }
+                if filter.place == gain.place and (not filter.placeKind or filter.placeKind == kind) then
+                    placeMatches = true
+                end
+            end
+        end
+        local info = metadata and metadata(record) or { category = "Unknown", loading = true }
+        local name = record.links[1]:match("%[([^%]]+)%]") or ("Item " .. record.itemID)
+        local searchText = string.lower(name .. " " .. record.key .. " " .. table.concat(record.links, " "))
+        local status = ownership(store, record, character, realm, filter.character, filter.realm)
+        if
+            matches
+            and placeMatches
+            and (not filter.search or searchText:find(string.lower(filter.search), 1, true))
+            and (not filter.category or filter.category == info.category)
+            and (not filter.historical or status:find("Historical only", 1, true) == 1)
+            and (not filter.foundOnce or (record.firstSeenUnits == 0 and record.totalGained == 1))
+        then
+            result.rows[#result.rows + 1] = {
+                key = record.key,
+                name = name,
+                record = record,
+                category = info.category,
+                loading = info.loading,
+                ownership = status,
+                discoveredAt = (not filter.character and not filter.realm) and record.firstSeen or discoveredAt,
+            }
+        end
+        if info.loading then
+            result.loading = result.loading + 1
+        end
+    end
+    for _, place in pairs(places) do
+        result.places[#result.places + 1] = place
+    end
+    table.sort(result.places, function(a, b)
+        return a.key < b.key
+    end)
+    table.sort(result.rows, function(a, b)
+        if filter.view == "Discoveries" and a.discoveredAt ~= b.discoveredAt then
+            return a.discoveredAt > b.discoveredAt
+        end
+        return a.name < b.name or (a.name == b.name and a.key < b.key)
+    end)
+    return result
+end
+
+---@param store ALStore
+---@param key string
+---@param character string
+---@param realm string
+---@param filter? AzerothLedgerCollectionFilter
+---@return string[]
+function Collection.details(store, key, character, realm, filter)
+    filter = filter or {}
+    local record = store:find(key)
+    if not record then
+        return { "Select an item to see its history." }
+    end
+    local lines = { "Variant: " .. record.key }
+    for _, link in ipairs(record.links) do
+        lines[#lines + 1] = link
+    end
+    lines[#lines + 1] = "First Seen " .. stamp(record.firstSeen)
+    lines[#lines + 1] = "Latest Seen " .. stamp(record.lastSeen)
+    lines[#lines + 1] = "First confirmed gain: " .. (record.firstGained and stamp(record.firstGained) or "Unknown")
+    lines[#lines + 1] = "Latest confirmed gain: " .. (record.lastGained and stamp(record.lastGained) or "Unknown")
+    local strength = "Seen in storage"
+    for _, gain in ipairs(record.gains) do
+        if gain.source or gain.context then
+            strength = "Confirmed gain with specific source"
+            break
+        end
+        strength = "Confirmed " .. gain.method .. " gain; source Unknown"
+    end
+    lines[#lines + 1] = "Strongest evidence: " .. strength
+    local breakdown = assert(store:breakdown(key))
+    lines[#lines + 1] = "Recorded units: " .. breakdown.recorded .. " (account-wide)"
+    lines[#lines + 1] = "Total gained: " .. record.totalGained
+    for _, group in ipairs({ { "Method", breakdown.methods }, { "Source", breakdown.sources } }) do
+        local labels = {}
+        for label in pairs(group[2]) do
+            labels[#labels + 1] = label
+        end
+        table.sort(labels)
+        for _, label in ipairs(labels) do
+            lines[#lines + 1] = group[1] .. " total: " .. label .. " " .. group[2][label]
+        end
+    end
+    lines[#lines + 1] = "Ownership: " .. ownership(store, record, character, realm, filter.character, filter.realm)
+    for _, seen in ipairs(record.characters) do
+        if matchesFilter(filter.character, filter.realm, seen.name, seen.realm) then
+            lines[#lines + 1] = seen.name
+                .. "-"
+                .. seen.realm
+                .. ": first Seen "
+                .. stamp(seen.firstSeen)
+                .. "; latest Seen "
+                .. stamp(seen.lastSeen)
+            for _, area in ipairs(storageAreas) do
+                local state = store:area(seen.name, seen.realm, area)
+                local observation = latestObservation(record, seen.name, seen.realm, area)
+                local quantity
+                if state and state.complete then
+                    quantity = observation and observation.quantity or 0
+                elseif state and observation and observation.seenAt == state.seenAt then
+                    quantity = observation.quantity
+                end
+                lines[#lines + 1] = "  "
+                    .. area
+                    .. ": "
+                    .. (quantity or "Unknown")
+                    .. (state and (" checked " .. stamp(state.seenAt)) or "; never checked")
+                    .. (
+                        (seen.name ~= character or seen.realm ~= realm) and " (offline; current ownership Unknown)"
+                        or ""
+                    )
+            end
+        end
+    end
+    return lines
+end
+
+---@param api table
+---@param store ALStore
 ---@param character string
 ---@param realm string
 ---@param filterCharacter? string
 ---@param filterRealm? string
----@return table?
 function Collection.open(api, store, character, realm, filterCharacter, filterRealm)
-    if type(api.CreateFrame) ~= "function" then
-        return nil
-    end
-    if not frame then
-        frame = api.CreateFrame("Frame", "AzerothLedgerCollection", api.UIParent, "BasicFrameTemplateWithInset")
-        frame:SetSize(650, 450)
-        frame:SetPoint("CENTER")
-        frame:EnableMouse(true)
-        frame:SetMovable(true)
-        frame:RegisterForDrag("LeftButton")
-        frame:SetScript("OnDragStart", frame.StartMoving)
-        frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
-        frame.TitleText:SetText("Azeroth Ledger Collection")
-        content = api.CreateFrame("ScrollingMessageFrame", nil, frame)
-        content:SetPoint("TOPLEFT", 15, -35)
-        content:SetPoint("BOTTOMRIGHT", -35, 15)
-        content:SetFontObject(api.GameFontNormal)
-        content:SetJustifyH("LEFT")
-        content:SetMaxLines(10000)
-        content:SetFading(false)
-        content:EnableMouseWheel(true)
-        content:SetScript("OnMouseWheel", function(self, delta)
-            if delta > 0 then
-                self:ScrollUp()
-            else
-                self:ScrollDown()
-            end
-        end)
-    end
-    activeFilterCharacter = filterCharacter
-    activeFilterRealm = filterRealm
-    Collection.refresh(store, character, realm)
-    frame:Show()
-    return frame
+    return addon.Book.open(api, store, character, realm, filterCharacter, filterRealm)
 end
 
-function Collection.refresh(store, character, realm, filterCharacter, filterRealm)
-    if not frame then
-        return
-    end
-    content:Clear()
-    for _, line in
-        ipairs(
-            Collection.lines(
-                store,
-                character,
-                realm,
-                filterCharacter or activeFilterCharacter,
-                filterRealm or activeFilterRealm
-            )
-        )
-    do
-        content:AddMessage(line)
+function Collection.refresh(store, character, realm)
+    if addon.Book then
+        addon.Book.refresh(store, character, realm)
     end
 end
 

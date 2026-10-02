@@ -56,6 +56,7 @@ local _, addon = ...
 ---@field realm string
 ---@field level integer
 ---@field place string
+---@field placeKind? 'zone'|'dungeon'
 ---@field method 'Looted'|'Quest'|'Crafted'|'Vendor'|'Obtained'
 ---@field refunded? integer
 ---@field source? AzerothLedgerLootSource|AzerothLedgerVendorSource|AzerothLedgerPlayerSource
@@ -75,6 +76,7 @@ local _, addon = ...
 ---@field at integer
 ---@field level integer
 ---@field place string
+---@field placeKind? 'zone'|'dungeon'
 ---@field slots AzerothLedgerLootSlot[]
 
 ---@class AzerothLedgerLootClaim
@@ -107,6 +109,7 @@ local _, addon = ...
 ---@field realm string
 ---@field level integer
 ---@field place string
+---@field placeKind? 'zone'|'dungeon'
 ---@field slots table<string, AzerothLedgerLootSessionSlot>
 ---@field credits table<string, integer>
 ---@field baselineQuantities table<string, integer>
@@ -137,6 +140,7 @@ local _, addon = ...
 ---@class AzerothLedgerGainActor: AzerothLedgerActor
 ---@field level integer
 ---@field place string
+---@field placeKind? 'zone'|'dungeon'
 ---@field vendorName? string
 
 ---@alias ALGainActor AzerothLedgerGainActor
@@ -154,6 +158,7 @@ local _, addon = ...
 ---@field realm string
 ---@field level integer
 ---@field place string
+---@field placeKind? 'zone'|'dungeon'
 ---@field at integer
 ---@field baseline integer
 ---@field baselineGained integer
@@ -197,6 +202,7 @@ local _, addon = ...
 ---@field realm string
 ---@field level integer
 ---@field place string
+---@field placeKind? 'zone'|'dungeon'
 ---@field baseline integer
 ---@field baselineGained integer
 ---@field receiptQuantity integer
@@ -249,6 +255,7 @@ local _, addon = ...
 ---@field realm string
 ---@field level integer
 ---@field place string
+---@field placeKind? 'zone'|'dungeon'
 ---@field baseline integer
 ---@field baselineGained integer
 ---@field discovery boolean
@@ -569,6 +576,7 @@ local function copyRecord(record)
             realm = gain.realm,
             level = gain.level,
             place = gain.place,
+            placeKind = gain.placeKind,
             method = gain.method,
             refunded = gain.refunded,
             corrections = gain.corrections and copyArray(gain.corrections) or nil,
@@ -596,6 +604,10 @@ local function copyRecord(record)
         characters = copyArray(record.characters),
         observations = copyArray(record.observations),
     }
+end
+
+local function validPlaceKind(kind)
+    return kind == nil or kind == "zone" or kind == "dungeon"
 end
 
 local function validRecord(key, record)
@@ -668,6 +680,7 @@ local function validRecord(key, record)
             or not isName(gain.realm)
             or not isInteger(gain.level)
             or type(gain.place) ~= "string"
+            or not validPlaceKind(gain.placeKind)
             or not gainMethods[gain.method]
             or not validRefunded(gain)
             or gainIDs[gain.id]
@@ -1682,6 +1695,7 @@ function Schema.open(raw, save)
                 realm = session.realm,
                 level = session.level,
                 place = session.place,
+                placeKind = session.placeKind,
                 method = "Looted",
                 source = type(session.slots[key]) == "table" and session.slots[key].source or nil,
             }
@@ -1714,6 +1728,7 @@ function Schema.open(raw, save)
             or not isInteger(context.at)
             or not isInteger(context.level)
             or type(context.place) ~= "string"
+            or not validPlaceKind(context.placeKind)
             or type(context.slots) ~= "table"
         then
             return false
@@ -1803,6 +1818,7 @@ function Schema.open(raw, save)
             realm = context.realm,
             level = context.level,
             place = context.place,
+            placeKind = context.placeKind,
             slots = slots,
             credits = {},
             baselineQuantities = baselineQuantities,
@@ -2047,6 +2063,7 @@ function Schema.open(raw, save)
             or not isName(actor.realm)
             or not isInteger(actor.level)
             or type(actor.place) ~= "string"
+            or not validPlaceKind(actor.placeKind)
         then
             return false
         end
@@ -2072,6 +2089,7 @@ function Schema.open(raw, save)
             realm = actor.realm,
             level = actor.level,
             place = actor.place,
+            placeKind = actor.placeKind,
             baseline = bagQuantity(record, actor.character, actor.realm),
             baselineGained = characterGained(record, actor.character, actor.realm),
             discovery = record == nil,
@@ -2330,6 +2348,7 @@ function Schema.open(raw, save)
                                 realm = action.realm,
                                 level = action.level,
                                 place = action.place,
+                                placeKind = action.placeKind,
                                 method = "Obtained",
                                 source = action.peerName
                                         and action.peerRealm
@@ -2428,6 +2447,7 @@ function Schema.open(raw, save)
             or not isName(actor.realm)
             or not isInteger(actor.level)
             or type(actor.place) ~= "string"
+            or not validPlaceKind(actor.placeKind)
             or (actor.vendorName ~= nil and not isName(actor.vendorName))
         then
             return false
@@ -2470,6 +2490,7 @@ function Schema.open(raw, save)
             realm = actor.realm,
             level = actor.level,
             place = actor.place,
+            placeKind = actor.placeKind,
             vendorName = actor.vendorName,
             baseline = areaQuantity(record, actor.character, actor.realm, actionArea),
             baselineGained = record and record.totalGained or 0,
@@ -2540,6 +2561,7 @@ function Schema.open(raw, save)
                                 realm = action.realm,
                                 level = action.level,
                                 place = action.place,
+                                placeKind = action.placeKind,
                                 method = "Vendor",
                                 source = action.vendorName and { kind = "vendor", name = action.vendorName } or nil,
                             }
@@ -2815,6 +2837,7 @@ function Schema.open(raw, save)
             or not isName(actor.realm)
             or not isInteger(actor.level)
             or type(actor.place) ~= "string"
+            or not validPlaceKind(actor.placeKind)
             or (receipt.preview ~= nil and type(receipt.preview) ~= "boolean")
             or (receipt.choiceGroup ~= nil and (type(receipt.choiceGroup) ~= "string" or receipt.choiceGroup == ""))
             or (receipt.choiceGroup ~= nil and (receipt.method ~= "Quest" or not receipt.preview))
@@ -2865,6 +2888,7 @@ function Schema.open(raw, save)
                 realm = actor.realm,
                 level = actor.level,
                 place = actor.place,
+                placeKind = actor.placeKind,
                 at = at,
                 baseline = preparation and (before and before.quantity or 0)
                     or bagQuantity(valid[receipt.key], actor.character, actor.realm),
@@ -2970,6 +2994,7 @@ function Schema.open(raw, save)
                 realm = session.realm,
                 level = session.level,
                 place = session.place,
+                placeKind = session.placeKind,
                 method = session.method,
                 context = session.context,
             }
@@ -3353,7 +3378,12 @@ function Schema.open(raw, save)
             return false
         end
         if name == "lootOpen" then
-            if not isInteger(detail.level) or type(detail.place) ~= "string" or type(detail.slots) ~= "table" then
+            if
+                not isInteger(detail.level)
+                or type(detail.place) ~= "string"
+                or not validPlaceKind(detail.placeKind)
+                or type(detail.slots) ~= "table"
+            then
                 return false
             end
             for _, slot in ipairs(detail.slots) do
@@ -3374,7 +3404,7 @@ function Schema.open(raw, save)
         if name == "lootReceipt" or name == "vendorReceipt" then
             return true
         end
-        if not isInteger(actor.level) or type(actor.place) ~= "string" then
+        if not isInteger(actor.level) or type(actor.place) ~= "string" or not validPlaceKind(actor.placeKind) then
             return false
         end
         if name == "rewardReceipt" then

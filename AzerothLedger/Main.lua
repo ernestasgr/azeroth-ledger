@@ -1,6 +1,6 @@
 local addonName, addon = ...
 
-local REVISION = "0.6.0"
+local REVISION = "0.7.0"
 local store
 local client = addon.Client.inspect(_G)
 local bankOpen = false
@@ -95,11 +95,8 @@ local function playerContext()
         return nil
     end
     local level = type(UnitLevel) == "function" and UnitLevel("player") or 0
-    local place = type(GetRealZoneText) == "function" and GetRealZoneText() or "Unknown"
-    if type(place) ~= "string" or place == "" then
-        place = "Unknown"
-    end
-    return { character = character, realm = realm, at = at, level = level, place = place }
+    local place, placeKind = addon.Client.place(_G)
+    return { character = character, realm = realm, at = at, level = level, place = place, placeKind = placeKind }
 end
 
 local function lootOpen()
