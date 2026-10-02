@@ -8,6 +8,12 @@ An item ID alone cannot identify an intrinsic gear variant. Truncated links rema
 
 The installed Forever export declares `GET_ITEM_INFO_RECEIVED` with an item ID and success flag, and `LOOT_SLOT_CHANGED`. Successful item-data notifications trigger a fresh storage check; failed callbacks leave unresolved evidence intact. Slot changes can enrich only the same item, slot and quantity in the current loot action. Overlapping actions cannot regain an invented source.
 
+## Checks and installation, 2026-10-02
+
+Lua 5.1 syntax, all ten `tests/*.lua` behavior files (including 41 companion replay cases), StyLua 2.5.2, LuaLS 3.19.1, package validation and all three Python installer tests pass locally. [The required verify run](https://github.com/ernestasgr/azeroth-ledger/actions/runs/37053995124) passes for code commit `37668ea`, including Luacheck 1.2.0-1, which ran only in CI. Standards and spec review findings were fixed; both reviews report no remaining blockers.
+
+Before installation, the account SavedVariables validated as healthy schema 2 with 34 readable Collection records. The client flavor is `wow_classic_beta`. `tools/install_local.py` and its `--verify-only` run both succeeded against `C:/Program Files (x86)/World of Warcraft/_classic_beta_`: all 16 TOC-listed addon and test-companion files match the workspace hashes. WoWUnit and other addons were untouched. Version 0.6.0 is installed; these file checks do not establish an in-client pass.
+
 ## Live validation
 
 The Forever client is not running and native app control is unavailable in this environment. No in-client result is claimed for this version.
