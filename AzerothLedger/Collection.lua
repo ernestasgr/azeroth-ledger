@@ -113,6 +113,30 @@ end
 -- Produces the text shown in the Collection, including scope freshness.
 function Collection.lines(store, character, realm, filterCharacter, filterRealm)
     local lines = {}
+    local evidence = store:evidenceSummary()
+    if evidence.discarded > 0 then
+        lines[#lines + 1] = "WARNING: unresolved evidence discarded: "
+            .. evidence.discarded
+            .. " • "
+            .. stamp(evidence.firstDiscarded)
+            .. " through "
+            .. stamp(evidence.lastDiscarded)
+    end
+    local unresolved = store:unresolved()
+    if #unresolved > 0 then
+        lines[#lines + 1] = "Unresolved evidence: " .. #unresolved .. " account-wide records; no guessed gains"
+        local shownEvidence = 0
+        for index = #unresolved, 1, -1 do
+            local entry = unresolved[index]
+            if matchesFilter(filterCharacter, filterRealm, entry.character, entry.realm) then
+                lines[#lines + 1] = "  " .. entry.kind .. " • " .. entry.reason .. " • " .. stamp(entry.at)
+                shownEvidence = shownEvidence + 1
+                if shownEvidence == 10 then
+                    break
+                end
+            end
+        end
+    end
     if not filterRealm or filterCharacter then
         for _, area in ipairs(storageAreas) do
             local state = store:area(filterCharacter or character, filterRealm or realm, area)

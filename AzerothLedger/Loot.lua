@@ -106,7 +106,7 @@ function Loot.open(api)
                         end
                     end
                 end
-                slots[#slots + 1] = { key = key, source = source, quantity = slotQuantity }
+                slots[#slots + 1] = { key = key, source = source, quantity = slotQuantity, slot = slot }
             end
         end
     end

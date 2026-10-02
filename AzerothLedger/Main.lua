@@ -1,6 +1,6 @@
 local addonName, addon = ...
 
-local REVISION = "0.5.0"
+local REVISION = "0.6.0"
 local store
 local client = addon.Client.inspect(_G)
 local bankOpen = false
@@ -349,6 +349,16 @@ local function printStatus()
     if #client.issues > 0 then
         print("Azeroth Ledger: missing or unusable required APIs:", table.concat(client.issues, ", "))
     end
+    local evidence = store:evidenceSummary()
+    print("Azeroth Ledger: unresolved evidence:", #evidence.unresolved)
+    if evidence.discarded > 0 then
+        print(
+            "Azeroth Ledger WARNING: unresolved evidence discarded:",
+            evidence.discarded,
+            date("%Y-%m-%d %H:%M", evidence.firstDiscarded),
+            date("%Y-%m-%d %H:%M", evidence.lastDiscarded)
+        )
+    end
 end
 
 SLASH_AZEROTHLEDGER1 = "/al"
@@ -396,7 +406,9 @@ if client.frame then
         "MERCHANT_UPDATE",
         "LOOT_OPENED",
         "LOOT_CLOSED",
+        "LOOT_SLOT_CHANGED",
         "CHAT_MSG_LOOT",
+        "GET_ITEM_INFO_RECEIVED",
         "QUEST_LOOT_RECEIVED",
         "QUEST_COMPLETE",
         "QUEST_TURNED_IN",
@@ -431,6 +443,10 @@ if client.frame then
         end
         if not store then
             return
+        end
+        local at = now()
+        if at then
+            store:expireEvidence(at)
         end
         if event == "PLAYER_LOGIN" then
             scanAll()
@@ -537,6 +553,12 @@ if client.frame then
             end
         elseif event == "LOOT_OPENED" then
             lootOpen()
+        elseif event == "LOOT_SLOT_CHANGED" then
+            local context = playerContext()
+            local slots = addon.Loot.open(_G)
+            if context and slots and store:lootSourceProof(slots, context.at, context) then
+                addon.Collection.refresh(store, context.character, context.realm)
+            end
         elseif event == "LOOT_CLOSED" then
             local at = now()
             if at then
@@ -544,6 +566,11 @@ if client.frame then
             end
         elseif event == "CHAT_MSG_LOOT" then
             lootMessage(...)
+        elseif event == "GET_ITEM_INFO_RECEIVED" then
+            local _, success = ...
+            if success then
+                scanAll()
+            end
         elseif event == "QUEST_LOOT_RECEIVED" then
             rewardReceipt(addon.Reward.quest(_G, ...))
         elseif event == "QUEST_COMPLETE" then
@@ -564,6 +591,20 @@ if client.frame then
     end)
     if not ok then
         client.issues[#client.issues + 1] = "CreateFrame events (unusable)"
+    end
+    local elapsed = 0
+    local timerOK = pcall(client.frame.SetScript, client.frame, "OnUpdate", function(_, delta)
+        elapsed = elapsed + delta
+        if elapsed >= 1 then
+            elapsed = 0
+            local at = now()
+            if store and at then
+                store:expireEvidence(at)
+            end
+        end
+    end)
+    if not timerOK then
+        client.issues[#client.issues + 1] = "CreateFrame timer (unusable)"
     end
 else
     print("Azeroth Ledger: event frame unavailable; saved data was not opened")
