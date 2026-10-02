@@ -97,7 +97,7 @@ local function nativeFrame(kind)
     function control:Click()
         self.scripts.OnClick(self)
     end
-    function control:CreateFontString()
+    function control.CreateFontString(_self)
         return nativeFrame("FontString")
     end
     if kind == "Frame" then
