@@ -169,6 +169,9 @@ local ambiguousSlots = addon.Loot.open({
     GetLootSlotLink = function()
         return lootLink
     end,
+    GetLootSlotInfo = function()
+        return nil, nil, 3
+    end,
     GetLootSourceInfo = function()
         return "Creature-0-0-0-0-42-1", 1, "Creature-0-0-0-0-43-1", 1
     end,
