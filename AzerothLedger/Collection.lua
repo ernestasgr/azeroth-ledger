@@ -20,6 +20,9 @@ local function matchesFilter(filterCharacter, filterRealm, name, realm)
 end
 
 local function sourceText(source)
+    if source and source.kind == "player" then
+        return source.name .. "-" .. source.realm
+    end
     return source and (source.name or (source.kind .. " " .. source.guid)) or "Unknown"
 end
 
@@ -202,6 +205,9 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                 elseif gain.method == "Vendor" then
                     local label = gain.source and sourceText(gain.source) or "Vendor"
                     sources[label] = (sources[label] or 0) + gain.quantity - (gain.refunded or 0)
+                elseif gain.method == "Obtained" then
+                    local label = sourceText(gain.source)
+                    sources[label] = (sources[label] or 0) + gain.quantity
                 end
                 methods[gain.method] = (methods[gain.method] or 0) + gain.quantity - (gain.refunded or 0)
             end
@@ -273,6 +279,7 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                         .. gain.place
                         .. (gain.method == "Looted" and (" • source " .. sourceText(source)) or "")
                         .. (gain.method == "Vendor" and source and (" • vendor " .. sourceText(source)) or "")
+                        .. (gain.method == "Obtained" and (" • source " .. sourceText(source)) or "")
                         .. (gain.method == "Quest" and (" • quest " .. contextText(gain.context)) or "")
                         .. (gain.method == "Crafted" and (" • recipe " .. contextText(gain.context)) or "")
                     lines[#lines + 1] = detail
@@ -307,6 +314,45 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
         if matchesFilter(filterCharacter, filterRealm, action.character, action.realm) then
             lines[#lines + 1] = "Vendor evidence unresolved: "
                 .. action.kind
+                .. " x"
+                .. action.quantity
+                .. " • "
+                .. stamp(action.at)
+        end
+    end
+    for _, action in ipairs(store:exchangeActivity()) do
+        if
+            matchesFilter(filterCharacter, filterRealm, action.sender, action.senderRealm)
+            or matchesFilter(filterCharacter, filterRealm, action.recipient, action.recipientRealm)
+        then
+            local record = store:find(action.key)
+            local name = record and record.links[1]:match("%[([^%]]+)%]") or action.key
+            recent[#recent + 1] = {
+                at = action.at,
+                text = name
+                    .. "  "
+                    .. stamp(action.at)
+                    .. " • Transfer x"
+                    .. action.quantity
+                    .. " • "
+                    .. action.sender
+                    .. "-"
+                    .. action.senderRealm
+                    .. " → "
+                    .. action.recipient
+                    .. "-"
+                    .. action.recipientRealm
+                    .. " • "
+                    .. action.channel,
+            }
+        end
+    end
+    for _, action in ipairs(store:exchangeUnresolved()) do
+        if matchesFilter(filterCharacter, filterRealm, action.character, action.realm) then
+            lines[#lines + 1] = "Mail/trade evidence unresolved: "
+                .. action.channel
+                .. " "
+                .. action.direction
                 .. " x"
                 .. action.quantity
                 .. " • "
