@@ -22,8 +22,9 @@ local _, addon = ...
 
 ---@class AzerothLedgerScanItem
 ---@field itemID integer
----@field link string
+---@field link? string
 ---@field quantity integer
+---@field location? string
 
 ---@class AzerothLedgerSnapshot
 ---@field character string
@@ -59,11 +60,14 @@ local _, addon = ...
 ---@field refunded? integer
 ---@field source? AzerothLedgerLootSource|AzerothLedgerVendorSource|AzerothLedgerPlayerSource
 ---@field context? {kind: 'quest'|'recipe', id: integer, name?: string}
+---@field corrections? string[]
 
 ---@class AzerothLedgerLootSlot
 ---@field key string
 ---@field source? AzerothLedgerLootSource
 ---@field quantity? integer
+---@field slot? integer
+---@field sourceIndex? integer
 
 ---@class AzerothLedgerLootContext
 ---@field character string
@@ -92,6 +96,7 @@ local _, addon = ...
 ---@class AzerothLedgerLootSessionSlot
 ---@field source? AzerothLedgerLootSource
 ---@field limit? integer
+---@field shares? {source?: AzerothLedgerLootSource, quantity?: integer, slot: integer, sourceIndex: integer}[]
 
 ---@class AzerothLedgerLootSession
 ---@field id integer
@@ -290,6 +295,23 @@ local _, addon = ...
 ---@field rewards? AzerothLedgerRewardState
 ---@field vendor? AzerothLedgerVendorState
 ---@field exchange? AzerothLedgerExchangeState
+---@field evidence? AzerothLedgerEvidenceState
+
+---@class AzerothLedgerEvidence
+---@field id integer
+---@field kind string
+---@field reason string
+---@field at integer
+---@field character string
+---@field realm string
+---@field detail table
+
+---@class AzerothLedgerEvidenceState
+---@field nextID integer
+---@field unresolved AzerothLedgerEvidence[]
+---@field discarded integer
+---@field firstDiscarded? integer
+---@field lastDiscarded? integer
 
 ---@class AzerothLedgerEnvironment
 ---@field build string
@@ -330,6 +352,31 @@ local _, addon = ...
 ---@field exchangeActivity fun(self: AzerothLedgerStore): AzerothLedgerExchangeActivity[]
 ---@field exchangeUnresolved fun(self: AzerothLedgerStore): AzerothLedgerExchangeAction[]
 ---@field pruneJournal fun(self: AzerothLedgerStore, limit: integer): boolean
+---@field unresolved fun(self: AzerothLedgerStore): AzerothLedgerEvidence[]
+---@field evidenceSummary fun(self: AzerothLedgerStore): AzerothLedgerEvidenceState
+---@field expireEvidence fun(self: AzerothLedgerStore, at: integer): boolean
+---@field correctGain fun(self: AzerothLedgerStore, proof: AzerothLedgerGainCorrection): boolean
+---@field breakdown fun(self: ALStore, key: string): AzerothLedgerBreakdown?
+---@field lootSourceProof fun(self: ALStore, slots: ALLootSlots, at: integer, actor: ALActor): boolean
+
+---@alias ALLootSlots AzerothLedgerLootSlot[]
+
+---@class AzerothLedgerBreakdown
+---@field recorded integer
+---@field methods table<string, integer>
+---@field sources table<string, integer>
+
+---@class AzerothLedgerGainCorrection
+---@field id string
+---@field key string
+---@field gainID string
+---@field quantity integer
+---@field fromMethod string
+---@field fromSource? AzerothLedgerLootSource|AzerothLedgerVendorSource|AzerothLedgerPlayerSource
+---@field method string
+---@field source? AzerothLedgerLootSource|AzerothLedgerVendorSource|AzerothLedgerPlayerSource
+---@field context? AzerothLedgerRewardContext
+---@field link? string
 
 local CURRENT_SCHEMA = 2
 local areas = { bags = true, bank = true, equipped = true }
@@ -373,6 +420,144 @@ local function copyArray(source)
     return result
 end
 
+local function copyValue(value)
+    if type(value) ~= "table" then
+        return value
+    end
+    local result = {}
+    for key, field in pairs(value) do
+        result[key] = copyValue(field)
+    end
+    return result
+end
+
+local function validEvidence(state)
+    if
+        type(state) ~= "table"
+        or not isInteger(state.nextID)
+        or state.nextID < 1
+        or type(state.unresolved) ~= "table"
+        or #state.unresolved > 2000
+        or not isInteger(state.discarded)
+        or state.discarded < 0
+    then
+        return false
+    end
+    if
+        state.discarded > 0
+        and (
+            not isInteger(state.firstDiscarded)
+            or not isInteger(state.lastDiscarded)
+            or state.firstDiscarded < 0
+            or state.lastDiscarded < state.firstDiscarded
+        )
+    then
+        return false
+    end
+    local ids = {}
+    for _, entry in ipairs(state.unresolved) do
+        if
+            type(entry) ~= "table"
+            or not isInteger(entry.id)
+            or entry.id < 1
+            or entry.id >= state.nextID
+            or ids[entry.id]
+            or not isName(entry.kind)
+            or not isName(entry.reason)
+            or not isInteger(entry.at)
+            or entry.at < 0
+            or not isName(entry.character)
+            or not isName(entry.realm)
+            or type(entry.detail) ~= "table"
+        then
+            return false
+        end
+        ids[entry.id] = true
+    end
+    return true
+end
+
+local function validLootSource(source)
+    return source == nil
+        or (
+            type(source) == "table"
+            and (source.kind == "mob" or source.kind == "container")
+            and isName(source.guid)
+            and (source.name == nil or isName(source.name))
+        )
+end
+
+local function validLootState(state)
+    if type(state) ~= "table" or not isInteger(state.nextID) or state.nextID < 0 or type(state.sessions) ~= "table" then
+        return false
+    end
+    for _, session in ipairs(state.sessions) do
+        if
+            type(session) ~= "table"
+            or not isInteger(session.id)
+            or not isInteger(session.openedAt)
+            or session.openedAt < 0
+            or not isName(session.character)
+            or not isName(session.realm)
+            or not isInteger(session.level)
+            or type(session.place) ~= "string"
+            or type(session.slots) ~= "table"
+            or type(session.receipts) ~= "table"
+            or type(session.discoveries) ~= "table"
+            or (session.closedAt ~= nil and not isInteger(session.closedAt))
+            or (session.endedAt ~= nil and not isInteger(session.endedAt))
+        then
+            return false
+        end
+        for _, name in ipairs({ "credits", "awarded", "baselineQuantities", "baselineGains" }) do
+            if type(session[name]) ~= "table" then
+                return false
+            end
+            for key, quantity in pairs(session[name]) do
+                if type(key) ~= "string" or not isInteger(quantity) or quantity < 0 then
+                    return false
+                end
+            end
+        end
+        for key, slot in pairs(session.slots) do
+            if
+                type(key) ~= "string"
+                or type(slot) ~= "table"
+                or not validLootSource(slot.source)
+                or (slot.limit ~= nil and (not isInteger(slot.limit) or slot.limit < 1))
+            then
+                return false
+            end
+            if slot.shares ~= nil then
+                if type(slot.shares) ~= "table" then
+                    return false
+                end
+                for _, share in ipairs(slot.shares) do
+                    if
+                        type(share) ~= "table"
+                        or not validLootSource(share.source)
+                        or (share.quantity ~= nil and (not isInteger(share.quantity) or share.quantity < 1))
+                    then
+                        return false
+                    end
+                end
+            end
+        end
+        for key, receipt in pairs(session.receipts) do
+            if
+                type(key) ~= "string"
+                or type(receipt) ~= "table"
+                or not isInteger(receipt.at)
+                or not isInteger(receipt.quantity)
+                or receipt.quantity < 1
+            then
+                return false
+            end
+        end
+    end
+    return true
+end
+
 local function copyRecord(record)
     local gains = {}
     for index, gain in ipairs(record.gains or {}) do
@@ -386,6 +571,7 @@ local function copyRecord(record)
             place = gain.place,
             method = gain.method,
             refunded = gain.refunded,
+            corrections = gain.corrections and copyArray(gain.corrections) or nil,
             source = gain.source and {
                 kind = gain.source.kind,
                 guid = gain.source.guid,
@@ -522,6 +708,18 @@ local function validRecord(key, record)
             end
         end
         gainIDs[gain.id] = true
+        if gain.corrections ~= nil then
+            if type(gain.corrections) ~= "table" then
+                return false
+            end
+            local ids = {}
+            for _, id in ipairs(gain.corrections) do
+                if not isName(id) or ids[id] then
+                    return false
+                end
+                ids[id] = true
+            end
+        end
         gained = gained + gain.quantity - (gain.refunded or 0)
     end
     if gained ~= record.totalGained then
@@ -853,10 +1051,16 @@ function Schema.open(raw, save)
     if supported and raw.rewards ~= nil and not validRewardState(raw.rewards) then
         damagedCount = damagedCount + 1
     end
+    if supported and raw.loot ~= nil and not validLootState(raw.loot) then
+        damagedCount = damagedCount + 1
+    end
     if supported and raw.vendor ~= nil and not validVendorState(raw.vendor) then
         damagedCount = damagedCount + 1
     end
     if supported and raw.exchange ~= nil and not validExchangeState(raw.exchange) then
+        damagedCount = damagedCount + 1
+    end
+    if supported and raw.evidence ~= nil and not validEvidence(raw.evidence) then
         damagedCount = damagedCount + 1
     end
 
@@ -871,12 +1075,337 @@ function Schema.open(raw, save)
             rewards = fields.rewards or raw.rewards,
             vendor = fields.vendor or raw.vendor,
             exchange = fields.exchange or raw.exchange,
+            evidence = fields.evidence or raw.evidence,
         }
         save(nextValue)
         raw = nextValue
     end
 
     local store = {}
+    local candidates = {}
+
+    local function evidenceState()
+        if raw.evidence == nil then
+            return { nextID = 1, unresolved = {}, discarded = 0 }
+        end
+        return validEvidence(raw.evidence) and copyValue(raw.evidence) or nil
+    end
+
+    local function retain(state, kind, reason, at, actor, detail)
+        state.unresolved[#state.unresolved + 1] = {
+            id = state.nextID,
+            kind = kind,
+            reason = reason,
+            at = at,
+            character = actor.character,
+            realm = actor.realm,
+            detail = copyValue(detail),
+        }
+        state.nextID = state.nextID + 1
+        if #state.unresolved > 2000 then
+            local discarded = table.remove(state.unresolved, 1)
+            state.discarded = state.discarded + 1
+            state.firstDiscarded = math.min(state.firstDiscarded or discarded.at, discarded.at)
+            state.lastDiscarded = math.max(state.lastDiscarded or discarded.at, discarded.at)
+        end
+    end
+
+    -- End correlation independently of event traffic. Completed vendor and outgoing
+    -- transfer references remain available for refunds, buybacks and alt receipts.
+    local function endCorrelation(at, reason)
+        if not readable then
+            return false
+        end
+        local engines = {
+            loot = raw.loot and validLootState(raw.loot) and raw.loot or nil,
+            rewards = raw.rewards and validRewardState(raw.rewards) and raw.rewards or nil,
+            vendor = raw.vendor and validVendorState(raw.vendor) and raw.vendor or nil,
+            exchange = raw.exchange and validExchangeState(raw.exchange) and raw.exchange or nil,
+        }
+        for index = #candidates, 1, -1 do
+            if at - candidates[index].at >= 60 then
+                table.remove(candidates, index)
+            end
+        end
+        if reason ~= "reload" then
+            local stale = false
+            for _, name in ipairs({ "loot", "rewards", "vendor", "exchange" }) do
+                local state = engines[name]
+                local list = (name == "loot" or name == "rewards") and "sessions" or "actions"
+                for _, entry in ipairs(state and state[list] or {}) do
+                    local active = name == "loot"
+                        or name == "rewards"
+                        or entry.status == "pending"
+                        or entry.status == "unresolved"
+                    if active and at - (entry.openedAt or entry.at) >= 60 then
+                        stale = true
+                        break
+                    end
+                end
+                for _, entry in ipairs(name == "rewards" and state and state.preparations or {}) do
+                    if at - entry.at >= 60 then
+                        stale = true
+                        break
+                    end
+                end
+            end
+            if not stale then
+                return raw.evidence == nil or validEvidence(raw.evidence)
+            end
+        end
+        local evidence = evidenceState()
+        if not evidence then
+            return false
+        end
+        local fields = { evidence = evidence }
+        local changed = false
+        for _, name in ipairs({ "loot", "rewards", "vendor", "exchange" }) do
+            local original = engines[name]
+            if type(original) == "table" then
+                local state = copyValue(original)
+                local list = (name == "loot" or name == "rewards") and "sessions" or "actions"
+                local entries = state[list]
+                if type(entries) == "table" then
+                    for index = #entries, 1, -1 do
+                        local entry = entries[index]
+                        local openedAt = entry.openedAt or entry.at
+                        local stale = reason == "reload" or (isInteger(openedAt) and at - openedAt >= 60)
+                        local active = name == "loot"
+                            or name == "rewards"
+                            or entry.status == "pending"
+                            or entry.status == "unresolved"
+                        if
+                            stale
+                            and active
+                            and isInteger(openedAt)
+                            and isName(entry.character)
+                            and isName(entry.realm)
+                        then
+                            if name == "loot" then
+                                for key, slot in pairs(entry.slots or {}) do
+                                    local received = entry.receipts and entry.receipts[key]
+                                    local quantity = math.max(
+                                        slot.limit or 0,
+                                        received and received.quantity or 0,
+                                        entry.credits and entry.credits[key] or 0
+                                    )
+                                    if quantity == 0 or quantity > (entry.awarded[key] or 0) then
+                                        retain(evidence, name, reason, openedAt, entry, {
+                                            key = key,
+                                            slot = slot,
+                                            receipt = received,
+                                            measured = entry.credits[key],
+                                            awarded = entry.awarded[key],
+                                        })
+                                    end
+                                end
+                            elseif name ~= "rewards" or entry.awarded < entry.quantity or not entry.confirmed then
+                                retain(evidence, name, reason, openedAt, entry, entry)
+                            end
+                            table.remove(entries, index)
+                            changed = true
+                        end
+                    end
+                end
+                if name == "rewards" then
+                    for index = #(state.preparations or {}), 1, -1 do
+                        local entry = state.preparations[index]
+                        if reason == "reload" or at - entry.at >= 60 then
+                            if not entry.confirmed then
+                                retain(evidence, "quest", reason, entry.at, entry, entry)
+                            end
+                            table.remove(state.preparations, index)
+                            changed = true
+                        end
+                    end
+                end
+                fields[name] = state
+            end
+        end
+        if changed then
+            saveFields(fields)
+        end
+        return true
+    end
+
+    function store.expireEvidence(_self, at)
+        return isInteger(at) and at >= 0 and endCorrelation(at, "expired") or false
+    end
+
+    function store.unresolved(_self)
+        local state = evidenceState()
+        return state and state.unresolved or {}
+    end
+
+    function store.evidenceSummary(_self)
+        return evidenceState() or { nextID = 1, unresolved = {}, discarded = 0 }
+    end
+
+    local function sameSource(left, right)
+        if not left or not right then
+            return left == right
+        end
+        return left.kind == right.kind
+            and left.guid == right.guid
+            and left.name == right.name
+            and left.realm == right.realm
+    end
+
+    local function canEnrichLootSource(current, proof)
+        return not current or (current.guid == proof.guid and current.kind == proof.kind)
+    end
+
+    function store.correctGain(_self, proof)
+        if
+            not readable
+            or type(proof) ~= "table"
+            or not isName(proof.id)
+            or type(proof.key) ~= "string"
+            or type(proof.gainID) ~= "string"
+            or not isInteger(proof.quantity)
+            or proof.quantity < 1
+            or not gainMethods[proof.method]
+            or (proof.source ~= nil and type(proof.source) ~= "table")
+            or (proof.fromSource ~= nil and type(proof.fromSource) ~= "table")
+        then
+            return false
+        end
+        local existing = valid[proof.key]
+        if
+            not existing
+            or not validRecord(proof.key, existing)
+            or (proof.link ~= nil and addon.Item.key(proof.link, existing.itemID) ~= proof.key)
+        then
+            return false
+        end
+        local record = copyRecord(existing)
+        local gain
+        for _, entry in ipairs(record.gains) do
+            for _, id in ipairs(entry.corrections or {}) do
+                if id == proof.id then
+                    return false
+                end
+            end
+            if entry.id == proof.gainID then
+                gain = entry
+            end
+        end
+        local newLink = false
+        if proof.link then
+            newLink = true
+            for _, storedLink in ipairs(record.links) do
+                if storedLink == proof.link then
+                    newLink = false
+                end
+            end
+        end
+        if
+            not gain
+            or gain.method ~= proof.fromMethod
+            or not sameSource(gain.source, proof.fromSource)
+            or proof.quantity > gain.quantity - (gain.refunded or 0)
+            or (
+                gain.method == proof.method
+                and sameSource(gain.source, proof.source)
+                and (not proof.context or (gain.context and gain.context.id == proof.context.id))
+                and not newLink
+            )
+        then
+            return false
+        end
+        -- A refund references a complete purchase. Never split or reclassify it.
+        if gain.method == "Vendor" and (proof.method ~= "Vendor" or proof.quantity ~= gain.quantity) then
+            return false
+        end
+        if proof.quantity < gain.quantity then
+            local share = copyValue(gain)
+            gain.quantity = gain.quantity - proof.quantity
+            share.id = gain.id .. ":proof:" .. proof.id
+            share.quantity = proof.quantity
+            share.refunded = nil
+            record.gains[#record.gains + 1] = share
+            gain = share
+        end
+        gain.method = proof.method
+        gain.source = copyValue(proof.source)
+        gain.context = copyValue(proof.context)
+        gain.corrections = gain.corrections or {}
+        gain.corrections[#gain.corrections + 1] = proof.id
+        if proof.link then
+            local found = false
+            for _, storedLink in ipairs(record.links) do
+                if storedLink == proof.link then
+                    found = true
+                end
+            end
+            if not found then
+                record.links[#record.links + 1] = proof.link
+            end
+        end
+        if not validRecord(proof.key, record) then
+            return false
+        end
+        local records = {}
+        for key, value in pairs(raw.records) do
+            records[key] = value
+        end
+        records[proof.key] = record
+        saveFields({ records = records })
+        valid[proof.key] = copyRecord(record)
+        return true
+    end
+
+    function store.breakdown(_self, key)
+        local record = valid[key]
+        if not record then
+            return nil
+        end
+        local result = {
+            recorded = record.firstSeenUnits + record.totalGained,
+            methods = { Seen = record.firstSeenUnits },
+            sources = { ["Initial stock"] = record.firstSeenUnits },
+        }
+        for _, gain in ipairs(record.gains) do
+            local quantity = gain.quantity - (gain.refunded or 0)
+            result.methods[gain.method] = (result.methods[gain.method] or 0) + quantity
+            local source = gain.source
+            local label = source and (source.name or source.guid) or "Unknown"
+            if source and source.kind == "player" then
+                label = source.name .. "-" .. source.realm
+            end
+            if gain.context then
+                label = gain.context.name or (gain.context.kind .. " " .. gain.context.id)
+            end
+            result.sources[label] = (result.sources[label] or 0) + quantity
+        end
+        return result
+    end
+
+    local function reserveCandidate(kind, detail, at, actor, cost)
+        if not endCorrelation(at, "expired") then
+            return false
+        end
+        local count = 0
+        for _, entry in ipairs(candidates) do
+            if entry.character == actor.character and entry.realm == actor.realm then
+                count = count + 1
+            end
+        end
+        cost = cost or 1
+        if count + cost > 256 then
+            local evidence = evidenceState()
+            retain(evidence, kind, "overflow", at, actor, detail)
+            saveFields({ evidence = evidence })
+            return false
+        end
+        for _ = 1, cost do
+            candidates[#candidates + 1] = { at = at, character = actor.character, realm = actor.realm }
+        end
+        return true
+    end
+
+    -- A new store is a login/reload boundary, never a continuation of a match.
+    endCorrelation(0, "reload")
 
     function store.diagnostic(_self)
         if not supported then
@@ -993,9 +1522,10 @@ function Schema.open(raw, save)
             and (session.endedAt == nil or isInteger(session.endedAt))
             and isInteger(at)
             and at >= session.openedAt
+            and at - session.openedAt < 60
             and (
                 (session.closedAt == nil and session.endedAt == nil)
-                or at <= (session.closedAt or session.endedAt) + 120
+                or at <= (session.closedAt or session.endedAt) + 60
             )
     end
 
@@ -1038,6 +1568,77 @@ function Schema.open(raw, save)
             end
         end
         return latest
+    end
+
+    local function attributeLoot(session, key, record)
+        local slot = session.slots[key]
+        local shares = slot and slot.shares
+        if not shares then
+            return
+        end
+        local gainID = tostring(session.id) .. ":" .. key
+        local gain
+        for _, entry in ipairs(record.gains) do
+            if entry.id == gainID then
+                gain = entry
+                break
+            end
+        end
+        if not gain then
+            for index, share in ipairs(shares) do
+                for _, entry in ipairs(record.gains) do
+                    if
+                        entry.id == gainID .. ":share:" .. index
+                        and entry.quantity == share.quantity
+                        and not entry.corrections
+                        and share.source
+                    then
+                        entry.source = copyValue(share.source)
+                    end
+                end
+            end
+            return
+        end
+        if gain.corrections then
+            return
+        end
+        if #shares == 1 then
+            if shares[1].source then
+                gain.source = copyValue(shares[1].source)
+            end
+            return
+        end
+        -- Only a complete, measured take of every slot proves the division.
+        if slot.limit ~= session.awarded[key] or gain.quantity ~= slot.limit then
+            return
+        end
+        local proven = 0
+        local knownSource = false
+        for _, share in ipairs(shares) do
+            if not isInteger(share.quantity) or share.quantity < 1 then
+                return
+            end
+            if share.source then
+                knownSource = true
+            end
+            proven = proven + share.quantity
+        end
+        if proven ~= gain.quantity or not knownSource then
+            return
+        end
+        for index, entry in ipairs(record.gains) do
+            if entry == gain then
+                table.remove(record.gains, index)
+                break
+            end
+        end
+        for index, share in ipairs(shares) do
+            local contribution = copyValue(gain)
+            contribution.id = gainID .. ":share:" .. index
+            contribution.quantity = share.quantity
+            contribution.source = copyValue(share.source)
+            record.gains[#record.gains + 1] = contribution
+        end
     end
 
     local function award(session, key, records)
@@ -1099,6 +1700,7 @@ function Schema.open(raw, save)
             end
         end
         session.awarded[key] = target
+        attributeLoot(session, key, record)
         records[key] = record
     end
 
@@ -1123,9 +1725,24 @@ function Schema.open(raw, save)
         local slots = {}
         local baselineQuantities = {}
         local baselineGains = {}
-        for _, slot in ipairs(context.slots) do
+        for index, slot in ipairs(context.slots) do
+            if
+                type(slot) ~= "table"
+                or type(slot.key) ~= "string"
+                or not validLootSource(slot.source)
+                or (slot.quantity ~= nil and (not isInteger(slot.quantity) or slot.quantity < 1))
+            then
+                return false
+            end
             if type(slot) == "table" and type(slot.key) == "string" then
                 if slots[slot.key] then
+                    local shares = slots[slot.key].shares
+                    shares[#shares + 1] = {
+                        source = copyValue(slot.source),
+                        quantity = slot.quantity,
+                        slot = slot.slot or index,
+                        sourceIndex = slot.sourceIndex or 1,
+                    }
                     slots[slot.key].source = nil
                     if slots[slot.key].limit and isInteger(slot.quantity) and slot.quantity > 0 then
                         slots[slot.key].limit = slots[slot.key].limit + slot.quantity
@@ -1134,8 +1751,16 @@ function Schema.open(raw, save)
                     end
                 else
                     slots[slot.key] = {
-                        source = slot.source,
+                        source = copyValue(slot.source),
                         limit = isInteger(slot.quantity) and slot.quantity > 0 and slot.quantity or nil,
+                        shares = {
+                            {
+                                source = copyValue(slot.source),
+                                quantity = slot.quantity,
+                                slot = slot.slot or index,
+                                sourceIndex = slot.sourceIndex or 1,
+                            },
+                        },
                     }
                     local record = valid[slot.key]
                     baselineGains[slot.key] = record and record.totalGained or 0
@@ -1163,7 +1788,9 @@ function Schema.open(raw, save)
                 for key, slot in pairs(slots) do
                     if type(session.slots[key]) == "table" then
                         slot.source = nil
+                        slot.shares = nil
                         session.slots[key].source = nil
+                        session.slots[key].shares = nil
                     end
                 end
                 sessions[#sessions + 1] = session
@@ -1193,6 +1820,91 @@ function Schema.open(raw, save)
         return true
     end
 
+    function store.lootSourceProof(_self, slots, at, actor)
+        if
+            not readable
+            or type(slots) ~= "table"
+            or not isInteger(at)
+            or type(actor) ~= "table"
+            or not isName(actor.character)
+            or not isName(actor.realm)
+        then
+            return false
+        end
+        for _, proof in ipairs(slots) do
+            if
+                type(proof) ~= "table"
+                or type(proof.key) ~= "string"
+                or not validLootSource(proof.source)
+                or (proof.quantity ~= nil and (not isInteger(proof.quantity) or proof.quantity < 1))
+            then
+                return false
+            end
+        end
+        if not store:expireEvidence(at) then
+            return false
+        end
+        local current = activeSession(at)
+        if not current or current.character ~= actor.character or current.realm ~= actor.realm then
+            return false
+        end
+        local session = copyValue(current)
+        local keys = {}
+        for index, proof in ipairs(slots) do
+            if type(proof) ~= "table" or type(proof.key) ~= "string" or not validLootSource(proof.source) then
+                return false
+            end
+            local slot = session.slots[proof.key]
+            for _, share in ipairs(slot and slot.shares or {}) do
+                if
+                    share.slot == (proof.slot or index)
+                    and share.sourceIndex == (proof.sourceIndex or 1)
+                    and share.quantity == proof.quantity
+                    and proof.source
+                    and canEnrichLootSource(share.source, proof.source)
+                    and not sameSource(share.source, proof.source)
+                then
+                    share.source = copyValue(proof.source)
+                    if #slot.shares == 1 then
+                        slot.source = copyValue(proof.source)
+                    end
+                    keys[proof.key] = true
+                end
+            end
+        end
+        if not next(keys) then
+            return false
+        end
+        local records = {}
+        for key, record in pairs(raw.records) do
+            records[key] = record
+        end
+        for key in pairs(keys) do
+            if valid[key] then
+                local record = copyRecord(valid[key])
+                attributeLoot(session, key, record)
+                if not validRecord(key, record) then
+                    return false
+                end
+                records[key] = record
+            end
+        end
+        local loot = copyValue(raw.loot)
+        for index, entry in ipairs(loot.sessions) do
+            if entry.id == session.id then
+                loot.sessions[index] = session
+                break
+            end
+        end
+        saveFields({ loot = loot, records = records })
+        for key in pairs(keys) do
+            if records[key] then
+                valid[key] = copyRecord(records[key])
+            end
+        end
+        return true
+    end
+
     ---@param receipt AzerothLedgerLootClaim
     ---@param at integer
     ---@param actor AzerothLedgerActor
@@ -1219,7 +1931,7 @@ function Schema.open(raw, save)
                 and reward.character == actor.character
                 and reward.realm == actor.realm
                 and at >= reward.at
-                and at - reward.at <= 120
+                and at - reward.at < 60
             then
                 local current = activeSession(at)
                 if
@@ -1301,7 +2013,7 @@ function Schema.open(raw, save)
             if
                 age > 31 * 86400
                 or (
-                    age > 120
+                    age >= 60
                     and (
                         action.status == "canceled"
                         or (
@@ -1384,6 +2096,9 @@ function Schema.open(raw, save)
         then
             return false
         end
+        if not store:expireEvidence(at) then
+            return false
+        end
         local state = exchangeState()
         if not state then
             return false
@@ -1398,7 +2113,7 @@ function Schema.open(raw, save)
                 and action.character == actor.character
                 and action.realm == actor.realm
                 and at >= action.at
-                and at - action.at <= 120
+                and at - action.at < 60
                 and (ids == nil or ids == action.id or (type(ids) == "table" and ids[action.id]))
             then
                 action.confirmed = true
@@ -1502,7 +2217,7 @@ function Schema.open(raw, save)
                 and action.character == snapshot.character
                 and action.realm == snapshot.realm
                 and snapshot.seenAt >= action.at
-                and snapshot.seenAt - action.at <= 120
+                and snapshot.seenAt - action.at < 60
             then
                 local group = grouped[action.key]
                 local current = group and group.quantity or 0
@@ -1805,7 +2520,7 @@ function Schema.open(raw, save)
                 and action.character == character
                 and action.realm == realm
                 and at >= action.at
-                and at - action.at <= 120
+                and at - action.at < 60
             then
                 local group = grouped[action.key]
                 local current = group and group.quantity or 0
@@ -1883,7 +2598,7 @@ function Schema.open(raw, save)
         end
         for index = #state.actions, 1, -1 do
             local action = state.actions[index]
-            if action.status == "pending" and at - action.at > 120 then
+            if action.status == "pending" and at - action.at >= 60 then
                 vendorResult(state, action, "unresolved")
             elseif action.status == "confirmed" and at - action.at > 7200 then
                 table.remove(state.actions, index)
@@ -1918,7 +2633,7 @@ function Schema.open(raw, save)
                 and action.character == actor.character
                 and action.realm == actor.realm
                 and at >= action.at
-                and at - action.at <= 120
+                and at - action.at < 60
             then
                 if match then
                     return false
@@ -1988,7 +2703,7 @@ function Schema.open(raw, save)
         local rewards = raw.rewards
         local sessions = type(rewards) == "table" and rewards.sessions or nil
         for _, session in ipairs(type(sessions) == "table" and sessions or {}) do
-            if validRewardSession(session) and at >= session.at and at - session.at <= 120 then
+            if validRewardSession(session) and at >= session.at and at - session.at < 60 then
                 result[#result + 1] = session
             end
         end
@@ -2000,7 +2715,7 @@ function Schema.open(raw, save)
         local rewards = raw.rewards
         local preparations = type(rewards) == "table" and rewards.preparations or nil
         for _, preparation in ipairs(type(preparations) == "table" and preparations or {}) do
-            if at >= preparation.at and at - preparation.at <= 120 then
+            if at >= preparation.at and at - preparation.at < 60 then
                 result[#result + 1] = preparation
             end
         end
@@ -2189,6 +2904,9 @@ function Schema.open(raw, save)
         then
             return false
         end
+        if not store:expireEvidence(at) then
+            return false
+        end
         local changed = false
         local preparation = questPreparation(questID, at, actor)
         if preparation and not preparation.confirmed then
@@ -2321,7 +3039,31 @@ function Schema.open(raw, save)
         then
             return false
         end
+        for _, item in ipairs(snapshot.items) do
+            if
+                type(item) ~= "table"
+                or not isInteger(item.itemID)
+                or item.itemID <= 0
+                or not isInteger(item.quantity)
+                or item.quantity <= 0
+            then
+                return false
+            end
+        end
+        local priorScope = raw.areas[areaKey(snapshot.character, snapshot.realm, snapshot.area)]
+        if type(priorScope) == "table" and isInteger(priorScope.seenAt) and snapshot.seenAt < priorScope.seenAt then
+            return false
+        end
+        if not store:expireEvidence(snapshot.seenAt) then
+            return false
+        end
+        snapshot = copyValue(snapshot)
         local grouped = {}
+        local evidence = evidenceState()
+        if not evidence then
+            return false
+        end
+        local unresolvedIdentity = false
         for _, item in ipairs(snapshot.items) do
             if
                 type(item) ~= "table"
@@ -2334,12 +3076,54 @@ function Schema.open(raw, save)
             end
             local key = addon.Item.key(item.link, item.itemID)
             if not key then
-                return false
+                snapshot.complete = false
+                local found = false
+                for _, entry in ipairs(evidence.unresolved) do
+                    if
+                        entry.kind == "identity"
+                        and entry.character == snapshot.character
+                        and entry.realm == snapshot.realm
+                        and entry.detail.area == snapshot.area
+                        and entry.detail.location == item.location
+                        and entry.detail.itemID == item.itemID
+                        and entry.detail.quantity == item.quantity
+                        and entry.detail.link == item.link
+                    then
+                        found = true
+                    end
+                end
+                if not found then
+                    retain(evidence, "identity", "unreadable", snapshot.seenAt, snapshot, {
+                        itemID = item.itemID,
+                        quantity = item.quantity,
+                        link = item.link,
+                        location = item.location,
+                        area = snapshot.area,
+                    })
+                end
+            else
+                for index = #evidence.unresolved, 1, -1 do
+                    local entry = evidence.unresolved[index]
+                    if
+                        entry.kind == "identity"
+                        and entry.character == snapshot.character
+                        and entry.realm == snapshot.realm
+                        and entry.detail.area == snapshot.area
+                        and item.location ~= nil
+                        and entry.detail.location == item.location
+                        and entry.at == snapshot.seenAt
+                        and entry.detail.itemID == item.itemID
+                        and entry.detail.quantity == item.quantity
+                    then
+                        table.remove(evidence.unresolved, index)
+                        unresolvedIdentity = true
+                    end
+                end
+                local group = grouped[key] or { itemID = item.itemID, quantity = 0, links = {} }
+                group.quantity = group.quantity + item.quantity
+                group.links[item.link] = true
+                grouped[key] = group
             end
-            local group = grouped[key] or { itemID = item.itemID, quantity = 0, links = {} }
-            group.quantity = group.quantity + item.quantity
-            group.links[item.link] = true
-            grouped[key] = group
         end
         local scopeKey = areaKey(snapshot.character, snapshot.realm, snapshot.area)
         local oldScope = raw.areas[scopeKey]
@@ -2359,7 +3143,7 @@ function Schema.open(raw, save)
             if session and (session.character ~= snapshot.character or session.realm ~= snapshot.realm) then
                 session = nil
             end
-            if session and type(oldScope) == "table" and oldScope.complete then
+            if session and type(oldScope) == "table" and oldScope.complete and not unresolvedIdentity then
                 local baselineQuantity = isInteger(session.baselineQuantities[key]) and session.baselineQuantities[key]
                     or 0
                 local increase = group.quantity - baselineQuantity
@@ -2544,13 +3328,134 @@ function Schema.open(raw, save)
             character = snapshot.character,
             realm = snapshot.realm,
         }
-        saveFields({ records = nextRecords, areas = nextAreas, vendor = vendor, exchange = exchange })
+        saveFields({
+            records = nextRecords,
+            areas = nextAreas,
+            vendor = vendor,
+            exchange = exchange,
+            evidence = evidence,
+        })
         for key, record in pairs(nextRecords) do
             if valid[key] or grouped[key] then
                 valid[key] = copyRecord(record)
             end
         end
         return true
+    end
+
+    -- Count incoming candidate signals at the public boundary, across all
+    -- channels for each character. Overflow is retained before it can match.
+    local function validCandidate(name, detail, actor)
+        if name == "questPrepared" then
+            return isInteger(detail) and detail > 0
+        end
+        if type(detail) ~= "table" then
+            return false
+        end
+        if name == "lootOpen" then
+            if not isInteger(detail.level) or type(detail.place) ~= "string" or type(detail.slots) ~= "table" then
+                return false
+            end
+            for _, slot in ipairs(detail.slots) do
+                if
+                    type(slot) ~= "table"
+                    or type(slot.key) ~= "string"
+                    or not validLootSource(slot.source)
+                    or (slot.quantity ~= nil and (not isInteger(slot.quantity) or slot.quantity < 1))
+                then
+                    return false
+                end
+            end
+            return true
+        end
+        if type(detail.key) ~= "string" or not isInteger(detail.quantity) or detail.quantity < 1 then
+            return false
+        end
+        if name == "lootReceipt" or name == "vendorReceipt" then
+            return true
+        end
+        if not isInteger(actor.level) or type(actor.place) ~= "string" then
+            return false
+        end
+        if name == "rewardReceipt" then
+            return (detail.method == "Quest" or detail.method == "Crafted")
+                and validRewardContext(detail.context, detail.method)
+                and (detail.preview == nil or type(detail.preview) == "boolean")
+                and (
+                    detail.choiceGroup == nil
+                    or (isName(detail.choiceGroup) and detail.method == "Quest" and detail.preview == true)
+                )
+        end
+        if
+            not isInteger(detail.itemID)
+            or detail.itemID < 1
+            or addon.Item.key(detail.link, detail.itemID) ~= detail.key
+        then
+            return false
+        end
+        if name == "vendorAction" then
+            return vendorKinds[detail.kind] == true
+                and (detail.area == nil or detail.area == "bags" or detail.area == "equipped")
+                and (actor.vendorName == nil or isName(actor.vendorName))
+        end
+        return (detail.channel == "mail" or detail.channel == "trade")
+            and (detail.direction == "in" or detail.direction == "out")
+            and (detail.peerName == nil or isName(detail.peerName))
+            and (detail.peerRealm == nil or isName(detail.peerRealm))
+    end
+    for _, name in ipairs({
+        "lootOpen",
+        "lootReceipt",
+        "rewardReceipt",
+        "questPrepared",
+        "vendorAction",
+        "vendorReceipt",
+        "exchangeIntent",
+    }) do
+        local command = store[name]
+        store[name] = function(self, detail, at, actor, ...)
+            if name == "lootOpen" then
+                actor = detail
+                at = type(detail) == "table" and detail.at or nil
+            end
+            if
+                readable
+                and isInteger(at)
+                and at >= 0
+                and type(actor) == "table"
+                and isName(actor.character)
+                and isName(actor.realm)
+                and validCandidate(name, detail, actor)
+            then
+                local payload = type(detail) == "table" and detail or { value = detail }
+                local cost = name == "lootOpen" and type(payload.slots) == "table" and #payload.slots or 1
+                if not reserveCandidate(name, payload, at, actor, math.max(1, cost)) then
+                    return false
+                end
+            end
+            local result = command(self, detail, at, actor, ...)
+            if
+                not result
+                and (name == "lootReceipt" or name == "vendorReceipt")
+                and readable
+                and type(detail) == "table"
+                and type(detail.key) == "string"
+                and isInteger(detail.quantity)
+                and detail.quantity > 0
+                and isInteger(at)
+                and at >= 0
+                and type(actor) == "table"
+                and isName(actor.character)
+                and isName(actor.realm)
+            then
+                local evidence = evidenceState()
+                if evidence then
+                    retain(evidence, name, "unmatched", at, actor, detail)
+                    saveFields({ evidence = evidence })
+                end
+            end
+            return result
+        end
     end
 
     return store

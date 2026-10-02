@@ -10,7 +10,7 @@ function Item.key(link, itemID)
     if type(link) ~= "string" or type(itemID) ~= "number" then
         return nil
     end
-    local payload = link:match("item:([%d:%-]+)")
+    local payload = link:match("item:([%d:%-]+)|")
     if not payload then
         return nil
     end
@@ -18,7 +18,7 @@ function Item.key(link, itemID)
     for field in (payload .. ":"):gmatch("([^:]*):") do
         fields[#fields + 1] = field
     end
-    if tonumber(fields[1]) ~= itemID then
+    if tonumber(fields[1]) ~= itemID or #fields < 8 then
         return nil
     end
     local suffix = tonumber(fields[7]) or 0
