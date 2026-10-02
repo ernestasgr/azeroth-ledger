@@ -22,18 +22,12 @@ local containerIDs = {
 ---@field GetInventoryItemLink? fun(unit: string, slot: integer): string?
 ---@field C_Container? AzerothLedgerContainerApi
 
-local function add(items, itemID, link, quantity)
-    if
-        type(itemID) ~= "number"
-        or type(link) ~= "string"
-        or type(quantity) ~= "number"
-        or quantity < 1
-        or not addon.Item.key(link, itemID)
-    then
+local function add(items, itemID, link, quantity, location)
+    if type(itemID) ~= "number" or type(quantity) ~= "number" or quantity < 1 then
         return false
     end
-    items[#items + 1] = { itemID = itemID, link = link, quantity = quantity }
-    return true
+    items[#items + 1] = { itemID = itemID, link = link, quantity = quantity, location = location }
+    return addon.Item.key(link, itemID) ~= nil
 end
 
 ---@param api AzerothLedgerScanApi
@@ -85,7 +79,7 @@ function Scan.capture(api, area, bankOpen)
                 if not link then
                     return true
                 end
-                return add(snapshot.items, tonumber(link:match("item:(%d+)")), link, 1)
+                return add(snapshot.items, tonumber(link:match("item:(%d+)")), link, 1, tostring(slot))
             end)
             if not ok then
                 snapshot.complete = false
@@ -121,7 +115,7 @@ function Scan.capture(api, area, bankOpen)
                     if not info then
                         return true
                     end
-                    return add(snapshot.items, info.itemID, info.hyperlink, info.stackCount)
+                    return add(snapshot.items, info.itemID, info.hyperlink, info.stackCount, bag .. ":" .. slot)
                 end)
                 if not itemOK or not readable then
                     snapshot.complete = false
