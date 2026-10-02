@@ -14,6 +14,10 @@ Lua 5.1 syntax, all twelve `tests/*.lua` behavior files, StyLua 2.5.2, LuaLS 3.1
 
 The new query cases are included in genuine `AzerothLedgerCollection` WoWUnit registration and in the host companion replay. Host execution does not establish an in-client pass.
 
+The standards and specification reviews compare the implementation with starting commit `a54ea80`. The specification review identified stale filter labels after Reset filters; the labels now derive from the filter projection, and a failing-then-passing frame replay covers both toggles. Both reviews report no remaining implementation blockers. Live acceptance is still pending.
+
+The account SavedVariables validate as healthy schema 2 with 34 readable records, and the client flavor is `wow_classic_beta`. Installation is pending the complete verify check. Automatic approval review rejected pushing the branch and opening a draft PR because external publication was not explicitly authorized; no publication occurred. Once authorized, run verify, then the prescribed installer and hash verification before the live controls below.
+
 ## Live validation
 
 Native app control is unavailable in this environment. The current build, locale, in-client test result and Lua errors remain pending for version 0.7.0.
