@@ -1251,6 +1251,10 @@ function Schema.open(raw, save)
             and left.realm == right.realm
     end
 
+    local function canEnrichLootSource(current, proof)
+        return not current or (current.guid == proof.guid and current.kind == proof.kind)
+    end
+
     function store.correctGain(_self, proof)
         if
             not readable
@@ -1857,7 +1861,7 @@ function Schema.open(raw, save)
                     and share.sourceIndex == (proof.sourceIndex or 1)
                     and share.quantity == proof.quantity
                     and proof.source
-                    and (not share.source or (share.source.guid == proof.source.guid and share.source.kind == proof.source.kind))
+                    and canEnrichLootSource(share.source, proof.source)
                     and not sameSource(share.source, proof.source)
                 then
                     share.source = copyValue(proof.source)
