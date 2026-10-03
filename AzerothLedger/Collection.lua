@@ -382,7 +382,7 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
     return lines
 end
 
----@class AzerothLedgerCollectionFilter
+---@class AzerothLedgerCollectionFilter: ALCountScope
 ---@field search? string
 ---@field category? string
 ---@field character? string
@@ -408,7 +408,9 @@ end
 ---@field ownership string
 ---@field discoveredAt integer
 ---@field metadata AzerothLedgerItemMetadata
----@field recorded integer
+---@field recorded? integer
+---@field checkedUnits? integer
+---@field uncheckedAreas? integer
 
 ---@param store ALStore
 ---@param character string
@@ -459,6 +461,8 @@ function Collection.query(store, character, realm, filter, metadata)
             result.categories[info.category] = (result.categories[info.category] or 0) + 1
             result.matchedCount = result.matchedCount + 1
             if not filter.category or filter.category == info.category then
+                local scope = (filter.character or filter.realm)
+                    and Collection.inspect(store, record.key, character, realm, filter)
                 result.rows[#result.rows + 1] = {
                     key = record.key,
                     name = name,
@@ -469,6 +473,8 @@ function Collection.query(store, character, realm, filter, metadata)
                     discoveredAt = (not filter.character and not filter.realm) and record.firstSeen or discoveredAt,
                     metadata = info,
                     recorded = assert(store:breakdown(record.key, filter)).recorded,
+                    checkedUnits = scope and scope.checkedUnits or nil,
+                    uncheckedAreas = scope and scope.uncheckedAreas or nil,
                 }
             end
         end
@@ -502,6 +508,10 @@ end
 ---@field firstGained? integer
 ---@field lastGained? integer
 ---@field scopeLabel string
+---@field checkedUnits? integer
+---@field uncheckedAreas integer
+---@field checkedAt? integer
+---@field firstChecked? integer
 ---@field checks {character: string, realm: string, area: string, quantity?: integer, at?: integer, online: boolean}[]
 
 ---@param store ALStore
@@ -531,10 +541,22 @@ function Collection.inspect(store, key, character, realm, filter)
     end
     local checks = {}
     local firstSeen, lastSeen
+    local checkedUnits, firstChecked
+    local uncheckedAreas = 0
     for _, seen in ipairs(record.characters) do
         if matchesFilter(filter.character, filter.realm, seen.name, seen.realm) then
             firstSeen = math.min(firstSeen or seen.firstSeen, seen.firstSeen)
             lastSeen = math.max(lastSeen or seen.lastSeen, seen.lastSeen)
+            for _, observation in ipairs(record.observations) do
+                if
+                    observation.character == seen.name
+                    and observation.realm == seen.realm
+                    and observation.quantity > 0
+                then
+                    firstChecked = (firstChecked or 0) + observation.quantity
+                    break
+                end
+            end
             for _, area in ipairs(storageAreas) do
                 local state = store:area(seen.name, seen.realm, area)
                 local observation = latestObservation(record, seen.name, seen.realm, area)
@@ -555,6 +577,19 @@ function Collection.inspect(store, key, character, realm, filter)
             end
         end
     end
+    local checkedAt
+    for _, check in ipairs(checks) do
+        if check.at then
+            checkedAt = math.max(checkedAt or check.at, check.at)
+        end
+    end
+    for _, check in ipairs(checks) do
+        if check.at == checkedAt and check.quantity ~= nil then
+            checkedUnits = (checkedUnits or 0) + check.quantity
+        else
+            uncheckedAreas = uncheckedAreas + 1
+        end
+    end
     return {
         record = record,
         breakdown = assert(store:breakdown(key, filter)),
@@ -566,6 +601,10 @@ function Collection.inspect(store, key, character, realm, filter)
         scopeLabel = filter.character and (filter.character .. (filter.realm and ("-" .. filter.realm) or ""))
             or filter.realm
             or "Account",
+        checkedUnits = checkedUnits,
+        uncheckedAreas = uncheckedAreas,
+        checkedAt = checkedAt,
+        firstChecked = firstChecked,
         evidence = strength,
         checks = checks,
         ownership = ownership(store, record, character, realm, filter.character, filter.realm),
@@ -595,7 +634,14 @@ function Collection.details(store, key, character, realm, filter)
     lines[#lines + 1] = "Latest confirmed gain: " .. stamp(model.lastGained)
     lines[#lines + 1] = "Strongest evidence: " .. model.evidence
     local breakdown = model.breakdown
-    lines[#lines + 1] = "Recorded units: " .. breakdown.recorded .. " (" .. model.scopeLabel .. ")"
+    if breakdown.recorded then
+        lines[#lines + 1] = "Recorded units: " .. breakdown.recorded .. " (" .. model.scopeLabel .. ")"
+    else
+        lines[#lines + 1] = "Checked units: "
+            .. (model.checkedUnits or "Unknown")
+            .. (model.uncheckedAreas > 0 and "; unchecked storage Unknown" or "")
+        lines[#lines + 1] = "First check: " .. (model.firstChecked or "Unknown")
+    end
     lines[#lines + 1] = "Total gained: " .. breakdown.gained
     for _, group in ipairs({ { "Method", breakdown.methods }, { "Source", breakdown.sources } }) do
         local labels = {}

@@ -74,7 +74,7 @@ function tests.FoundOnceIsAccountWideAndRefundRemovesItWithoutAnotherDiscovery(_
     local detail = table.concat(addon.Collection.details(store, key, "Ada", "A", filter), "\n")
     WoWUnit.IsTrue(detail:find("offline; current ownership Unknown", 1, true) ~= nil)
     WoWUnit.IsTrue(detail:find("checked", 1, true) ~= nil)
-    WoWUnit.IsTrue(detail:find("Recorded units: 1", 1, true) ~= nil)
+    WoWUnit.IsTrue(detail:find("Checked units: 1", 1, true) ~= nil)
 end
 
 local function metadata(record)
@@ -111,17 +111,65 @@ function tests.CharacterTotalsSeparateInitialStockAndGainsFromAccountHistory(_se
     local before = writes()
     local filter = { character = "Ben", realm = "B", search = "Meat" }
     local detail = addon.Collection.inspect(store, key, "Ada", "A", filter)
-    WoWUnit.AreEqual(10, detail.breakdown.recorded)
+    WoWUnit.AreEqual(10, detail.checkedUnits)
     WoWUnit.AreEqual(0, detail.breakdown.gained)
-    WoWUnit.AreEqual(10, detail.breakdown.initial)
+    WoWUnit.AreEqual(10, detail.firstChecked)
+    WoWUnit.AreEqual(nil, detail.breakdown.recorded)
+    WoWUnit.AreEqual(nil, detail.breakdown.initial)
     WoWUnit.AreEqual(nil, detail.breakdown.methods.Looted)
     WoWUnit.AreEqual(1003, detail.firstSeen)
     WoWUnit.AreEqual(nil, detail.firstGained)
     WoWUnit.AreEqual("Seen in storage", detail.evidence)
-    WoWUnit.AreEqual(10, addon.Collection.query(store, "Ada", "A", filter).rows[1].recorded)
+    WoWUnit.AreEqual(10, addon.Collection.query(store, "Ada", "A", filter).rows[1].checkedUnits)
     WoWUnit.AreEqual(402, store:breakdown(key).recorded)
-    WoWUnit.AreEqual(10, addon.Collection.inspect(store, key, "Ada", "A", { realm = "B" }).breakdown.recorded)
+    WoWUnit.AreEqual(10, addon.Collection.inspect(store, key, "Ada", "A", { realm = "B" }).checkedUnits)
     WoWUnit.AreEqual(before, writes())
+end
+
+function tests.FirstGainOnAnotherCharacterIsNotAlsoInitialStock(_self)
+    for _, delayed in ipairs({ false, true }) do
+        local store, scan = fixture()
+        local key = addon.Item.key(meat, 2672)
+        scan("Ben", "B", "bags", 1003, {})
+        local actor = { character = "Ben", realm = "B", level = 12, place = "Forest" }
+        WoWUnit.IsTrue(store:lootOpen({
+            character = "Ben",
+            realm = "B",
+            level = 12,
+            at = 1010,
+            place = "Forest",
+            slots = { { key = key, quantity = 1 } },
+        }))
+        if not delayed then
+            WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1011, actor))
+        end
+        scan("Ben", "B", "bags", 1012, { { itemID = 2672, link = meat, quantity = 1 } })
+        if delayed then
+            WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1013, actor))
+        end
+        local detail = addon.Collection.inspect(store, key, "Ada", "A", { character = "Ben", realm = "B" })
+        WoWUnit.AreEqual(1, detail.checkedUnits)
+        WoWUnit.AreEqual(1, detail.firstChecked)
+        WoWUnit.AreEqual(nil, detail.breakdown.recorded)
+        WoWUnit.AreEqual(nil, detail.breakdown.methods.Seen)
+        WoWUnit.AreEqual(1, detail.breakdown.gained)
+        WoWUnit.AreEqual(401, store:breakdown(key).recorded)
+    end
+end
+
+function tests.ScopedChecksDoNotAddTheSameUnitsAcrossDifferentDates(_self)
+    local store, scan = fixture()
+    scan("Ben", "B", "bank", 1004, { { itemID = 2672, link = meat, quantity = 10 } })
+    scan("Ben", "B", "bags", 1005, { { itemID = 2672, link = meat, quantity = 10 } })
+    local detail = addon.Collection.inspect(store, addon.Item.key(meat, 2672), "Ada", "A", {
+        character = "Ben",
+        realm = "B",
+    })
+    WoWUnit.AreEqual(10, detail.checkedUnits)
+    WoWUnit.AreEqual(1005, detail.checkedAt)
+    WoWUnit.AreEqual(2, detail.uncheckedAreas)
+    WoWUnit.AreEqual(10, detail.checks[2].quantity)
+    WoWUnit.AreEqual(1004, detail.checks[2].at)
 end
 
 function tests.SearchCountsDiscoveriesRatherThanStockAndKeepsVariants(_self)

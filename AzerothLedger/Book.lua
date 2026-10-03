@@ -15,6 +15,10 @@ local function stamp(at)
     return at and date("%d %b %Y  %H:%M", at) or "Unknown"
 end
 
+local function checkedQuantity(quantity, unchecked)
+    return quantity == nil and "Unknown" or (tostring(quantity) .. ((unchecked or 0) > 0 and "+" or ""))
+end
+
 local function fit(book)
     local parent = book.api.UIParent
     local maximum = math.min(1.1, parent:GetWidth() * 0.9 / 1100, parent:GetHeight() * 0.86 / 700)
@@ -105,9 +109,14 @@ function details(book, key)
     book.itemLink = record.links[#record.links]
     book.ownership:SetText(model.ownership)
     book.ownership:SetTextColor(unpack(model.ownership == "Present" and colors.green or colors.gold))
-    book.recorded:SetText(tostring(model.breakdown.recorded))
+    book.recorded:SetText(
+        book.detailsAccount and tostring(model.breakdown.recorded)
+            or checkedQuantity(model.checkedUnits, model.uncheckedAreas)
+    )
     book.gained:SetText(tostring(model.breakdown.gained))
-    book.initial:SetText(tostring(model.breakdown.initial))
+    book.initial:SetText(tostring((book.detailsAccount and model.breakdown.initial or model.firstChecked) or "Unknown"))
+    book.recordedLabel:SetText(book.detailsAccount and "RECORDED" or "CHECKED UNITS")
+    book.initialLabel:SetText(book.detailsAccount and "INITIALLY SEEN" or "FIRST CHECK")
     book.selectedTotals:SetText(book.filter.realm and not book.filter.character and "Realm" or "Character")
     Widgets.select(book.selectedTotals, not book.detailsAccount)
     Widgets.select(book.accountTotals, book.detailsAccount)
@@ -162,6 +171,14 @@ function details(book, key)
         y = y + height
     end
     write("section", "Discovery history")
+    if not book.detailsAccount then
+        write(
+            "note",
+            "Latest check "
+                .. stamp(model.checkedAt)
+                .. ". + means other storage is older or unchecked. First check and gains are separate facts."
+        )
+    end
     write("date", "First Seen", stamp(model.firstSeen))
     write("date", "Latest Seen", stamp(model.lastSeen))
     write("date", "First known gain", stamp(model.firstGained))
@@ -176,7 +193,7 @@ function details(book, key)
         end
         table.sort(labels)
         if #labels == 0 then
-            write("note", "No recorded units.")
+            write("note", book.detailsAccount and "No recorded units." or "No confirmed gains in this scope.")
         end
         for _, name in ipairs(labels) do
             write("pair", name == "Seen" and "Initial stock (Seen)" or name, tostring(totals[name]))
@@ -270,6 +287,7 @@ render = function(book, requestedKey)
     book.count:SetText(#result.rows .. (#result.rows == 1 and " item" or " items"))
     book.discoveries:SetText(result.discoveryCount .. (result.discoveryCount == 1 and " discovery" or " discoveries"))
     book.context:SetText(book.filter.category or "All items")
+    book.quantityHeading:SetText((book.filter.character or book.filter.realm) and "CHECKED" or "RECORDED")
     local state = #result.rows == 0 and "No matching items. Try another search or clear your filters." or ""
     if result.discoveryCount == 0 then
         state = "Your collection starts here. Open your bags or bank to record items."
@@ -303,7 +321,9 @@ render = function(book, requestedKey)
             row.subtitle:SetText(
                 book.filter.view == "Discoveries" and ("First Seen " .. stamp(item.discoveredAt)) or item.category
             )
-            row.quantity:SetText(tostring(item.recorded))
+            row.quantity:SetText(
+                item.recorded and tostring(item.recorded) or checkedQuantity(item.checkedUnits, item.uncheckedAreas)
+            )
         end
     end
     book.pageLabel:SetText(book.page .. " / " .. pages)
@@ -635,7 +655,8 @@ local function create(api)
     book.count = Widgets.text(api, frame, "", 218, 274, 160, 12)
     book.context = Widgets.text(api, frame, "", 390, 274, 268, 11, colors.muted)
     book.context:SetJustifyH("RIGHT")
-    Widgets.text(api, frame, "RECORDED", 598, 295, 60, 9, colors.muted):SetJustifyH("RIGHT")
+    book.quantityHeading = Widgets.text(api, frame, "RECORDED", 598, 295, 60, 9, colors.muted)
+    book.quantityHeading:SetJustifyH("RIGHT")
     book.empty = Widgets.text(api, frame, "", 248, 408, 380, 14, colors.muted)
     for index = 1, PAGE_SIZE do
         local row
@@ -706,12 +727,12 @@ local function create(api)
     book.controls[#book.controls + 1] = itemLink
     local function statistic(label, x)
         Widgets.fill(book.detailHeader, colors.raised, x, 143, 116, 49)
-        Widgets.text(api, book.detailHeader, label, x + 10, 151, 96, 9, colors.muted)
-        return Widgets.text(api, book.detailHeader, "", x + 10, 168, 96, 18)
+        local caption = Widgets.text(api, book.detailHeader, label, x + 10, 151, 96, 9, colors.muted)
+        return Widgets.text(api, book.detailHeader, "", x + 10, 168, 96, 18), caption
     end
-    book.recorded = statistic("RECORDED", 16)
+    book.recorded, book.recordedLabel = statistic("RECORDED", 16)
     book.gained = statistic("TOTAL GAINED", 142)
-    book.initial = statistic("INITIALLY SEEN", 268)
+    book.initial, book.initialLabel = statistic("INITIALLY SEEN", 268)
     book.detailScroll = api.CreateFrame("ScrollFrame", nil, detailPanel, "UIPanelScrollFrameTemplate")
     book.detailScroll:SetPoint("TOPLEFT", 16, -208)
     book.detailScroll:SetSize(344, DETAIL_HEIGHT)

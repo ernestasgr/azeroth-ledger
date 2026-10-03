@@ -363,14 +363,18 @@ local _, addon = ...
 ---@field evidenceSummary fun(self: AzerothLedgerStore): AzerothLedgerEvidenceState
 ---@field expireEvidence fun(self: AzerothLedgerStore, at: integer): boolean
 ---@field correctGain fun(self: AzerothLedgerStore, proof: AzerothLedgerGainCorrection): boolean
----@field breakdown fun(self: ALStore, key: string, scope?: {character?: string, realm?: string}): AzerothLedgerBreakdown?
+---@field breakdown fun(self: ALStore, key: string, scope?: ALCountScope): AzerothLedgerBreakdown?
 ---@field lootSourceProof fun(self: ALStore, slots: ALLootSlots, at: integer, actor: ALActor): boolean
 
 ---@alias ALLootSlots AzerothLedgerLootSlot[]
 
+---@class ALCountScope
+---@field character? string
+---@field realm? string
+
 ---@class AzerothLedgerBreakdown
----@field recorded integer
----@field initial integer
+---@field recorded? integer
+---@field initial? integer
 ---@field gained integer
 ---@field methods table<string, integer>
 ---@field sources table<string, integer>
@@ -1380,21 +1384,12 @@ function Schema.open(raw, save)
         local function matches(character, realm)
             return (not scope.character or scope.character == character) and (not scope.realm or scope.realm == realm)
         end
-        local initial = record.firstSeenUnits
-        if scoped then
-            initial = 0
-            for _, seen in ipairs(record.characters) do
-                if matches(seen.name, seen.realm) then
-                    initial = initial + seen.firstSeenUnits
-                end
-            end
-        end
+        local initial = not scoped and record.firstSeenUnits or nil
         local result = {
-            recorded = 0,
             initial = initial,
             gained = scoped and 0 or record.totalGained,
-            methods = { Seen = initial },
-            sources = { ["Initial stock"] = initial },
+            methods = initial and { Seen = initial } or {},
+            sources = initial and { ["Initial stock"] = initial } or {},
         }
         for _, gain in ipairs(record.gains) do
             if matches(gain.character, gain.realm) then
@@ -1414,7 +1409,9 @@ function Schema.open(raw, save)
                 result.sources[label] = (result.sources[label] or 0) + quantity
             end
         end
-        result.recorded = result.initial + result.gained
+        if initial then
+            result.recorded = initial + result.gained
+        end
         return result
     end
 

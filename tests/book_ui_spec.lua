@@ -163,10 +163,10 @@ find("10")
 click("Account")
 find("400")
 click("Character")
-local stats = find("RECORDED", "FontString").parent
+local stats = find("CHECKED UNITS", "FontString").parent
 local scopedRecorded = false
 for _, control in ipairs(controls) do
-    if control.parent == stats and control.text == "10" then
+    if control.parent == stats and control.text == "10+" then
         scopedRecorded = true
     end
     assert(not (control.parent == stats and control.text == "400"), "character totals must not show account stock")
