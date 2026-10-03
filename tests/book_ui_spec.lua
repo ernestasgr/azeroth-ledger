@@ -142,6 +142,49 @@ ready = true
 frame.scripts.OnEvent()
 frame.scripts.OnUpdate()
 assert(writes == before, "browsing must not write SavedVariables")
+click("All recorded places")
+local menu = find("Next", "Button").parent
+assert(menu.background:GetHeight() == menu:GetHeight(), "a short menu must not paint beyond its visible bounds")
+frame.scripts.OnKeyDown(frame, "ESCAPE")
+for index = 1, 10 do
+    assert(store:scan({
+        character = "Alt" .. string.format("%02d", index),
+        realm = "A",
+        area = "bags",
+        complete = true,
+        seenAt = 1000,
+        items = {},
+    }))
+end
+click("All characters")
+click("Next")
+local function firstMenuChoice()
+    for _, control in ipairs(controls) do
+        if
+            control.parent == menu
+            and control.kind == "Button"
+            and control:IsVisible()
+            and control.text ~= "Previous"
+            and control.text ~= "Next"
+        then
+            return assert(control.text:match("^(.-)%-"))
+        end
+    end
+    error("Missing visible menu choice")
+end
+local expectedCharacter = firstMenuChoice()
+frame.scripts.OnKeyDown(frame, "ENTER")
+find(expectedCharacter, "Button")
+click(expectedCharacter)
+menu.scripts.OnMouseWheel(menu, -1)
+expectedCharacter = firstMenuChoice()
+frame.scripts.OnKeyDown(frame, "ENTER")
+find(expectedCharacter, "Button")
+click(expectedCharacter)
+frame.scripts.OnKeyDown(frame, "PAGEDOWN")
+expectedCharacter = firstMenuChoice()
+frame.scripts.OnKeyDown(frame, "ENTER")
+find(expectedCharacter, "Button")
 frame.scripts.OnKeyDown(frame, "ESCAPE")
 assert(not frame:IsShown())
 print("book_ui_spec: passed (native frame port replay; live client pending)")

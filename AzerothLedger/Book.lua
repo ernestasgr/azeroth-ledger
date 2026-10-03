@@ -78,8 +78,8 @@ local function details(book, key)
     end
     local record = model.record
     local info = addon.Client.itemMetadata(book.api, record)
-    local name = record.links[1]:match("%[([^%]]+)%]") or ("Item " .. record.itemID)
-    book.itemTitle:SetText(name)
+    local itemName = record.links[1]:match("%[([^%]]+)%]") or ("Item " .. record.itemID)
+    book.itemTitle:SetText(itemName)
     book.itemTitle:SetTextColor(unpack(Widgets.quality(book.api, info.quality)))
     book.itemCategory:SetText(info.category .. "  •  Account history")
     book.itemIcon:SetTexture(info.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
@@ -272,6 +272,11 @@ local function renderMenu(book)
     local count = #book.menuChoices
     local pages = math.max(1, math.ceil(count / MENU_SIZE))
     book.menuPage = math.max(1, math.min(book.menuPage, pages))
+    local first = (book.menuPage - 1) * MENU_SIZE + 1
+    local last = math.min(count, first + MENU_SIZE - 1)
+    if book.menuIndex < first or book.menuIndex > last then
+        book.menuIndex = first
+    end
     for index, row in ipairs(book.menuRows) do
         local choice = book.menuChoices[(book.menuPage - 1) * MENU_SIZE + index]
         row.choice = choice
@@ -283,6 +288,7 @@ local function renderMenu(book)
     end
     local shown = math.min(MENU_SIZE, count - (book.menuPage - 1) * MENU_SIZE)
     book.menu:SetHeight(shown * 30 + 48)
+    book.menu.background:SetHeight(book.menu:GetHeight())
     book.menuPrevious:ClearAllPoints()
     book.menuPrevious:SetPoint("TOPLEFT", 8, -(shown * 30 + 10))
     book.menuNext:ClearAllPoints()
@@ -398,7 +404,13 @@ local function keyboard(book, key)
         return
     end
     if key == "PAGEUP" or key == "PAGEDOWN" then
-        turnPage(book, key == "PAGEUP" and -1 or 1)
+        local direction = key == "PAGEUP" and -1 or 1
+        if book.menu:IsShown() then
+            book.menuPage = book.menuPage + direction
+            renderMenu(book)
+        else
+            turnPage(book, direction)
+        end
         return
     end
     if key == "UP" or key == "DOWN" then
