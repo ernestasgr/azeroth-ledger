@@ -29,7 +29,10 @@ local previewMessages = {
 
 local function updatePreview(book)
     local record = book.selected and book.store:find(book.selected)
-    local link = record and record.links[book.previewIndex or 1]
+    local selection =
+        addon.Collection.gallerySelection(book.result, book.selected, record and record.links[book.previewIndex or 1])
+    local link = selection and selection.link
+    book.previewIndex = selection and selection.index or 1
     book.previewLink = link
     book.savedLink:SetText("Saved link " .. (book.previewIndex or 1) .. " of " .. (record and #record.links or 0))
     local status = addon.Client.previewStatus(book.api, link)
@@ -455,14 +458,8 @@ render = function(book, requestedKey)
         selectItem(book, requestedKey)
     else
         if gallery then
-            local selected
-            for _, row in ipairs(result.rows) do
-                if row.key == (requestedKey or book.selected) then
-                    selected = row.key
-                    break
-                end
-            end
-            requestedKey = selected or (result.rows[1] and result.rows[1].key)
+            local selection = addon.Collection.gallerySelection(result, requestedKey or book.selected)
+            requestedKey = selection and selection.key
             if not requestedKey then
                 book.selected = nil
             end
@@ -484,6 +481,29 @@ local function turnPage(book, delta)
     book.page = book.page + delta
     book.selectedSequence = nil
     render(book)
+end
+
+local function itemButton(book, x, y, width, height)
+    local row
+    row = Widgets.button(book, book.frame, "", x, y, width, height, function(_, mouseButton)
+        if row.key then
+            if mouseButton == "RightButton" then
+                Widgets.openLink(book.api, row.fullLink, mouseButton)
+            else
+                book.selectedSequence = row.sequence
+                selectItem(book, row.key)
+            end
+        end
+    end)
+    row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    tooltip(book, row, function()
+        return row.fullLink
+    end)
+    row:EnableMouseWheel(true)
+    row:SetScript("OnMouseWheel", function(_, delta)
+        turnPage(book, delta > 0 and -1 or 1)
+    end)
+    return row
 end
 
 local function renderMenu(book)
@@ -808,18 +828,7 @@ local function create(api)
     book.quantityHeading:SetJustifyH("RIGHT")
     book.empty = Widgets.text(api, frame, "", 248, 408, 380, 14, colors.muted)
     for index = 1, PAGE_SIZE do
-        local row
-        row = Widgets.button(book, frame, "", 218, 314 + (index - 1) * 42, 440, 40, function(_, mouseButton)
-            if row.key then
-                if mouseButton == "RightButton" then
-                    Widgets.openLink(api, row.fullLink, mouseButton)
-                else
-                    book.selectedSequence = row.sequence
-                    selectItem(book, row.key)
-                end
-            end
-        end)
-        row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        local row = itemButton(book, 218, 314 + (index - 1) * 42, 440, 40)
         row.icon = Widgets.icon(row, 8, 4, 32)
         row:GetFontString():ClearAllPoints()
         row:GetFontString():SetPoint("TOPLEFT", 50, -6)
@@ -827,36 +836,10 @@ local function create(api)
         row.subtitle = Widgets.text(api, row, "", 50, 23, 320, 10, colors.muted)
         row.quantity = Widgets.text(api, row, "", 378, 13, 48, 13, colors.muted)
         row.quantity:SetJustifyH("RIGHT")
-        tooltip(book, row, function()
-            return row.fullLink
-        end)
-        row:EnableMouseWheel(true)
-        row:SetScript("OnMouseWheel", function(_, delta)
-            turnPage(book, delta > 0 and -1 or 1)
-        end)
         book.rows[index] = row
     end
     for index = 1, 6 do
-        local row
-        row = Widgets.button(
-            book,
-            frame,
-            "",
-            218 + ((index - 1) % 2) * 224,
-            314 + math.floor((index - 1) / 2) * 98,
-            216,
-            90,
-            function(_, mouseButton)
-                if row.key then
-                    if mouseButton == "RightButton" then
-                        Widgets.openLink(api, row.fullLink, mouseButton)
-                    else
-                        selectItem(book, row.key)
-                    end
-                end
-            end
-        )
-        row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        local row = itemButton(book, 218 + ((index - 1) % 2) * 224, 314 + math.floor((index - 1) / 2) * 98, 216, 90)
         row.icon = Widgets.icon(row, 10, 10, 40)
         row:GetFontString():ClearAllPoints()
         row:GetFontString():SetPoint("TOPLEFT", 60, -12)
@@ -864,13 +847,6 @@ local function create(api)
         row.subtitle = Widgets.text(api, row, "", 10, 62, 194, 10, colors.muted)
         row.subtitle:SetWordWrap(false)
         row.quantity = Widgets.text(api, row, "", 60, 34, 146, 11, colors.muted)
-        tooltip(book, row, function()
-            return row.fullLink
-        end)
-        row:EnableMouseWheel(true)
-        row:SetScript("OnMouseWheel", function(_, delta)
-            turnPage(book, delta > 0 and -1 or 1)
-        end)
         row:Hide()
         book.galleryRows[index] = row
     end

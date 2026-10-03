@@ -155,6 +155,34 @@ function tests.PreviewUsesTheExactRetainedLinkAndSafelyReportsUnavailableItems(_
     WoWUnit.AreEqual("unavailable", addon.Client.previewItem(api, nil))
 end
 
+function tests.GallerySelectionResetsLinksBetweenVariantsAndClearsEmptyScopes(_self)
+    local store, _, writes = fixture()
+    local before = writes()
+    local function gearMetadata(record)
+        return { category = record.itemID == 100 and "Weapons" or "Materials", gear = record.itemID == 100 }
+    end
+    local result = addon.Collection.query(store, "Ada", "A", { view = "Gallery" }, gearMetadata)
+    local bearKey, wolfKey = addon.Item.key(bear, 100), addon.Item.key(wolf, 100)
+    local selection = addon.Collection.gallerySelection(result, bearKey, enchanted)
+    WoWUnit.AreEqual(bearKey, selection.key)
+    WoWUnit.AreEqual(enchanted, selection.link)
+    WoWUnit.AreEqual(2, selection.index)
+    local refreshed = addon.Collection.gallerySelection(result, selection.key, selection.link)
+    WoWUnit.AreEqual(enchanted, refreshed.link)
+    selection = addon.Collection.gallerySelection(result, wolfKey, enchanted)
+    WoWUnit.AreEqual(wolfKey, selection.key)
+    WoWUnit.AreEqual(wolf, selection.link)
+    WoWUnit.AreEqual(1, selection.index)
+    result =
+        addon.Collection.query(store, "Ada", "A", { view = "Gallery", character = "Ada", realm = "A" }, gearMetadata)
+    selection = addon.Collection.gallerySelection(result, wolfKey, wolf)
+    WoWUnit.AreEqual(bearKey, selection.key)
+    WoWUnit.AreEqual(bear, selection.link)
+    result = addon.Collection.query(store, "Ada", "A", { view = "Gallery", realm = "Missing" }, gearMetadata)
+    WoWUnit.AreEqual(nil, addon.Collection.gallerySelection(result, selection.key, selection.link))
+    WoWUnit.AreEqual(before, writes())
+end
+
 function tests.ViewerContextLinksCollapseWithoutLosingEnchants(_self)
     local store, scan, writes = fixture()
     local viewerLink = "|cff1eff00|Hitem:100:0:0:0:0:0:42:8:20:7:0:0:1:111|h[Sword]|h|r"

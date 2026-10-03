@@ -11,8 +11,10 @@ The local `wow-ui-source` reference and installed Forever `BlizzardInterfaceCode
 - Red/green Collection query case: the gallery originally included material stock (`2 ~= 3`); it now keeps gear variants and pending identities while respecting character and realm scope without saving.
 - Red/green preview case: the missing preview adapter failed the genuine WoWUnit test definition in host replay; the adapter now preserves exact links and returns safe results for unloaded, non-wearable, missing and throwing native APIs.
 - Red/green native frame replay: Gallery was originally absent. The replay now covers gallery cards, exact-link selection, keyboard variant selection, scoped filtering, empty/loading states, failed native previews and scaling without ledger writes.
+- The public `Collection.gallerySelection` projection is used by the book and genuine WoWUnit definitions. It preserves the selected retained link across refreshes, resets links between variants or when scope excludes the selection, and clears selection when the gallery is empty. The new WoWUnit transition case passes in host replay.
 - These cases live in `AzerothLedgerCollection`, `tests/book_query_spec.lua` and `tests/gallery_ui_spec.lua`. Host replay is distinct from genuine in-client WoWUnit execution and model rendering.
 - All 16 Lua specs pass locally in separate Lua 5.1 processes. Lua 5.1 syntax, StyLua 2.5.2, LuaLS 3.19.1, package/load order and all three Python installer tests pass. The gallery page-size regression covers six-card pages, next/previous navigation and PageUp/PageDown. Pinned Luacheck runs in the PR's `verify` job.
+- Before installation, the account SavedVariables were checked read-only: healthy schema 2 with 62 readable Collection records.
 
 ![Gallery layout preview with sample data and placeholder icons](issue-26-gallery.png)
 
