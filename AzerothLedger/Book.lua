@@ -11,6 +11,35 @@ local render
 local showMenu
 local details
 
+local function pageSize(book)
+    return book.filter.view == "Gallery" and 6 or PAGE_SIZE
+end
+
+local function visibleRows(book)
+    return book.filter.view == "Gallery" and book.galleryRows or book.rows
+end
+
+local previewMessages = {
+    ready = "Choose a saved link, then preview it in the native dressing room.",
+    opened = "Opened the native dressing room.",
+    loading = "Item data is not loaded yet. Preview when it becomes available.",
+    ["not-wearable"] = "This item cannot be worn in the dressing room. Its saved link is available below.",
+    unavailable = "Native preview is unavailable. Its saved link is available below.",
+}
+
+local function updatePreview(book)
+    local record = book.selected and book.store:find(book.selected)
+    local selection =
+        addon.Collection.gallerySelection(book.result, book.selected, record and record.links[book.previewIndex or 1])
+    local link = selection and selection.link
+    book.previewIndex = selection and selection.index or 1
+    book.previewLink = link
+    book.savedLink:SetText("Saved link " .. (book.previewIndex or 1) .. " of " .. (record and #record.links or 0))
+    local status = addon.Client.previewStatus(book.api, link)
+    Widgets.enable(book.preview, status == "ready")
+    book.previewMessage:SetText(previewMessages[status])
+end
+
 local function stamp(at)
     return at and date("%d %b %Y  %H:%M", at) or "Unknown"
 end
@@ -80,6 +109,7 @@ function details(book, key)
     book.selected = key
     if previous ~= key then
         book.showAllLinks = false
+        book.previewIndex = 1
     end
     local scope = {}
     if not book.detailsAccount then
@@ -93,13 +123,22 @@ function details(book, key)
     book.detailEmpty:SetShown(not model)
     book.detailHeader:SetShown(model ~= nil)
     book.detailScroll:SetShown(model ~= nil)
+    local gallery = book.filter.view == "Gallery"
+    book.previewPanel:SetShown(gallery and model ~= nil)
+    book.detailScroll:ClearAllPoints()
+    book.detailScroll:SetPoint("TOPLEFT", 16, gallery and -292 or -208)
+    book.detailScroll:SetHeight(gallery and 236 or DETAIL_HEIGHT)
     for _, row in ipairs(book.detailRows) do
         row:Hide()
     end
     if not model then
+        book.previewLink = nil
         return
     end
     local record = model.record
+    if gallery then
+        updatePreview(book)
+    end
     local info = addon.Client.itemMetadata(book.api, record)
     local itemName = record.links[1]:match("%[([^%]]+)%]") or ("Item " .. record.itemID)
     book.itemTitle:SetText(itemName)
@@ -255,12 +294,14 @@ function details(book, key)
         )
     end
     book.detailBody:SetHeight(math.max(y, 1))
-    book.detailScroll:SetVerticalScroll(previous == key and math.min(oldScroll, math.max(0, y - DETAIL_HEIGHT)) or 0)
+    book.detailScroll:SetVerticalScroll(
+        previous == key and math.min(oldScroll, math.max(0, y - book.detailScroll:GetHeight())) or 0
+    )
 end
 
 local function selectItem(book, key)
     details(book, key)
-    for _, row in ipairs(book.rows) do
+    for _, row in ipairs(visibleRows(book)) do
         Widgets.select(
             row,
             book.filter.view == "Journal" and row.sequence == book.selectedSequence
@@ -294,6 +335,8 @@ render = function(book, requestedKey)
         book.lastDetailScope = scopeKey
     end
     local journal = book.filter.view == "Journal"
+    local gallery = book.filter.view == "Gallery"
+    local size = pageSize(book)
     local result
     if journal then
         result = {
@@ -315,7 +358,7 @@ render = function(book, requestedKey)
                 selected = row
             end
         end
-        selected = selected or result.rows[(book.page - 1) * PAGE_SIZE + 1] or result.rows[1]
+        selected = selected or result.rows[(book.page - 1) * size + 1] or result.rows[1]
         book.selectedSequence = selected and selected.sequence or nil
         requestedKey = selected and selected.key or nil
     else
@@ -324,11 +367,15 @@ render = function(book, requestedKey)
         end)
     end
     book.result = result
-    local pages = math.max(1, math.ceil(#result.rows / PAGE_SIZE))
+    local pages = math.max(1, math.ceil(#result.rows / size))
     book.page = math.max(1, math.min(book.page, pages))
     book.count:SetText(#result.rows .. (journal and " activities" or (#result.rows == 1 and " item" or " items")))
     book.discoveries:SetText(result.discoveryCount .. (result.discoveryCount == 1 and " discovery" or " discoveries"))
-    book.context:SetText(journal and "Account-wide recent activity" or (book.filter.category or "All items"))
+    book.context:SetText(
+        journal and "Account-wide recent activity"
+            or (book.filter.category or (gallery and "Gear & pending items" or "All items"))
+    )
+    book.quantityHeading:SetShown(not gallery)
     book.quantityHeading:SetText(
         journal and "UNITS" or ((book.filter.character or book.filter.realm) and "CHECKED" or "RECORDED")
     )
@@ -346,6 +393,9 @@ render = function(book, requestedKey)
         Widgets.enable(control, not journal)
     end
     local state = #result.rows == 0 and "No matching items. Try another search or clear your filters." or ""
+    if gallery then
+        state = "No matching gear. Try another search or clear your filters."
+    end
     if result.discoveryCount == 0 then
         state = "Your collection starts here. Open your bags or bank to record items."
     end
@@ -361,16 +411,20 @@ render = function(book, requestedKey)
     book.place:SetText(book.filter.place or "All recorded places")
     book.historical.mark:SetShown(book.filter.historical == true)
     book.foundOnce.mark:SetShown(book.filter.foundOnce == true)
-    Widgets.select(book.collectionTab, not journal and book.filter.view ~= "Discoveries")
+    Widgets.select(book.collectionTab, not journal and not gallery and book.filter.view ~= "Discoveries")
     Widgets.select(book.discoveryTab, book.filter.view == "Discoveries")
     Widgets.select(book.journalTab, journal)
+    Widgets.select(book.galleryTab, gallery)
     for _, control in ipairs(book.categories) do
         local category = control.category
         Widgets.select(control, book.filter.category == category)
         control.count:SetText(tostring(category and (result.categories[category] or 0) or result.matchedCount))
     end
-    for index, row in ipairs(book.rows) do
-        local item = result.rows[(book.page - 1) * PAGE_SIZE + index]
+    for _, row in ipairs(gallery and book.rows or book.galleryRows) do
+        row:Hide()
+    end
+    for index, row in ipairs(visibleRows(book)) do
+        local item = result.rows[(book.page - 1) * size + index]
         row.key = item and item.key or nil
         row.sequence = journal and item and item.sequence or nil
         row.fullLink = item and item.record.links[#item.record.links] or nil
@@ -384,6 +438,7 @@ render = function(book, requestedKey)
                 journal and (stamp(item.at) .. " • " .. item.actors)
                     or (
                         book.filter.view == "Discoveries" and ("First Seen " .. stamp(item.discoveredAt))
+                        or (gallery and (item.loading and "Awaiting item data" or item.record.key))
                         or item.category
                     )
             )
@@ -402,6 +457,13 @@ render = function(book, requestedKey)
         book.detailsAccount = true
         selectItem(book, requestedKey)
     else
+        if gallery then
+            local selection = addon.Collection.gallerySelection(result, requestedKey or book.selected)
+            requestedKey = selection and selection.key
+            if not requestedKey then
+                book.selected = nil
+            end
+        end
         selectItem(book, requestedKey or book.selected or (result.rows[1] and result.rows[1].key))
     end
     book.dirty = false
@@ -419,6 +481,29 @@ local function turnPage(book, delta)
     book.page = book.page + delta
     book.selectedSequence = nil
     render(book)
+end
+
+local function itemButton(book, x, y, width, height)
+    local row
+    row = Widgets.button(book, book.frame, "", x, y, width, height, function(_, mouseButton)
+        if row.key then
+            if mouseButton == "RightButton" then
+                Widgets.openLink(book.api, row.fullLink, mouseButton)
+            else
+                book.selectedSequence = row.sequence
+                selectItem(book, row.key)
+            end
+        end
+    end)
+    row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    tooltip(book, row, function()
+        return row.fullLink
+    end)
+    row:EnableMouseWheel(true)
+    row:SetScript("OnMouseWheel", function(_, delta)
+        turnPage(book, delta > 0 and -1 or 1)
+    end)
+    return row
 end
 
 local function renderMenu(book)
@@ -586,7 +671,7 @@ local function keyboard(book, key)
         local row = book.result.rows[index]
         if row then
             book.selectedSequence = row.sequence
-            book.page = math.ceil(index / PAGE_SIZE)
+            book.page = math.ceil(index / pageSize(book))
             render(book, row.key)
         end
         return
@@ -601,6 +686,7 @@ local function create(api)
         frame = frame,
         controls = {},
         rows = {},
+        galleryRows = {},
         categories = {},
         detailRows = {},
         filter = {},
@@ -662,14 +748,17 @@ local function create(api)
     end)
     Widgets.text(api, sidebar, "Only places linked to\nrecorded gains appear here.", 12, 467, 154, 11, colors.muted)
 
-    book.collectionTab = Widgets.button(book, frame, "Collection", 218, 100, 128, 32, function()
+    book.collectionTab = Widgets.button(book, frame, "Collection", 218, 100, 106, 32, function()
         change(book, "view", "Collection")
     end)
-    book.discoveryTab = Widgets.button(book, frame, "Discoveries", 354, 100, 150, 32, function()
+    book.discoveryTab = Widgets.button(book, frame, "Discoveries", 330, 100, 118, 32, function()
         change(book, "view", "Discoveries")
     end)
-    book.journalTab = Widgets.button(book, frame, "Journal", 512, 100, 146, 32, function()
+    book.journalTab = Widgets.button(book, frame, "Journal", 454, 100, 96, 32, function()
         change(book, "view", "Journal")
+    end)
+    book.galleryTab = Widgets.button(book, frame, "Gallery", 556, 100, 102, 32, function()
+        change(book, "view", "Gallery")
     end)
     local searchSurface = Widgets.panel(api, frame, 218, 146, 440, 36, colors.raised)
     book.search = api.CreateFrame("EditBox", nil, searchSurface)
@@ -726,7 +815,7 @@ local function create(api)
         change(book, "foundOnce", not book.filter.foundOnce)
     end)
     book.clearFilters = Widgets.button(book, frame, "Clear filters", 548, 232, 110, 26, function()
-        book.filter = {}
+        book.filter = { view = book.filter.view }
         book.search:SetText("")
         book.page = 1
         closeMenu(book)
@@ -739,18 +828,7 @@ local function create(api)
     book.quantityHeading:SetJustifyH("RIGHT")
     book.empty = Widgets.text(api, frame, "", 248, 408, 380, 14, colors.muted)
     for index = 1, PAGE_SIZE do
-        local row
-        row = Widgets.button(book, frame, "", 218, 314 + (index - 1) * 42, 440, 40, function(_, mouseButton)
-            if row.key then
-                if mouseButton == "RightButton" then
-                    Widgets.openLink(api, row.fullLink, mouseButton)
-                else
-                    book.selectedSequence = row.sequence
-                    selectItem(book, row.key)
-                end
-            end
-        end)
-        row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        local row = itemButton(book, 218, 314 + (index - 1) * 42, 440, 40)
         row.icon = Widgets.icon(row, 8, 4, 32)
         row:GetFontString():ClearAllPoints()
         row:GetFontString():SetPoint("TOPLEFT", 50, -6)
@@ -758,14 +836,19 @@ local function create(api)
         row.subtitle = Widgets.text(api, row, "", 50, 23, 320, 10, colors.muted)
         row.quantity = Widgets.text(api, row, "", 378, 13, 48, 13, colors.muted)
         row.quantity:SetJustifyH("RIGHT")
-        tooltip(book, row, function()
-            return row.fullLink
-        end)
-        row:EnableMouseWheel(true)
-        row:SetScript("OnMouseWheel", function(_, delta)
-            turnPage(book, delta > 0 and -1 or 1)
-        end)
         book.rows[index] = row
+    end
+    for index = 1, 6 do
+        local row = itemButton(book, 218 + ((index - 1) % 2) * 224, 314 + math.floor((index - 1) / 2) * 98, 216, 90)
+        row.icon = Widgets.icon(row, 10, 10, 40)
+        row:GetFontString():ClearAllPoints()
+        row:GetFontString():SetPoint("TOPLEFT", 60, -12)
+        row:GetFontString():SetWidth(146)
+        row.subtitle = Widgets.text(api, row, "", 10, 62, 194, 10, colors.muted)
+        row.subtitle:SetWordWrap(false)
+        row.quantity = Widgets.text(api, row, "", 60, 34, 146, 11, colors.muted)
+        row:Hide()
+        book.galleryRows[index] = row
     end
     book.previous = Widgets.button(book, frame, "Previous", 218, 621, 94, 30, function()
         turnPage(book, -1)
@@ -827,6 +910,32 @@ local function create(api)
             math.max(0, math.min(book.detailBody:GetHeight() - self:GetHeight(), self:GetVerticalScroll() - delta * 48))
         )
     end)
+    book.previewPanel = api.CreateFrame("Frame", nil, detailPanel)
+    book.previewPanel:SetPoint("TOPLEFT", 16, -208)
+    book.previewPanel:SetSize(368, 76)
+    book.savedLink = Widgets.dropdown(book, book.previewPanel, "", 0, 0, 194, function(self)
+        local record = book.selected and book.store:find(book.selected)
+        if not record then
+            return
+        end
+        local choices = {}
+        for index, link in ipairs(record.links) do
+            choices[#choices + 1] = { label = link, index = index }
+        end
+        showMenu(book, self, choices, function(choice)
+            book.previewIndex = choice.index
+            closeMenu(book)
+            updatePreview(book)
+        end)
+    end)
+    tooltip(book, book.savedLink, function()
+        return book.previewLink
+    end)
+    book.preview = Widgets.button(book, book.previewPanel, "Preview gear", 202, 0, 166, 32, function()
+        book.previewMessage:SetText(previewMessages[addon.Client.previewItem(api, book.previewLink)])
+    end)
+    book.previewMessage = Widgets.text(api, book.previewPanel, "", 0, 40, 368, 10, colors.muted)
+    book.previewPanel:Hide()
     book.loading = Widgets.text(api, frame, "", 218, 660, 440, 10, colors.muted)
     book.warning = Widgets.text(api, frame, "", 20, 681, 700, 10, colors.gold)
     Widgets.text(api, frame, "Ctrl+F search  •  Esc close", 680, 669, 210, 10, colors.muted)

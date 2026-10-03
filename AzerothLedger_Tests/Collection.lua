@@ -81,6 +81,108 @@ local function metadata(record)
     return { category = record.itemID == 100 and "Weapons" or "Materials" }
 end
 
+function tests.GalleryKeepsVariantsAndSavedLinksWithinCharacterScopeWithoutWriting(_self)
+    local store, _, writes = fixture()
+    local before = writes()
+    local function gearMetadata(record)
+        return { category = record.itemID == 100 and "Weapons" or "Materials", gear = record.itemID == 100 }
+    end
+    local filter = { view = "Gallery", character = "Ben", realm = "B" }
+    local result = addon.Collection.query(store, "Ada", "A", filter, gearMetadata)
+    WoWUnit.AreEqual(2, #result.rows)
+    WoWUnit.AreEqual(addon.Item.key(bear, 100), result.rows[1].key)
+    WoWUnit.AreEqual(2, #result.rows[1].record.links)
+    WoWUnit.AreEqual(enchanted, result.rows[1].record.links[2])
+    WoWUnit.AreEqual(addon.Item.key(wolf, 100), result.rows[2].key)
+    WoWUnit.AreEqual(
+        0,
+        #addon.Collection.query(store, "Ada", "A", { view = "Gallery", realm = "Missing" }, gearMetadata).rows
+    )
+    WoWUnit.AreEqual(2, #addon.Collection.query(store, "Ada", "A", { view = "Gallery" }, gearMetadata).rows)
+    WoWUnit.AreEqual(3, #addon.Collection.query(store, "Ada", "A", { view = "Gallery" }, function()
+        return { category = "Unknown", loading = true }
+    end).rows)
+    WoWUnit.AreEqual(before, writes())
+end
+
+function tests.PreviewUsesTheExactRetainedLinkAndSafelyReportsUnavailableItems(_self)
+    local shown
+    local ready, wearable = true, true
+    local previewResult = "opened"
+    local api = {
+        C_Item = {
+            GetItemInfo = function()
+                return ready and "Sword" or nil
+            end,
+            IsDressableItemByID = function()
+                return wearable
+            end,
+        },
+        DressUpItemLink = function(link)
+            if previewResult == "error" then
+                error("native preview failed")
+            elseif previewResult == "rejected" then
+                return false
+            end
+            shown = link
+            return true
+        end,
+    }
+    WoWUnit.AreEqual("ready", addon.Client.previewStatus(api, enchanted))
+    WoWUnit.AreEqual(nil, shown)
+    WoWUnit.AreEqual("opened", addon.Client.previewItem(api, enchanted))
+    WoWUnit.AreEqual(enchanted, shown)
+    shown = nil
+    wearable = false
+    WoWUnit.AreEqual("not-wearable", addon.Client.previewItem(api, meat))
+    WoWUnit.AreEqual(nil, shown)
+    ready = false
+    WoWUnit.AreEqual("loading", addon.Client.previewItem(api, bear))
+    WoWUnit.AreEqual(nil, shown)
+    ready, wearable = true, true
+    local nativePreview = api.DressUpItemLink
+    api.DressUpItemLink = nil
+    WoWUnit.AreEqual("unavailable", addon.Client.previewItem(api, bear))
+    api.DressUpItemLink = nativePreview
+    previewResult = "error"
+    WoWUnit.AreEqual("unavailable", addon.Client.previewItem(api, bear))
+    previewResult = "rejected"
+    WoWUnit.AreEqual("unavailable", addon.Client.previewItem(api, bear))
+    api.C_Item.IsDressableItemByID = function()
+        error("unreadable")
+    end
+    WoWUnit.AreEqual("unavailable", addon.Client.previewItem(api, bear))
+    WoWUnit.AreEqual("unavailable", addon.Client.previewItem(api, nil))
+end
+
+function tests.GallerySelectionResetsLinksBetweenVariantsAndClearsEmptyScopes(_self)
+    local store, _, writes = fixture()
+    local before = writes()
+    local function gearMetadata(record)
+        return { category = record.itemID == 100 and "Weapons" or "Materials", gear = record.itemID == 100 }
+    end
+    local result = addon.Collection.query(store, "Ada", "A", { view = "Gallery" }, gearMetadata)
+    local bearKey, wolfKey = addon.Item.key(bear, 100), addon.Item.key(wolf, 100)
+    local selection = addon.Collection.gallerySelection(result, bearKey, enchanted)
+    WoWUnit.AreEqual(bearKey, selection.key)
+    WoWUnit.AreEqual(enchanted, selection.link)
+    WoWUnit.AreEqual(2, selection.index)
+    local refreshed = addon.Collection.gallerySelection(result, selection.key, selection.link)
+    WoWUnit.AreEqual(enchanted, refreshed.link)
+    selection = addon.Collection.gallerySelection(result, wolfKey, enchanted)
+    WoWUnit.AreEqual(wolfKey, selection.key)
+    WoWUnit.AreEqual(wolf, selection.link)
+    WoWUnit.AreEqual(1, selection.index)
+    result =
+        addon.Collection.query(store, "Ada", "A", { view = "Gallery", character = "Ada", realm = "A" }, gearMetadata)
+    selection = addon.Collection.gallerySelection(result, wolfKey, wolf)
+    WoWUnit.AreEqual(bearKey, selection.key)
+    WoWUnit.AreEqual(bear, selection.link)
+    result = addon.Collection.query(store, "Ada", "A", { view = "Gallery", realm = "Missing" }, gearMetadata)
+    WoWUnit.AreEqual(nil, addon.Collection.gallerySelection(result, selection.key, selection.link))
+    WoWUnit.AreEqual(before, writes())
+end
+
 function tests.ViewerContextLinksCollapseWithoutLosingEnchants(_self)
     local store, scan, writes = fixture()
     local viewerLink = "|cff1eff00|Hitem:100:0:0:0:0:0:42:8:20:7:0:0:1:111|h[Sword]|h|r"
