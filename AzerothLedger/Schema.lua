@@ -214,6 +214,7 @@ local _, addon = ...
 ---@field vendorName? string
 
 ---@class AzerothLedgerVendorActivity
+---@field sequence? integer
 ---@field id integer
 ---@field kind 'sale'|'refund'|'buyback'
 ---@field key string
@@ -263,6 +264,7 @@ local _, addon = ...
 ---@field status 'pending'|'unresolved'|'settled'|'canceled'
 
 ---@class AzerothLedgerExchangeActivity
+---@field sequence? integer
 ---@field id integer
 ---@field key string
 ---@field channel 'mail'|'trade'
@@ -303,6 +305,18 @@ local _, addon = ...
 ---@field vendor? AzerothLedgerVendorState
 ---@field exchange? AzerothLedgerExchangeState
 ---@field evidence? AzerothLedgerEvidenceState
+---@field retention? table<string, integer>
+---@field journal? ALJournalState
+
+---@class ALJournalReference
+---@field id string
+---@field key string
+---@field at integer
+---@field sequence integer
+
+---@class ALJournalState
+---@field nextSequence integer
+---@field gains ALJournalReference[]
 
 ---@class AzerothLedgerEvidence
 ---@field id integer
@@ -358,7 +372,9 @@ local _, addon = ...
 ---@field exchangeMarkUnresolved fun(self: AzerothLedgerStore, id: integer, actor: ALActor): boolean
 ---@field exchangeActivity fun(self: AzerothLedgerStore): AzerothLedgerExchangeActivity[]
 ---@field exchangeUnresolved fun(self: AzerothLedgerStore): AzerothLedgerExchangeAction[]
----@field pruneJournal fun(self: AzerothLedgerStore, limit: integer): boolean
+---@field retention fun(self: ALStore): table<string, integer>
+---@field setRetention fun(self: ALStore, category: string, limit: integer): boolean
+---@field journal fun(self: ALStore): table[]
 ---@field unresolved fun(self: AzerothLedgerStore): AzerothLedgerEvidence[]
 ---@field evidenceSummary fun(self: AzerothLedgerStore): AzerothLedgerEvidenceState
 ---@field expireEvidence fun(self: AzerothLedgerStore, at: integer): boolean
@@ -394,9 +410,50 @@ local _, addon = ...
 local CURRENT_SCHEMA = 2
 local areas = { bags = true, bank = true, equipped = true }
 local gainMethods = { Looted = true, Quest = true, Crafted = true, Vendor = true, Obtained = true }
+local retentionDefinitions = {
+    { key = "gains", name = "Recent gains", default = 1000, maximum = 5000 },
+    { key = "transfers", name = "Alt transfers", default = 250, maximum = 2000 },
+    { key = "vendor", name = "Vendor sales, refunds and buybacks", default = 250, maximum = 2000 },
+}
+local retentionDefaults, retentionMaximums = {}, {}
+for _, definition in ipairs(retentionDefinitions) do
+    retentionDefaults[definition.key] = definition.default
+    retentionMaximums[definition.key] = definition.maximum
+end
 
 local function isInteger(value)
     return type(value) == "number" and value ~= math.huge and value ~= -math.huge and value == math.floor(value)
+end
+
+local function validRetention(value)
+    if type(value) ~= "table" then
+        return false
+    end
+    for category, maximum in pairs(retentionMaximums) do
+        if not isInteger(value[category]) or value[category] < 0 or value[category] > maximum then
+            return false
+        end
+    end
+    return true
+end
+
+local function gainRoot(id)
+    return id:match("^(.-):share:") or id:match("^(.-):proof:") or id
+end
+
+local function chronological(a, b)
+    return a.at < b.at or (a.at == b.at and a.sequence < b.sequence)
+end
+
+local function trimHistory(rows, limit)
+    table.sort(rows, chronological)
+    local remove = math.max(0, #rows - limit)
+    for index = 1, #rows - remove do
+        rows[index] = rows[index + remove]
+    end
+    for index = #rows, #rows - remove + 1, -1 do
+        rows[index] = nil
+    end
 end
 
 local function isName(value)
@@ -1026,6 +1083,10 @@ end
 
 local Schema = {}
 
+function Schema.retentionOptions()
+    return copyValue(retentionDefinitions)
+end
+
 ---@param raw any
 ---@param save fun(value: AzerothLedgerData)
 ---@return AzerothLedgerStore
@@ -1082,6 +1143,61 @@ function Schema.open(raw, save)
     if supported and raw.evidence ~= nil and not validEvidence(raw.evidence) then
         damagedCount = damagedCount + 1
     end
+    if supported and raw.retention ~= nil and not validRetention(raw.retention) then
+        damagedCount = damagedCount + 1
+    end
+
+    local function retention()
+        return type(raw) == "table" and validRetention(raw.retention) and copyValue(raw.retention)
+            or copyValue(retentionDefaults)
+    end
+
+    local function validJournal(value)
+        if
+            type(value) ~= "table"
+            or not isInteger(value.nextSequence)
+            or value.nextSequence < 1
+            or type(value.gains) ~= "table"
+        then
+            return false
+        end
+        local seen = {}
+        for _, entry in ipairs(value.gains) do
+            if
+                type(entry) ~= "table"
+                or not isName(entry.id)
+                or not isName(entry.key)
+                or not isInteger(entry.at)
+                or not isInteger(entry.sequence)
+                or entry.sequence < 1
+                or entry.sequence >= value.nextSequence
+                or seen[entry.sequence]
+            then
+                return false
+            end
+            seen[entry.sequence] = true
+        end
+        return true
+    end
+    if supported and raw.journal ~= nil and not validJournal(raw.journal) then
+        damagedCount = damagedCount + 1
+    end
+    if readable then
+        for _, category in ipairs({ "exchange", "vendor" }) do
+            local state = raw[category]
+            local validState = category == "exchange" and validExchangeState or validVendorState
+            for _, entry in ipairs(state and validState(state) and state.journal or {}) do
+                if not valid[entry.key] then
+                    damagedCount = damagedCount + 1
+                end
+            end
+        end
+        for _, entry in ipairs(validJournal(raw.journal) and raw.journal.gains or {}) do
+            if not valid[entry.key] then
+                damagedCount = damagedCount + 1
+            end
+        end
+    end
 
     local function saveFields(fields)
         local nextValue = {
@@ -1095,12 +1211,125 @@ function Schema.open(raw, save)
             vendor = fields.vendor or raw.vendor,
             exchange = fields.exchange or raw.exchange,
             evidence = fields.evidence or raw.evidence,
+            retention = fields.retention or raw.retention,
+            journal = validJournal(raw.journal) and copyValue(raw.journal) or { nextSequence = 1, gains = {} },
         }
+        local history = nextValue.journal
+        local function sequence(entry)
+            entry.sequence = history.nextSequence
+            history.nextSequence = history.nextSequence + 1
+        end
+        -- Permanent contributions are assembled first. Only their new event roots
+        -- enter history; corrections and later shares cannot resurrect pruned rows.
+        local pending = {}
+        for key, record in pairs(fields.records or {}) do
+            if record ~= raw.records[key] then
+                local known = {}
+                for _, gain in ipairs(raw.records[key] and raw.records[key].gains or {}) do
+                    known[gainRoot(gain.id)] = true
+                end
+                for _, gain in ipairs(record.gains or {}) do
+                    local id = gainRoot(gain.id)
+                    if not known[id] then
+                        pending[#pending + 1] = { id = id, key = key, at = gain.at }
+                        known[id] = true
+                    end
+                end
+            end
+        end
+        -- A single scan can commit several items. Sort these explicitly rather
+        -- than letting Lua's hash iteration choose their sequence.
+        table.sort(pending, function(a, b)
+            if a.at ~= b.at then
+                return a.at < b.at
+            end
+            if a.id ~= b.id then
+                return a.id < b.id
+            end
+            return a.key < b.key
+        end)
+        for _, entry in ipairs(pending) do
+            sequence(entry)
+            history.gains[#history.gains + 1] = entry
+        end
+        local limits = validRetention(nextValue.retention) and nextValue.retention or retentionDefaults
+        trimHistory(history.gains, limits.gains)
+        for _, category in ipairs({ "exchange", "vendor" }) do
+            local state = nextValue[category]
+            local validState = category == "exchange" and validExchangeState or validVendorState
+            if state and validState(state) then
+                state = copyValue(state)
+                nextValue[category] = state
+                for _, entry in ipairs(state.journal) do
+                    if not isInteger(entry.sequence) or entry.sequence < 1 then
+                        sequence(entry)
+                    end
+                end
+                trimHistory(state.journal, limits[category == "exchange" and "transfers" or "vendor"])
+            end
+        end
         save(nextValue)
         raw = nextValue
     end
 
     local store = {}
+    function store.retention(_self)
+        return retention()
+    end
+
+    function store.setRetention(_self, category, limit)
+        local maximum = retentionMaximums[category]
+        if not readable or not maximum or not isInteger(limit) or limit < 0 or limit > maximum then
+            return false
+        end
+        if
+            category == "vendor" and raw.vendor ~= nil and not validVendorState(raw.vendor)
+            or category == "transfers" and raw.exchange ~= nil and not validExchangeState(raw.exchange)
+            or category == "gains" and raw.journal ~= nil and not validJournal(raw.journal)
+        then
+            return false
+        end
+        local limits = retention()
+        limits[category] = limit
+        saveFields({ retention = limits })
+        return true
+    end
+
+    function store.journal(_self)
+        local result = {}
+        if not readable then
+            return result
+        end
+        for _, entry in ipairs(validJournal(raw.journal) and raw.journal.gains or {}) do
+            local record = valid[entry.key]
+            local contributions = {}
+            for _, gain in ipairs(record and record.gains or {}) do
+                if gainRoot(gain.id) == entry.id then
+                    contributions[#contributions + 1] = copyValue(gain)
+                end
+            end
+            if #contributions > 0 then
+                local row = copyValue(entry)
+                row.category, row.contributions = "gain", contributions
+                result[#result + 1] = row
+            end
+        end
+        for _, category in ipairs({ "exchange", "vendor" }) do
+            local state = raw[category]
+            local validState = category == "exchange" and validExchangeState or validVendorState
+            for _, entry in ipairs(state and validState(state) and state.journal or {}) do
+                if valid[entry.key] and isInteger(entry.sequence) and entry.sequence > 0 then
+                    local row = copyValue(entry)
+                    row.category = category == "exchange" and "transfer" or "vendor"
+                    result[#result + 1] = row
+                end
+            end
+        end
+        table.sort(result, function(a, b)
+            return chronological(b, a)
+        end)
+        return result
+    end
     local candidates = {}
 
     local function evidenceState()
@@ -2569,9 +2798,6 @@ function Schema.open(raw, save)
                                 recipient = action.character,
                                 recipientRealm = action.realm,
                             }
-                            while #state.journal > 50 do
-                                table.remove(state.journal, 1)
-                            end
                             action.quantity = quantity
                             action.status = "settled"
                         elseif senderKnown then
@@ -2645,9 +2871,6 @@ function Schema.open(raw, save)
                 realm = action.realm,
                 vendorName = action.vendorName,
             }
-            while #state.journal > 50 do
-                table.remove(state.journal, 1)
-            end
         end
     end
 
@@ -2941,21 +3164,6 @@ function Schema.open(raw, save)
             end
         end
         return result
-    end
-
-    function store.pruneJournal(_self, limit)
-        if not readable or not isInteger(limit) or limit < 0 then
-            return false
-        end
-        local state = vendorState()
-        if not state then
-            return false
-        end
-        while #state.journal > limit do
-            table.remove(state.journal, 1)
-        end
-        saveFields({ vendor = state })
-        return true
     end
 
     local function rewardSessions(at)

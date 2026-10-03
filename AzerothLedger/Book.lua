@@ -170,6 +170,17 @@ function details(book, key)
         row:Show()
         y = y + height
     end
+    if book.filter.view == "Journal" then
+        for _, activity in ipairs(book.result.rows) do
+            if activity.sequence == book.selectedSequence then
+                write("section", activity.action .. " ×" .. activity.quantity)
+                write("date", "Confirmed", stamp(activity.at))
+                write("note", activity.actors)
+                write("note", activity.evidence)
+                break
+            end
+        end
+    end
     write("section", "Discovery history")
     if not book.detailsAccount then
         write(
@@ -250,7 +261,11 @@ end
 local function selectItem(book, key)
     details(book, key)
     for _, row in ipairs(book.rows) do
-        Widgets.select(row, row.key == key)
+        Widgets.select(
+            row,
+            book.filter.view == "Journal" and row.sequence == book.selectedSequence
+                or book.filter.view ~= "Journal" and row.key == key
+        )
     end
 end
 
@@ -278,19 +293,64 @@ render = function(book, requestedKey)
         book.detailsAccount = not book.filter.character and not book.filter.realm
         book.lastDetailScope = scopeKey
     end
-    local result = addon.Collection.query(book.store, book.character, book.realm, book.filter, function(record)
-        return addon.Client.itemMetadata(book.api, record)
-    end)
+    local journal = book.filter.view == "Journal"
+    local result
+    if journal then
+        result = {
+            rows = addon.Journal.query(book.store, book.filter.search),
+            categories = {},
+            places = {},
+            loading = 0,
+            matchedCount = 0,
+            discoveryCount = #book.store:list(),
+        }
+        for _, row in ipairs(result.rows) do
+            row.record = book.store:find(row.key)
+            row.metadata = addon.Client.itemMetadata(book.api, row.record)
+            row.recorded = row.quantity
+        end
+        local selected
+        for _, row in ipairs(result.rows) do
+            if row.sequence == book.selectedSequence then
+                selected = row
+            end
+        end
+        selected = selected or result.rows[(book.page - 1) * PAGE_SIZE + 1] or result.rows[1]
+        book.selectedSequence = selected and selected.sequence or nil
+        requestedKey = selected and selected.key or nil
+    else
+        result = addon.Collection.query(book.store, book.character, book.realm, book.filter, function(record)
+            return addon.Client.itemMetadata(book.api, record)
+        end)
+    end
     book.result = result
     local pages = math.max(1, math.ceil(#result.rows / PAGE_SIZE))
     book.page = math.max(1, math.min(book.page, pages))
-    book.count:SetText(#result.rows .. (#result.rows == 1 and " item" or " items"))
+    book.count:SetText(#result.rows .. (journal and " activities" or (#result.rows == 1 and " item" or " items")))
     book.discoveries:SetText(result.discoveryCount .. (result.discoveryCount == 1 and " discovery" or " discoveries"))
-    book.context:SetText(book.filter.category or "All items")
-    book.quantityHeading:SetText((book.filter.character or book.filter.realm) and "CHECKED" or "RECORDED")
+    book.context:SetText(journal and "Account-wide recent activity" or (book.filter.category or "All items"))
+    book.quantityHeading:SetText(
+        journal and "UNITS" or ((book.filter.character or book.filter.realm) and "CHECKED" or "RECORDED")
+    )
+    for _, control in ipairs({
+        book.scope,
+        book.realmFilter,
+        book.historical,
+        book.foundOnce,
+        book.clearFilters,
+        book.place,
+    }) do
+        control:SetShown(not journal)
+    end
+    for _, control in ipairs(book.categories) do
+        Widgets.enable(control, not journal)
+    end
     local state = #result.rows == 0 and "No matching items. Try another search or clear your filters." or ""
     if result.discoveryCount == 0 then
         state = "Your collection starts here. Open your bags or bank to record items."
+    end
+    if journal then
+        state = "No retained activity. Retention limits are in AddOns Settings."
     end
     book.empty:SetText(state)
     book.empty:SetShown(#result.rows == 0)
@@ -301,8 +361,9 @@ render = function(book, requestedKey)
     book.place:SetText(book.filter.place or "All recorded places")
     book.historical.mark:SetShown(book.filter.historical == true)
     book.foundOnce.mark:SetShown(book.filter.foundOnce == true)
-    Widgets.select(book.collectionTab, book.filter.view ~= "Discoveries")
+    Widgets.select(book.collectionTab, not journal and book.filter.view ~= "Discoveries")
     Widgets.select(book.discoveryTab, book.filter.view == "Discoveries")
+    Widgets.select(book.journalTab, journal)
     for _, control in ipairs(book.categories) do
         local category = control.category
         Widgets.select(control, book.filter.category == category)
@@ -311,15 +372,20 @@ render = function(book, requestedKey)
     for index, row in ipairs(book.rows) do
         local item = result.rows[(book.page - 1) * PAGE_SIZE + index]
         row.key = item and item.key or nil
+        row.sequence = journal and item and item.sequence or nil
         row.fullLink = item and item.record.links[#item.record.links] or nil
         row:SetShown(item ~= nil)
         if item then
-            row:SetText(item.name)
+            row:SetText(journal and (item.action .. " • " .. item.name) or item.name)
             row.nameColor = Widgets.quality(book.api, item.metadata.quality)
             row:GetFontString():SetTextColor(unpack(row.nameColor))
             row.icon:SetTexture(item.metadata.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
             row.subtitle:SetText(
-                book.filter.view == "Discoveries" and ("First Seen " .. stamp(item.discoveredAt)) or item.category
+                journal and (stamp(item.at) .. " • " .. item.actors)
+                    or (
+                        book.filter.view == "Discoveries" and ("First Seen " .. stamp(item.discoveredAt))
+                        or item.category
+                    )
             )
             row.quantity:SetText(
                 item.recorded and tostring(item.recorded) or checkedQuantity(item.checkedUnits, item.uncheckedAreas)
@@ -332,19 +398,26 @@ render = function(book, requestedKey)
     if book.selected and not book.store:find(book.selected) then
         book.selected = nil
     end
-    selectItem(book, requestedKey or book.selected or (result.rows[1] and result.rows[1].key))
+    if journal then
+        book.detailsAccount = true
+        selectItem(book, requestedKey)
+    else
+        selectItem(book, requestedKey or book.selected or (result.rows[1] and result.rows[1].key))
+    end
     book.dirty = false
 end
 
 local function change(book, field, value)
     book.filter[field] = value
     book.page = 1
+    book.selectedSequence = nil
     closeMenu(book)
     render(book)
 end
 
 local function turnPage(book, delta)
     book.page = book.page + delta
+    book.selectedSequence = nil
     render(book)
 end
 
@@ -502,13 +575,17 @@ local function keyboard(book, key)
         end
         local index = 1
         for position, row in ipairs(book.result.rows) do
-            if row.key == book.selected then
+            if
+                book.filter.view == "Journal" and row.sequence == book.selectedSequence
+                or book.filter.view ~= "Journal" and row.key == book.selected
+            then
                 index = position
             end
         end
         index = math.max(1, math.min(#book.result.rows, index + (key == "UP" and -1 or 1)))
         local row = book.result.rows[index]
         if row then
+            book.selectedSequence = row.sequence
             book.page = math.ceil(index / PAGE_SIZE)
             render(book, row.key)
         end
@@ -591,6 +668,9 @@ local function create(api)
     book.discoveryTab = Widgets.button(book, frame, "Discoveries", 354, 100, 150, 32, function()
         change(book, "view", "Discoveries")
     end)
+    book.journalTab = Widgets.button(book, frame, "Journal", 512, 100, 146, 32, function()
+        change(book, "view", "Journal")
+    end)
     local searchSurface = Widgets.panel(api, frame, 218, 146, 440, 36, colors.raised)
     book.search = api.CreateFrame("EditBox", nil, searchSurface)
     book.search:SetPoint("TOPLEFT", 12, -2)
@@ -645,7 +725,7 @@ local function create(api)
     book.foundOnce = Widgets.checkbox(book, frame, "Found once", 384, 232, 150, function()
         change(book, "foundOnce", not book.filter.foundOnce)
     end)
-    Widgets.button(book, frame, "Clear filters", 548, 232, 110, 26, function()
+    book.clearFilters = Widgets.button(book, frame, "Clear filters", 548, 232, 110, 26, function()
         book.filter = {}
         book.search:SetText("")
         book.page = 1
@@ -665,6 +745,7 @@ local function create(api)
                 if mouseButton == "RightButton" then
                     Widgets.openLink(api, row.fullLink, mouseButton)
                 else
+                    book.selectedSequence = row.sequence
                     selectItem(book, row.key)
                 end
             end
@@ -841,7 +922,8 @@ end
 
 function Book.refresh(store, character, realm)
     if active then
-        active.store, active.character, active.realm = store, character, realm
+        active.store = store
+        active.character, active.realm = character or active.character, realm or active.realm
         active.dirty = true
     end
 end

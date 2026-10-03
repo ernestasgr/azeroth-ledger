@@ -8,3 +8,4 @@ Vendor.lua
 Exchange.lua
 Evidence.lua
 Collection.lua
+Journal.lua

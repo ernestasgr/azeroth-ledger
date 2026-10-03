@@ -1,6 +1,6 @@
 -- Native frame port replay: checks visible text and input behavior, not private book state.
 local addon = {}
-for _, source in ipairs({ "Item", "Schema", "Client", "Collection", "BookWidgets", "Book" }) do
+for _, source in ipairs({ "Item", "Schema", "Client", "Collection", "Journal", "BookWidgets", "Book" }) do
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
 end
 date = os.date
@@ -218,4 +218,43 @@ frame.scripts.OnKeyDown(frame, "ENTER")
 find(expectedCharacter, "Button")
 frame.scripts.OnKeyDown(frame, "ESCAPE")
 assert(not frame:IsShown())
+addon.Collection.open(api, store, "Ada", "A")
+click("Journal")
+find("0 activities")
+find("No retained activity. Retention limits are in AddOns Settings.")
+local bread = "|Hitem:4540::::::::|h[Bread]|h"
+local breadKey = addon.Item.key(bread, 4540)
+assert(
+    store:vendorAction(
+        { kind = "purchase", key = breadKey, itemID = 4540, link = bread, quantity = 2 },
+        1100,
+        { character = "Ada", realm = "A", level = 12, place = "Elwynn" }
+    )
+)
+assert(store:scan({
+    character = "Ada",
+    realm = "A",
+    area = "bags",
+    complete = true,
+    seenAt = 1101,
+    items = { { itemID = 4540, link = bread, quantity = 2 } },
+}))
+addon.Collection.refresh(store, "Ada", "A")
+frame.scripts.OnUpdate(frame, 0.1)
+find("1 activities")
+click("Purchase • Bread")
+find("Purchase ×2")
+find("Matched item gain; Vendor: Unknown source")
+search:SetText("no match")
+frame.scripts.OnUpdate(frame, 0.1)
+find("0 activities")
+search:SetText("")
+frame.scripts.OnUpdate(frame, 0.1)
+find("1 activities")
+assert(store:setRetention("gains", 0))
+addon.Book.refresh(store)
+frame.scripts.OnUpdate(frame, 0.1)
+find("0 activities")
+click("Collection")
+find("Bread", "Button")
 print("book_ui_spec: passed (native frame port replay; live client pending)")

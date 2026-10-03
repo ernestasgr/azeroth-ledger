@@ -9,8 +9,10 @@ for _, source in ipairs({
     "Vendor",
     "Exchange",
     "Collection",
+    "Journal",
     "BookWidgets",
     "Book",
+    "Settings",
 }) do
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
 end
@@ -42,6 +44,7 @@ assert(loadfile("AzerothLedger_Tests/Vendor.lua"))("AzerothLedger_Tests", {})
 assert(loadfile("AzerothLedger_Tests/Exchange.lua"))("AzerothLedger_Tests", {})
 assert(loadfile("AzerothLedger_Tests/Evidence.lua"))("AzerothLedger_Tests", {})
 assert(loadfile("AzerothLedger_Tests/Collection.lua"))("AzerothLedger_Tests", {})
+assert(loadfile("AzerothLedger_Tests/Journal.lua"))("AzerothLedger_Tests", {})
 for _, group in ipairs(groups) do
     for name, test in pairs(group) do
         test(group)
