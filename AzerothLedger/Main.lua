@@ -1,6 +1,6 @@
 local addonName, addon = ...
 
-local REVISION = "0.7.3"
+local REVISION = "0.8.0"
 local store
 local client = addon.Client.inspect(_G)
 local bankOpen = false
@@ -32,6 +32,12 @@ local function initializeStore()
         AzerothLedgerDB = nextValue
     end)
     addon.store = store
+    if addon.Settings then
+        local ok, registered, failure = pcall(addon.Settings.register, _G, store)
+        if not ok or not registered then
+            client.issues[#client.issues + 1] = tostring(ok and failure or registered)
+        end
+    end
     if #client.issues == 0 then
         store:setEnvironment({
             build = client.build,
