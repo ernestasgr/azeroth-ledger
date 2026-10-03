@@ -1,0 +1,136 @@
+local _, addon = ...
+local Presentation = {}
+
+---@param store ALStore
+---@param link string
+---@param character string
+---@param realm string
+---@return string?
+function Presentation.line(store, link, character, realm)
+    local itemID = type(link) == "string" and tonumber(link:match("item:(%d+)")) or nil
+    local key = itemID and addon.Item.key(link, itemID)
+    local model = key and addon.Collection.inspect(store, key, character, realm)
+    if not model then
+        return nil
+    end
+    local facts = {}
+    if model.record.firstSeenUnits > 0 or #model.record.gains == 0 then
+        facts[#facts + 1] = "Seen"
+    end
+    local methods = {}
+    for _, gain in ipairs(model.record.gains) do
+        methods[gain.method] = true
+    end
+    if methods.Looted then
+        facts[#facts + 1] = "Looted"
+    end
+    for _, method in ipairs({ "Quest", "Crafted", "Vendor", "Obtained" }) do
+        if methods[method] then
+            facts[#facts + 1] = method == "Obtained" and "Obtained (method Unknown)" or ("Obtained (" .. method .. ")")
+        end
+    end
+    local sources = {}
+    for source, quantity in pairs(model.breakdown.sources) do
+        if source ~= "Initial stock" and quantity > 0 then
+            sources[#sources + 1] = source
+        end
+    end
+    table.sort(sources)
+    local source = #sources == 1 and sources[1] or (#sources > 1 and "Multiple" or "Unknown")
+    if model.breakdown.sources.Unknown and model.breakdown.sources.Unknown > 0 then
+        source = "Unknown"
+    end
+    return "Azeroth Ledger: "
+        .. table.concat(facts, ", ")
+        .. " • gained "
+        .. model.breakdown.gained
+        .. " • ownership "
+        .. model.ownership
+        .. " • source "
+        .. source
+end
+
+---@param api table
+---@param store ALStore
+---@return boolean, string?
+function Presentation.register(api, store)
+    local processor = api.TooltipDataProcessor
+    local itemType = api.Enum and api.Enum.TooltipDataType and api.Enum.TooltipDataType.Item
+    if type(processor) ~= "table" or type(processor.AddTooltipPostCall) ~= "function" or itemType == nil then
+        return false, "Item tooltip post-call unavailable"
+    end
+    for _, name in ipairs({ "CreateFrame", "UnitName", "GetRealmName" }) do
+        if type(api[name]) ~= "function" then
+            return false, "Presentation: " .. name .. " unavailable"
+        end
+    end
+    processor.AddTooltipPostCall(itemType, function(tooltip)
+        if not store:display().tooltips or tooltip:IsForbidden() then
+            return
+        end
+        -- Inspect actual visible text: ClearLines may rebuild the same item
+        -- asynchronously, so an item-key flag alone cannot prevent duplicates.
+        for _, region in ipairs({ tooltip:GetRegions() }) do
+            if type(region.GetText) == "function" then
+                local text = region:GetText()
+                if type(text) == "string" and text:find("Azeroth Ledger: ", 1, true) == 1 then
+                    return
+                end
+            end
+        end
+        local _, link = tooltip:GetItem()
+        local character, realm = api.UnitName("player"), api.GetRealmName()
+        if type(link) ~= "string" or type(character) ~= "string" or type(realm) ~= "string" then
+            return
+        end
+        local line = Presentation.line(store, link, character, realm)
+        if line then
+            tooltip:AddLine(line, 0.85, 0.75, 0.45, true)
+        end
+    end)
+
+    local driver = api.CreateFrame("Frame")
+    local toast = api.CreateFrame("Frame", nil, api.UIParent)
+    toast:SetSize(340, 64)
+    toast:SetPoint("TOP", api.UIParent, "TOP", 0, -150)
+    toast:SetFrameStrata("DIALOG")
+    local background = toast:CreateTexture(nil, "BACKGROUND")
+    background:SetAllPoints()
+    background:SetColorTexture(0.08, 0.06, 0.03, 0.95)
+    local heading = toast:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    heading:SetPoint("TOP", toast, "TOP", 0, -10)
+    heading:SetText("New Collection discovery")
+    local item = toast:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    item:SetPoint("TOP", heading, "BOTTOM", 0, -8)
+    item:SetWidth(320)
+    toast:Hide()
+    local queue, remaining = {}, 0
+    driver:SetScript("OnUpdate", function(_, elapsed)
+        local discoveries = store:takeDiscoveries()
+        if not store:display().toasts then
+            queue, remaining = {}, 0
+            toast:Hide()
+            return
+        end
+        for _, record in ipairs(discoveries) do
+            -- Bound transient display work; permanent discoveries stay in the Collection.
+            if #queue < 20 then
+                queue[#queue + 1] = record.links[1]
+            end
+        end
+        remaining = math.max(0, remaining - elapsed)
+        if remaining == 0 then
+            local link = table.remove(queue, 1)
+            if link then
+                item:SetText(link)
+                remaining = 5
+                toast:Show()
+            else
+                toast:Hide()
+            end
+        end
+    end)
+    return true
+end
+
+addon.Presentation = Presentation

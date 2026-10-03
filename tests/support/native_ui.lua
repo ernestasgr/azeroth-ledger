@@ -21,6 +21,8 @@ function Native.create()
         controls[#controls + 1] = control
         for _, method in ipairs({
             "EnableMouse",
+            "SetFrameStrata",
+            "SetAllPoints",
             "SetMovable",
             "RegisterForDrag",
             "RegisterEvent",

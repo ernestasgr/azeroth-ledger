@@ -82,12 +82,13 @@ function tests.SettingsUsePersistedStoreValuesAndExplicitZero(_self)
     local setters, options = {}, {}
     local api = {
         Settings = {
-            VarType = { Number = "number" },
+            VarType = { Number = "number", Boolean = "boolean" },
+            CreateCheckbox = function() end,
             RegisterVerticalLayoutCategory = function(name)
                 return { name = name }
             end,
             RegisterProxySetting = function(_, variable, kind, _, default, get, set)
-                WoWUnit.AreEqual("number", kind)
+                WoWUnit.IsTrue(kind == "number" or kind == "boolean")
                 WoWUnit.AreEqual(default, get())
                 setters[variable] = set
                 return variable
