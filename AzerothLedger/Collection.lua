@@ -396,6 +396,8 @@ end
 ---@class AzerothLedgerItemMetadata
 ---@field category string
 ---@field loading? boolean
+---@field quality? integer
+---@field icon? integer|string
 
 ---@class AzerothLedgerCollectionRow
 ---@field key string
@@ -405,6 +407,7 @@ end
 ---@field loading? boolean
 ---@field ownership string
 ---@field discoveredAt integer
+---@field metadata AzerothLedgerItemMetadata
 
 ---@param store ALStore
 ---@param character string
@@ -415,7 +418,7 @@ end
 function Collection.query(store, character, realm, filter, metadata)
     filter = filter or {}
     local records = store:list()
-    local result = { rows = {}, discoveryCount = #records, loading = 0, places = {} }
+    local result = { rows = {}, discoveryCount = #records, loading = 0, places = {}, categories = {}, matchedCount = 0 }
     local places = {}
     for _, record in ipairs(records) do
         local matches = false
@@ -449,19 +452,23 @@ function Collection.query(store, character, realm, filter, metadata)
             matches
             and placeMatches
             and (not filter.search or searchText:find(string.lower(filter.search), 1, true))
-            and (not filter.category or filter.category == info.category)
             and (not filter.historical or status:find("Historical only", 1, true) == 1)
             and (not filter.foundOnce or (record.firstSeenUnits == 0 and record.totalGained == 1))
         then
-            result.rows[#result.rows + 1] = {
-                key = record.key,
-                name = name,
-                record = record,
-                category = info.category,
-                loading = info.loading,
-                ownership = status,
-                discoveredAt = (not filter.character and not filter.realm) and record.firstSeen or discoveredAt,
-            }
+            result.categories[info.category] = (result.categories[info.category] or 0) + 1
+            result.matchedCount = result.matchedCount + 1
+            if not filter.category or filter.category == info.category then
+                result.rows[#result.rows + 1] = {
+                    key = record.key,
+                    name = name,
+                    record = record,
+                    category = info.category,
+                    loading = info.loading,
+                    ownership = status,
+                    discoveredAt = (not filter.character and not filter.realm) and record.firstSeen or discoveredAt,
+                    metadata = info,
+                }
+            end
         end
         if info.loading then
             result.loading = result.loading + 1
@@ -482,26 +489,25 @@ function Collection.query(store, character, realm, filter, metadata)
     return result
 end
 
+---@class AzerothLedgerItemDetails
+---@field record AzerothLedgerRecord
+---@field breakdown AzerothLedgerBreakdown
+---@field ownership string
+---@field evidence string
+---@field checks {character: string, realm: string, area: string, quantity?: integer, at?: integer, online: boolean}[]
+
 ---@param store ALStore
 ---@param key string
 ---@param character string
 ---@param realm string
 ---@param filter? AzerothLedgerCollectionFilter
----@return string[]
-function Collection.details(store, key, character, realm, filter)
+---@return AzerothLedgerItemDetails?
+function Collection.inspect(store, key, character, realm, filter)
     filter = filter or {}
     local record = store:find(key)
     if not record then
-        return { "Select an item to see its history." }
+        return nil
     end
-    local lines = { "Variant: " .. record.key }
-    for _, link in ipairs(record.links) do
-        lines[#lines + 1] = link
-    end
-    lines[#lines + 1] = "First Seen " .. stamp(record.firstSeen)
-    lines[#lines + 1] = "Latest Seen " .. stamp(record.lastSeen)
-    lines[#lines + 1] = "First confirmed gain: " .. (record.firstGained and stamp(record.firstGained) or "Unknown")
-    lines[#lines + 1] = "Latest confirmed gain: " .. (record.lastGained and stamp(record.lastGained) or "Unknown")
     local strength = "Seen in storage"
     for _, gain in ipairs(record.gains) do
         if gain.source or gain.context then
@@ -510,8 +516,61 @@ function Collection.details(store, key, character, realm, filter)
         end
         strength = "Confirmed " .. gain.method .. " gain; source Unknown"
     end
-    lines[#lines + 1] = "Strongest evidence: " .. strength
-    local breakdown = assert(store:breakdown(key))
+    local checks = {}
+    for _, seen in ipairs(record.characters) do
+        if matchesFilter(filter.character, filter.realm, seen.name, seen.realm) then
+            for _, area in ipairs(storageAreas) do
+                local state = store:area(seen.name, seen.realm, area)
+                local observation = latestObservation(record, seen.name, seen.realm, area)
+                local quantity
+                if state and state.complete then
+                    quantity = observation and observation.quantity or 0
+                elseif state and observation and observation.seenAt == state.seenAt then
+                    quantity = observation.quantity
+                end
+                checks[#checks + 1] = {
+                    character = seen.name,
+                    realm = seen.realm,
+                    area = area,
+                    quantity = quantity,
+                    at = state and state.seenAt,
+                    online = seen.name == character and seen.realm == realm,
+                }
+            end
+        end
+    end
+    return {
+        record = record,
+        breakdown = assert(store:breakdown(key)),
+        evidence = strength,
+        checks = checks,
+        ownership = ownership(store, record, character, realm, filter.character, filter.realm),
+    }
+end
+
+---@param store ALStore
+---@param key string
+---@param character string
+---@param realm string
+---@param filter? AzerothLedgerCollectionFilter
+---@return string[]
+function Collection.details(store, key, character, realm, filter)
+    filter = filter or {}
+    local model = Collection.inspect(store, key, character, realm, filter)
+    if not model then
+        return { "Select an item to see its history." }
+    end
+    local record = model.record
+    local lines = { "Variant: " .. record.key }
+    for _, link in ipairs(record.links) do
+        lines[#lines + 1] = link
+    end
+    lines[#lines + 1] = "First Seen " .. stamp(record.firstSeen)
+    lines[#lines + 1] = "Latest Seen " .. stamp(record.lastSeen)
+    lines[#lines + 1] = "First confirmed gain: " .. (record.firstGained and stamp(record.firstGained) or "Unknown")
+    lines[#lines + 1] = "Latest confirmed gain: " .. (record.lastGained and stamp(record.lastGained) or "Unknown")
+    lines[#lines + 1] = "Strongest evidence: " .. model.evidence
+    local breakdown = model.breakdown
     lines[#lines + 1] = "Recorded units: " .. breakdown.recorded .. " (account-wide)"
     lines[#lines + 1] = "Total gained: " .. record.totalGained
     for _, group in ipairs({ { "Method", breakdown.methods }, { "Source", breakdown.sources } }) do
@@ -524,7 +583,7 @@ function Collection.details(store, key, character, realm, filter)
             lines[#lines + 1] = group[1] .. " total: " .. label .. " " .. group[2][label]
         end
     end
-    lines[#lines + 1] = "Ownership: " .. ownership(store, record, character, realm, filter.character, filter.realm)
+    lines[#lines + 1] = "Ownership: " .. model.ownership
     for _, seen in ipairs(record.characters) do
         if matchesFilter(filter.character, filter.realm, seen.name, seen.realm) then
             lines[#lines + 1] = seen.name
@@ -534,24 +593,15 @@ function Collection.details(store, key, character, realm, filter)
                 .. stamp(seen.firstSeen)
                 .. "; latest Seen "
                 .. stamp(seen.lastSeen)
-            for _, area in ipairs(storageAreas) do
-                local state = store:area(seen.name, seen.realm, area)
-                local observation = latestObservation(record, seen.name, seen.realm, area)
-                local quantity
-                if state and state.complete then
-                    quantity = observation and observation.quantity or 0
-                elseif state and observation and observation.seenAt == state.seenAt then
-                    quantity = observation.quantity
+            for _, check in ipairs(model.checks) do
+                if check.character == seen.name and check.realm == seen.realm then
+                    lines[#lines + 1] = "  "
+                        .. check.area
+                        .. ": "
+                        .. (check.quantity or "Unknown")
+                        .. (check.at and (" checked " .. stamp(check.at)) or "; never checked")
+                        .. (not check.online and " (offline; current ownership Unknown)" or "")
                 end
-                lines[#lines + 1] = "  "
-                    .. area
-                    .. ": "
-                    .. (quantity or "Unknown")
-                    .. (state and (" checked " .. stamp(state.seenAt)) or "; never checked")
-                    .. (
-                        (seen.name ~= character or seen.realm ~= realm) and " (offline; current ownership Unknown)"
-                        or ""
-                    )
             end
         end
     end

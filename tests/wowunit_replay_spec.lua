@@ -9,6 +9,7 @@ for _, source in ipairs({
     "Vendor",
     "Exchange",
     "Collection",
+    "BookWidgets",
     "Book",
 }) do
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
@@ -31,61 +32,9 @@ WoWUnit.IsTrue = function(value)
     assert(value)
 end
 
-local function frame()
-    ---@type table<string, any>
-    local result = { TitleText = { SetText = function() end }, shown = false }
-    for _, method in ipairs({
-        "SetSize",
-        "SetPoint",
-        "EnableMouse",
-        "SetMovable",
-        "RegisterForDrag",
-        "SetScript",
-        "SetFontObject",
-        "SetJustifyH",
-        "SetMaxLines",
-        "SetFading",
-        "EnableMouseWheel",
-        "Clear",
-        "AddMessage",
-        "SetWidth",
-        "SetHeight",
-        "SetText",
-        "SetScale",
-        "EnableKeyboard",
-        "SetPropagateKeyboardInput",
-        "RegisterEvent",
-        "SetAutoFocus",
-        "SetMaxLetters",
-        "SetHyperlinksEnabled",
-        "LockHighlight",
-        "UnlockHighlight",
-        "ScrollToTop",
-    }) do
-        result[method] = function() end
-    end
-    result.CreateFontString = frame
-    result.GetWidth = function()
-        return 1600
-    end
-    result.GetHeight = function()
-        return 900
-    end
-    function result:Show()
-        self.shown = true
-    end
-    function result:Hide()
-        self.shown = false
-    end
-    function result:IsShown()
-        return self.shown
-    end
-    return result
-end
-CreateFrame = function()
-    return frame()
-end
-UIParent = frame()
+local native = assert(loadfile("tests/support/native_ui.lua"))().create()
+CreateFrame = native.api.CreateFrame
+UIParent = native.api.UIParent
 GameFontNormal = {}
 
 assert(loadfile("AzerothLedger_Tests/Smoke.lua"))("AzerothLedger_Tests", {})

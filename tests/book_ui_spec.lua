@@ -1,128 +1,35 @@
 -- Native frame port replay: checks visible text and input behavior, not private book state.
 local addon = {}
-for _, source in ipairs({ "Item", "Schema", "Client", "Collection", "Book" }) do
+for _, source in ipairs({ "Item", "Schema", "Client", "Collection", "BookWidgets", "Book" }) do
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
 end
 date = os.date
-local controls = {}
-local function nativeFrame(kind)
-    local control = { kind = kind, scripts = {}, shown = true, text = "", width = 1600, height = 900, messages = {} }
-    controls[#controls + 1] = control
-    for _, method in ipairs({
-        "SetPoint",
-        "EnableMouse",
-        "SetMovable",
-        "RegisterForDrag",
-        "EnableKeyboard",
-        "RegisterEvent",
-        "SetJustifyH",
-        "SetAutoFocus",
-        "SetMaxLetters",
-        "SetFontObject",
-        "SetMaxLines",
-        "SetFading",
-        "EnableMouseWheel",
-        "SetHyperlinksEnabled",
-        "LockHighlight",
-        "UnlockHighlight",
-    }) do
-        control[method] = function() end
-    end
-    function control:SetScript(event, callback)
-        self.scripts[event] = callback
-    end
-    function control:SetPropagateKeyboardInput(value)
-        self.propagate = value
-    end
-    function control:SetText(value)
-        self.text = value
-        if self.scripts.OnTextChanged then
-            self.scripts.OnTextChanged(self)
-        end
-    end
-    function control:GetText()
-        return self.text
-    end
-    function control:SetSize(width, height)
-        self.width, self.height = width, height
-    end
-    function control:SetHeight(value)
-        self.height = value
-    end
-    function control:SetWidth(value)
-        self.width = value
-    end
-    function control:GetHeight()
-        return self.height
-    end
-    function control:GetWidth()
-        return self.width
-    end
-    function control:SetScale(value)
-        self.scale = value
-    end
-    function control:Show()
-        self.shown = true
-    end
-    function control:Hide()
-        self.shown = false
-    end
-    function control:IsShown()
-        return self.shown
-    end
-    function control:Clear()
-        self.messages = {}
-    end
-    function control:AddMessage(text)
-        self.messages[#self.messages + 1] = text
-    end
-    function control:ScrollUp()
-        self.scroll = (self.scroll or 0) + 1
-    end
-    function control:ScrollDown()
-        self.scroll = (self.scroll or 0) - 1
-    end
-    function control:ScrollToTop()
-        self.scroll = 0
-    end
-    function control:SetFocus()
-        self.focus = true
-    end
-    function control:ClearFocus()
-        self.focus = false
-    end
-    function control:HasFocus()
-        return self.focus
-    end
-    function control:Click()
-        self.scripts.OnClick(self)
-    end
-    function control.CreateFontString(_self)
-        return nativeFrame("FontString")
-    end
-    if kind == "Frame" then
-        control.TitleText = nativeFrame("FontString")
-    end
-    return control
-end
+local native = assert(loadfile("tests/support/native_ui.lua"))().create()
+local controls = native.controls
 local ready = true
-local api = {
-    UIParent = nativeFrame("Frame"),
-    GameFontNormal = {},
-    UISpecialFrames = {},
-    CreateFrame = nativeFrame,
-    IsControlKeyDown = function()
-        return true
+local api = native.api
+api.IsControlKeyDown = function()
+    return true
+end
+api.C_Item = {
+    GetItemInfo = function(link)
+        if not ready then
+            return nil
+        end
+        local id = tonumber(link:match("item:(%d+)"))
+        return "Name",
+            link,
+            1,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            "Interface\\Icons\\INV_Misc_Food_14",
+            nil,
+            id == 2672 and 7 or 2
     end,
-    C_Item = {
-        GetItemInfo = function(link)
-            if not ready then
-                return nil
-            end
-            local id = tonumber(link:match("item:(%d+)"))
-            return "Name", link, 1, nil, nil, nil, nil, nil, nil, nil, nil, id == 2672 and 7 or 2
-        end,
-    },
 }
 local writes = 0
 local store = addon.Schema.open(nil, function()
@@ -139,65 +46,98 @@ end
 assert(store:scan({ character = "Ada", realm = "A", area = "bags", complete = true, seenAt = 1000, items = items }))
 local before = writes
 local frame = assert(addon.Collection.open(api, store, "Ada", "A"))
-local function find(text)
-    for _, control in ipairs(controls) do
-        if control.text == text and control.shown then
+local function find(text, kind)
+    for index = #controls, 1, -1 do
+        local control = controls[index]
+        if control.text == text and control:IsVisible() and (not kind or control.kind == kind) then
             return control
         end
     end
     error("Missing visible control: " .. text)
 end
 local function click(text)
-    find(text):Click()
+    find(text, "Button"):Click()
 end
-find("15 results • 15 account discoveries")
-local details
 local search
+local scroll
 for _, control in ipairs(controls) do
-    if control.kind == "ScrollingMessageFrame" then
-        details = control
-    end
     if control.kind == "EditBox" then
         search = control
     end
+    if control.kind == "ScrollFrame" then
+        scroll = control
+    end
 end
-assert(table.concat(details.messages, "\n"):find("Recorded units: 400", 1, true))
-click("Next >")
-find("Page 2 / 2")
-assert(table.concat(details.messages, "\n"):find("Recorded units: 400", 1, true), "details must persist across pages")
+find("15 items")
+find("15 discoveries")
+find("400")
+find("Discovery history")
+find("How it was recorded")
+scroll.scripts.OnMouseWheel(scroll, -1)
+assert(scroll:GetVerticalScroll() == 48)
+addon.Collection.refresh(store, "Ada", "A")
+frame.scripts.OnUpdate()
+assert(scroll:GetVerticalScroll() == 48, "an inventory refresh must preserve the reader's scroll position")
+click("Next")
+find("2 / 3")
+find("400") -- selected details persist while browsing another page
 click("Weapons")
-find("14 results • 15 account discoveries")
+find("14 items")
 click("Materials")
-find("1 results • 15 account discoveries")
+find("1 item")
 search:SetText("missing")
 frame.scripts.OnUpdate()
-find("0 results • 15 account discoveries")
-find("No discoveries match these filters.")
-click("Reset filters")
+find("0 items")
+find("No matching items. Try another search or clear your filters.")
+click("Clear filters")
 click("Historical only")
-find("Historical only: on")
-click("Reset filters")
-find("Historical only")
+find("0 items")
+click("Clear filters")
+find("15 items")
 click("Found once")
-find("Found once: on")
-click("Reset filters")
-find("Found once")
+find("0 items")
+click("Clear filters")
+find("15 items")
+click("All characters")
+find("Ada-A")
+frame.scripts.OnKeyDown(frame, "DOWN")
+frame.scripts.OnKeyDown(frame, "ENTER")
+find("Ada", "Button")
+click("A")
+click("All realms")
+find("All realms", "Button")
+click("Clear filters")
+click("All recorded places")
+frame.scripts.OnKeyDown(frame, "ESCAPE")
+assert(frame:IsShown(), "Escape should dismiss an open menu before closing the book")
 frame.scripts.OnKeyDown(frame, "F")
 assert(search:HasFocus())
 search.scripts.OnEnterPressed(search)
 assert(not search:HasFocus())
 frame.scripts.OnKeyDown(frame, "DOWN")
-assert(table.concat(details.messages, "\n"):find("Variant: 101:0", 1, true))
+find("Sword 01", "FontString")
+assert(scroll:GetVerticalScroll() == 0, "selecting another item starts its history at the top")
 frame.scripts.OnKeyDown(frame, "TAB")
 frame.scripts.OnKeyDown(frame, "ENTER")
-click("Recent discoveries")
-find("Discoveries")
-click("Scale –")
+assert(frame:IsShown(), "keyboard navigation must start with browsing, not the close action")
+frame.scripts.OnKeyDown(frame, "F")
+search.scripts.OnTabPressed(search)
+frame.scripts.OnKeyDown(frame, "ENTER")
+find("Ada-A", "Button")
+frame.scripts.OnKeyDown(frame, "ESCAPE")
+click("Discoveries")
+find("Discoveries", "Button")
+click("−")
 assert(frame.scale < 1)
+api.UIParent:SetSize(900, 600)
+frame.scripts.OnEvent()
+local smaller = frame:GetScale()
+click("−")
+assert(frame:GetScale() < smaller, "window size must change immediately even when fitted to a smaller screen")
 ready = false
 frame.scripts.OnEvent()
 frame.scripts.OnUpdate()
-find(" Item data loading or unavailable: 15. Unknown category remains searchable.")
+find("15 items awaiting item data")
 ready = true
 frame.scripts.OnEvent()
 frame.scripts.OnUpdate()

@@ -78,12 +78,12 @@ function Client.itemMetadata(api, record)
     if type(read) ~= "function" then
         return { category = "Unknown", loading = true }
     end
-    local ok, name, _, quality, _, _, _, _, _, _, _, _, classID = pcall(read, record.links[1])
+    local ok, name, _, quality, _, _, _, _, _, _, icon, _, classID = pcall(read, record.links[1])
     if not ok or type(name) ~= "string" or type(quality) ~= "number" or type(classID) ~= "number" then
         return { category = "Unknown", loading = true }
     end
     local categories = { [2] = "Weapons", [4] = "Armour", [9] = "Recipes", [7] = "Materials", [0] = "Consumables" }
-    return { category = quality == 0 and "Junk" or categories[classID] or "Other" }
+    return { category = quality == 0 and "Junk" or categories[classID] or "Other", quality = quality, icon = icon }
 end
 
 ---@param api table
