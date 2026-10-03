@@ -59,6 +59,10 @@ function Presentation.register(api, store)
     if type(processor) ~= "table" or type(processor.AddTooltipPostCall) ~= "function" or itemType == nil then
         return false, "Item tooltip post-call unavailable"
     end
+    local tooltipUtil = api.TooltipUtil
+    if type(tooltipUtil) ~= "table" or type(tooltipUtil.GetDisplayedItem) ~= "function" then
+        return false, "TooltipUtil.GetDisplayedItem unavailable"
+    end
     for _, name in ipairs({ "CreateFrame", "UnitName", "GetRealmName" }) do
         if type(api[name]) ~= "function" then
             return false, "Presentation: " .. name .. " unavailable"
@@ -78,7 +82,7 @@ function Presentation.register(api, store)
                 end
             end
         end
-        local _, link = tooltip:GetItem()
+        local _, link = tooltipUtil.GetDisplayedItem(tooltip)
         local character, realm = api.UnitName("player"), api.GetRealmName()
         if type(link) ~= "string" or type(character) ~= "string" or type(realm) ~= "string" then
             return

@@ -20,6 +20,11 @@ end
 api.GetRealmName = function()
     return "Realm"
 end
+api.TooltipUtil = {
+    GetDisplayedItem = function(tooltip)
+        return nil, tooltip:GetPrimaryTooltipData().hyperlink
+    end,
+}
 local store = addon.Schema.open(nil, function() end)
 local link = "|Hitem:4540::::::::|h[Bread]|h"
 local key = addon.Item.key(link, 4540)
@@ -45,8 +50,9 @@ end
 assert(addon.Presentation.register(api, store))
 local regions, currentLink = {}, nil
 local tooltip = {
-    GetItem = function()
-        return nil, currentLink
+    -- Native comparison tooltips have TooltipDataHandlerMixin, without GetItem.
+    GetPrimaryTooltipData = function()
+        return { hyperlink = currentLink }
     end,
     GetRegions = function()
         return unpack(regions)
