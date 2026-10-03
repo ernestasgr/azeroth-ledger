@@ -406,6 +406,7 @@ end
 ---@field loading? boolean
 ---@field quality? integer
 ---@field icon? integer|string
+---@field gear? boolean
 
 ---@class AzerothLedgerCollectionRow
 ---@field key string
@@ -461,6 +462,7 @@ function Collection.query(store, character, realm, filter, metadata)
         local status = ownership(store, record, character, realm, filter.character, filter.realm)
         if
             matches
+            and (filter.view ~= "Gallery" or info.gear == true or info.category == "Unknown")
             and placeMatches
             and (not filter.search or searchText:find(string.lower(filter.search), 1, true))
             and (not filter.historical or status:find("Historical only", 1, true) == 1)
@@ -503,6 +505,37 @@ function Collection.query(store, character, realm, filter, metadata)
         return a.name < b.name or (a.name == b.name and a.key < b.key)
     end)
     return result
+end
+
+---@class ALGallerySelection
+---@field key string
+---@field link string
+---@field index integer
+
+---@param result {rows: AzerothLedgerCollectionRow[]}
+---@param key? string
+---@param link? string
+---@return ALGallerySelection?
+-- A selection must belong to the filtered gallery and use an exact retained link.
+function Collection.gallerySelection(result, key, link)
+    local selected = result.rows[1]
+    for _, row in ipairs(result.rows) do
+        if row.key == key then
+            selected = row
+            break
+        end
+    end
+    if not selected then
+        return nil
+    end
+    if selected.key == key then
+        for index, savedLink in ipairs(selected.record.links) do
+            if savedLink == link then
+                return { key = selected.key, link = savedLink, index = index }
+            end
+        end
+    end
+    return { key = selected.key, link = selected.record.links[1], index = 1 }
 end
 
 ---@class AzerothLedgerItemDetails
