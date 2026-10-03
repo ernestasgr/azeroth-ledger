@@ -172,6 +172,18 @@ function tests.ScopedChecksDoNotAddTheSameUnitsAcrossDifferentDates(_self)
     WoWUnit.AreEqual(1004, detail.checks[2].at)
 end
 
+function tests.RealmChecksIncludeUnseenCharactersWithUncheckedStorage(_self)
+    local store, scan = fixture()
+    scan("Ada", "A", "bags", 1005, { { itemID = 2672, link = meat, quantity = 10 } })
+    scan("Ada", "A", "bank", 1005, {})
+    scan("Ada", "A", "equipped", 1005, {})
+    scan("New", "A", "bags", 1005, {})
+    local detail = addon.Collection.inspect(store, addon.Item.key(meat, 2672), "Ada", "A", { realm = "A" })
+    WoWUnit.AreEqual(10, detail.checkedUnits)
+    WoWUnit.AreEqual(2, detail.uncheckedAreas)
+    WoWUnit.AreEqual(6, #detail.checks)
+end
+
 function tests.SearchCountsDiscoveriesRatherThanStockAndKeepsVariants(_self)
     local store, _, writes = fixture()
     local before = writes()

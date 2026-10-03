@@ -40,7 +40,7 @@ local function latestObservation(record, character, realm, area)
     return latest
 end
 
-local function ownership(store, record, currentCharacter, currentRealm, filterCharacter, filterRealm)
+local function selectedCharacters(store, record, currentCharacter, currentRealm, filterCharacter, filterRealm)
     local characters = {}
     local selected = {}
     local function add(character, realm)
@@ -56,6 +56,14 @@ local function ownership(store, record, currentCharacter, currentRealm, filterCh
     for _, knownCharacter in ipairs(store:characters()) do
         add(knownCharacter.character, knownCharacter.realm)
     end
+    for _, seen in ipairs(record.characters) do
+        add(seen.name, seen.realm)
+    end
+    return characters
+end
+
+local function ownership(store, record, currentCharacter, currentRealm, filterCharacter, filterRealm)
+    local characters = selectedCharacters(store, record, currentCharacter, currentRealm, filterCharacter, filterRealm)
     local present = false
     local unknown = false
     local earliestCheck
@@ -557,24 +565,26 @@ function Collection.inspect(store, key, character, realm, filter)
                     break
                 end
             end
-            for _, area in ipairs(storageAreas) do
-                local state = store:area(seen.name, seen.realm, area)
-                local observation = latestObservation(record, seen.name, seen.realm, area)
-                local quantity
-                if state and state.complete then
-                    quantity = observation and observation.quantity or 0
-                elseif state and observation and observation.seenAt == state.seenAt then
-                    quantity = observation.quantity
-                end
-                checks[#checks + 1] = {
-                    character = seen.name,
-                    realm = seen.realm,
-                    area = area,
-                    quantity = quantity,
-                    at = state and state.seenAt,
-                    online = seen.name == character and seen.realm == realm,
-                }
+        end
+    end
+    for _, actor in ipairs(selectedCharacters(store, record, character, realm, filter.character, filter.realm)) do
+        for _, area in ipairs(storageAreas) do
+            local state = store:area(actor.name, actor.realm, area)
+            local observation = latestObservation(record, actor.name, actor.realm, area)
+            local quantity
+            if state and state.complete then
+                quantity = observation and observation.quantity or 0
+            elseif state and observation and observation.seenAt == state.seenAt then
+                quantity = observation.quantity
             end
+            checks[#checks + 1] = {
+                character = actor.name,
+                realm = actor.realm,
+                area = area,
+                quantity = quantity,
+                at = state and state.seenAt,
+                online = actor.name == character and actor.realm == realm,
+            }
         end
     end
     local checkedAt
