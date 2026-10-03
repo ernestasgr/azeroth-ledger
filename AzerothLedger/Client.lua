@@ -122,7 +122,50 @@ function Client.itemMetadata(api, record)
         quality = quality,
         icon = icon,
         loading = not icon,
+        gear = classID == 2 or classID == 4,
     }
+end
+
+---@alias ALPreviewStatus 'ready'|'opened'|'loading'|'not-wearable'|'unavailable'
+
+---@param api table
+---@param link? string
+---@return ALPreviewStatus
+function Client.previewStatus(api, link)
+    local itemID = type(link) == "string" and tonumber(link:match("item:(%d+)")) or nil
+    local read = api.C_Item and api.C_Item.GetItemInfo
+    local dressable = api.C_Item and api.C_Item.IsDressableItemByID
+    if not itemID or type(read) ~= "function" then
+        return "unavailable"
+    end
+    local ok, name = pcall(read, link)
+    if not ok or type(name) ~= "string" or name == "" then
+        requestItem(api, itemID)
+        return "loading"
+    end
+    if type(dressable) ~= "function" then
+        return "unavailable"
+    end
+    local readable, wearable = pcall(dressable, link)
+    if not readable or type(wearable) ~= "boolean" then
+        return "unavailable"
+    end
+    if not wearable then
+        return "not-wearable"
+    end
+    return type(api.DressUpItemLink) == "function" and "ready" or "unavailable"
+end
+
+---@param api table
+---@param link? string
+---@return ALPreviewStatus
+function Client.previewItem(api, link)
+    local status = Client.previewStatus(api, link)
+    if status ~= "ready" then
+        return status
+    end
+    local ok, opened = pcall(api.DressUpItemLink, link)
+    return ok and opened ~= false and "opened" or "unavailable"
 end
 
 ---@param api table

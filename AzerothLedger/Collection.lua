@@ -406,6 +406,7 @@ end
 ---@field loading? boolean
 ---@field quality? integer
 ---@field icon? integer|string
+---@field gear? boolean
 
 ---@class AzerothLedgerCollectionRow
 ---@field key string
@@ -461,6 +462,7 @@ function Collection.query(store, character, realm, filter, metadata)
         local status = ownership(store, record, character, realm, filter.character, filter.realm)
         if
             matches
+            and (filter.view ~= "Gallery" or info.gear == true or info.category == "Unknown")
             and placeMatches
             and (not filter.search or searchText:find(string.lower(filter.search), 1, true))
             and (not filter.historical or status:find("Historical only", 1, true) == 1)
