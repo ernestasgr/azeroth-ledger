@@ -35,7 +35,7 @@ end
 ---@param bankOpen boolean
 ---@return AzerothLedgerSnapshot?
 -- Reads what the client exposes now; failed or closed scopes are explicitly incomplete.
-function Scan.capture(api, area, bankOpen)
+function Scan.capture(api, area, bankOpen, cache, affected)
     if
         type(api.UnitName) ~= "function"
         or type(api.GetRealmName) ~= "function"
@@ -74,17 +74,32 @@ function Scan.capture(api, area, bankOpen)
             return snapshot
         end
         for slot = 1, 19 do
-            local ok, readable = pcall(function()
-                local link = api.GetInventoryItemLink("player", slot)
-                if not link then
-                    return true
+            local cached = cache and cache[slot]
+            if cached and affected and not affected[slot] then
+                for _, item in ipairs(cached.items) do
+                    snapshot.items[#snapshot.items + 1] = item
                 end
-                return add(snapshot.items, tonumber(link:match("item:(%d+)")), link, 1, tostring(slot))
-            end)
-            if not ok then
-                snapshot.complete = false
-            elseif not readable then
-                snapshot.complete = false
+                snapshot.complete = snapshot.complete and cached.complete
+            else
+                local first = #snapshot.items
+                local ok, readable = pcall(function()
+                    local link = api.GetInventoryItemLink("player", slot)
+                    if not link then
+                        return true
+                    end
+                    return add(snapshot.items, tonumber(link:match("item:(%d+)")), link, 1, tostring(slot))
+                end)
+                if not ok then
+                    snapshot.complete = false
+                elseif not readable then
+                    snapshot.complete = false
+                end
+                if cache then
+                    cache[slot] = { items = {}, complete = ok and readable == true }
+                    for index = first + 1, #snapshot.items do
+                        cache[slot].items[#cache[slot].items + 1] = snapshot.items[index]
+                    end
+                end
             end
         end
         return snapshot
@@ -99,31 +114,68 @@ function Scan.capture(api, area, bankOpen)
         return snapshot
     end
     for _, bag in ipairs(containerIDs[area] or {}) do
-        local slotsOK, slots = pcall(function()
-            local count = containers.GetContainerNumSlots(bag)
-            if type(count) ~= "number" or count < 0 then
-                error("unreadable container")
+        local cached = cache and cache[bag]
+        if cached and affected and not affected[bag] then
+            for _, item in ipairs(cached.items) do
+                snapshot.items[#snapshot.items + 1] = item
             end
-            return count
-        end)
-        if not slotsOK then
-            snapshot.complete = false
+            snapshot.complete = snapshot.complete and cached.complete
         else
-            for slot = 1, slots do
-                local itemOK, readable = pcall(function()
-                    local info = containers.GetContainerItemInfo(bag, slot)
-                    if not info then
-                        return true
+            local first, complete = #snapshot.items, true
+            local slotsOK, slots = pcall(function()
+                local count = containers.GetContainerNumSlots(bag)
+                if type(count) ~= "number" or count < 0 then
+                    error("unreadable container")
+                end
+                return count
+            end)
+            if not slotsOK then
+                snapshot.complete = false
+                complete = false
+            else
+                for slot = 1, slots do
+                    local itemOK, readable = pcall(function()
+                        local info = containers.GetContainerItemInfo(bag, slot)
+                        if not info then
+                            return true
+                        end
+                        return add(snapshot.items, info.itemID, info.hyperlink, info.stackCount, bag .. ":" .. slot)
+                    end)
+                    if not itemOK or not readable then
+                        snapshot.complete = false
+                        complete = false
                     end
-                    return add(snapshot.items, info.itemID, info.hyperlink, info.stackCount, bag .. ":" .. slot)
-                end)
-                if not itemOK or not readable then
-                    snapshot.complete = false
+                end
+            end
+            if cache then
+                cache[bag] = { items = {}, complete = complete }
+                for index = first + 1, #snapshot.items do
+                    cache[bag].items[#cache[bag].items + 1] = snapshot.items[index]
                 end
             end
         end
     end
     return snapshot
+end
+
+-- Cache container snapshots, never item facts. Every returned area is assembled
+-- from all its containers; an unreadable container still makes it incomplete.
+function Scan.reader(api)
+    local caches = { bags = {}, bank = {}, equipped = {} }
+    local reader = {}
+    function reader:capture(area, bankOpen, affected)
+        return Scan.capture(api, area, bankOpen, caches[area], affected)
+    end
+    function reader:unreadable(area)
+        local result = {}
+        for id, cached in pairs(caches[area]) do
+            if not cached.complete then
+                result[id] = true
+            end
+        end
+        return next(result) and result or nil
+    end
+    return reader
 end
 
 addon.Scan = Scan

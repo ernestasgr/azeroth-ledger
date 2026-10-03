@@ -427,12 +427,12 @@ end
 ---@param filter? AzerothLedgerCollectionFilter
 ---@param metadata? fun(record: AzerothLedgerRecord): AzerothLedgerItemMetadata
 -- Queries are projections of permanent facts; filters never edit the ledger.
-function Collection.query(store, character, realm, filter, metadata)
+local function query(store, character, realm, filter, metadata, pause)
     filter = filter or {}
-    local records = store:list()
-    local result = { rows = {}, discoveryCount = #records, loading = 0, places = {}, categories = {}, matchedCount = 0 }
+    local result =
+        { rows = {}, discoveryCount = store:count(), loading = 0, places = {}, categories = {}, matchedCount = 0 }
     local places = {}
-    for _, record in ipairs(records) do
+    for record in store:cursor() do
         local matches = false
         local discoveredAt
         for _, seen in ipairs(record.characters) do
@@ -482,7 +482,8 @@ function Collection.query(store, character, realm, filter, metadata)
                     ownership = status,
                     discoveredAt = (not filter.character and not filter.realm) and record.firstSeen or discoveredAt,
                     metadata = info,
-                    recorded = assert(store:breakdown(record.key, filter)).recorded,
+                    recorded = not (filter.character or filter.realm) and (record.firstSeenUnits + record.totalGained)
+                        or nil,
                     checkedUnits = scope and scope.checkedUnits or nil,
                     uncheckedAreas = scope and scope.uncheckedAreas or nil,
                 }
@@ -491,20 +492,134 @@ function Collection.query(store, character, realm, filter, metadata)
         if info.loading then
             result.loading = result.loading + 1
         end
+        if pause then
+            pause()
+        end
     end
     for _, place in pairs(places) do
         result.places[#result.places + 1] = place
     end
-    table.sort(result.places, function(a, b)
+    Collection.sort(result.places, function(a, b)
         return a.key < b.key
-    end)
-    table.sort(result.rows, function(a, b)
+    end, pause)
+    Collection.sort(result.rows, function(a, b)
         if filter.view == "Discoveries" and a.discoveredAt ~= b.discoveredAt then
             return a.discoveredAt > b.discoveredAt
         end
         return a.name < b.name or (a.name == b.name and a.key < b.key)
-    end)
+    end, pause)
+    result.byKey, result.positions = {}, {}
+    for index, row in ipairs(result.rows) do
+        result.byKey[row.key], result.positions[row.key] = row, index
+        if pause then
+            pause()
+        end
+    end
     return result
+end
+
+-- Lua 5.1 cannot yield from table.sort's C comparator. Merge in small steps
+-- so sorting a finished 10,000-row index also respects the frame budget.
+function Collection.sort(rows, less, pause)
+    if not pause then
+        table.sort(rows, less)
+        return
+    end
+    local width, count = 1, #rows
+    local buffer = {}
+    while width < count do
+        for first = 1, count, width * 2 do
+            local left, middle = first, math.min(first + width, count + 1)
+            local right, finish = middle, math.min(first + width * 2 - 1, count)
+            for target = first, finish do
+                if left < middle and (right > finish or not less(rows[right], rows[left])) then
+                    buffer[target], left = rows[left], left + 1
+                else
+                    buffer[target], right = rows[right], right + 1
+                end
+                pause()
+            end
+        end
+        for index = 1, count do
+            rows[index] = buffer[index]
+            pause()
+        end
+        width = width * 2
+    end
+end
+
+function Collection.query(store, character, realm, filter, metadata)
+    return query(store, character, realm, filter, metadata)
+end
+
+Collection.timings = {}
+
+local function profileClock(api)
+    if type(api.debugprofilestop) == "function" then
+        return api.debugprofilestop
+    end
+    if type(api.GetTimePreciseSec) == "function" then
+        return function()
+            return api.GetTimePreciseSec() * 1000
+        end
+    end
+    return function()
+        return 0
+    end
+end
+
+function Collection.measure(api, label, action)
+    local clock = profileClock(api)
+    local started = clock()
+    local result = action()
+    local duration = clock() - started
+    local timing = Collection.timings[label] or { frames = 0, maximum = 0, total = 0 }
+    timing.frames, timing.total = timing.frames + 1, timing.total + duration
+    timing.maximum = math.max(timing.maximum, duration)
+    Collection.timings[label] = timing
+    return result
+end
+
+-- The profiling clock uses milliseconds. The operation cap still yields when
+-- a clock is unavailable. One indivisible item operation can exceed the budget.
+function Collection.startWork(api, label, task)
+    local clock = profileClock(api)
+    local operationLimit = (type(api.debugprofilestop) == "function" or type(api.GetTimePreciseSec) == "function")
+            and 4096
+        or 256
+    local thread = coroutine.create(function()
+        return task(coroutine.yield)
+    end)
+    local job = { frames = 0, maximum = 0, total = 0 }
+    function job:step()
+        if self.done then
+            return self.result
+        end
+        local started, operations = clock(), 0
+        repeat
+            local ok, value = coroutine.resume(thread)
+            if not ok then
+                error(value)
+            end
+            operations = operations + 1
+            if coroutine.status(thread) == "dead" then
+                self.done, self.result = true, value
+                break
+            end
+        until operations >= operationLimit or clock() - started >= 2
+        local duration = clock() - started
+        self.frames, self.total = self.frames + 1, self.total + duration
+        self.maximum = math.max(self.maximum, duration)
+        Collection.timings[label] = { frames = self.frames, total = self.total, maximum = self.maximum }
+        return self.result
+    end
+    return job
+end
+
+function Collection.startQuery(api, store, character, realm, filter, metadata)
+    return Collection.startWork(api, "Collection query", function(pause)
+        return query(store, character, realm, filter, metadata, pause)
+    end)
 end
 
 ---@class ALGallerySelection
@@ -512,17 +627,21 @@ end
 ---@field link string
 ---@field index integer
 
----@param result {rows: AzerothLedgerCollectionRow[]}
+---@param result {rows: AzerothLedgerCollectionRow[], byKey?: table<string, AzerothLedgerCollectionRow>}
 ---@param key? string
 ---@param link? string
 ---@return ALGallerySelection?
 -- A selection must belong to the filtered gallery and use an exact retained link.
 function Collection.gallerySelection(result, key, link)
     local selected = result.rows[1]
-    for _, row in ipairs(result.rows) do
-        if row.key == key then
-            selected = row
-            break
+    if result.byKey then
+        selected = result.byKey[key] or selected
+    else
+        for _, row in ipairs(result.rows) do
+            if row.key == key then
+                selected = row
+                break
+            end
         end
     end
     if not selected then

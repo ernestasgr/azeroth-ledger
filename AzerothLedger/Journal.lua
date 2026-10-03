@@ -17,11 +17,12 @@ end
 
 ---@param store ALStore
 ---@param search? string
+---@param pause? fun()
 ---@return table[]
-function Journal.query(store, search)
+function Journal.query(store, search, pause)
     local result = {}
     search = (search or ""):lower()
-    for _, row in ipairs(store:journal()) do
+    for _, row in ipairs(store:journal(pause)) do
         local record = store:find(row.key)
         row.link = record and record.links[#record.links] or nil
         row.name = row.link and row.link:match("%[([^%]]+)%]") or "Unknown item"
@@ -54,6 +55,9 @@ function Journal.query(store, search)
             (row.name .. " " .. row.actors .. " " .. row.action .. " " .. row.evidence):lower():find(search, 1, true)
         then
             result[#result + 1] = row
+        end
+        if pause then
+            pause()
         end
     end
     return result

@@ -1,6 +1,6 @@
 local addonName, addon = ...
 
-local REVISION = "0.10.0"
+local REVISION = "0.11.0"
 local store
 local client = addon.Client.inspect(_G)
 local bankOpen = false
@@ -23,6 +23,9 @@ local mailTakeID
 local mailTakeAmbiguous = false
 local mailAwaitingBag = false
 local mailSendIDs
+local scanner = addon.Scan.reader(_G)
+local pendingBags, pendingEquipment = {}, {}
+local inventoryQueued = false
 
 local function initializeStore()
     if store then
@@ -69,8 +72,8 @@ local function readMerchantName()
     return ok and type(name) == "string" and name ~= "" and name or nil
 end
 
-local function scan(area, checkedAt)
-    local snapshot = addon.Scan.capture(_G, area, bankOpen)
+local function scan(area, checkedAt, affected)
+    local snapshot = scanner:capture(area, bankOpen, affected)
     if snapshot then
         if checkedAt then
             snapshot.seenAt = checkedAt
@@ -82,6 +85,38 @@ local function scan(area, checkedAt)
             merchantEquippedSlots = addon.Vendor.equippedSlots(_G)
         end
         addon.Collection.refresh(store, snapshot.character, snapshot.realm)
+    end
+end
+
+local function flushInventoryBody()
+    inventoryQueued = false
+    local checkedAt = type(GetServerTime) == "function" and GetServerTime() or nil
+    local affected = next(pendingBags) and pendingBags or nil
+    scan("bags", checkedAt, affected)
+    scan("equipped", checkedAt, pendingEquipment)
+    local bankChanged = not affected or affected[-1]
+    for bag = 5, 11 do
+        bankChanged = bankChanged or (affected and affected[bag])
+    end
+    if bankOpen and bankChanged then
+        scan("bank", checkedAt, affected)
+    end
+    pendingBags, pendingEquipment = {}, {}
+end
+
+local function flushInventory()
+    addon.Collection.measure(_G, "Inventory update", flushInventoryBody)
+end
+
+local function queueInventory()
+    if inventoryQueued then
+        return
+    end
+    inventoryQueued = true
+    if type(_G.C_Timer) == "table" and type(_G.C_Timer.After) == "function" then
+        _G.C_Timer.After(0, flushInventory)
+    else
+        flushInventory()
     end
 end
 
@@ -356,7 +391,7 @@ local function printStatus()
         "Azeroth Ledger schema/marker/records:",
         diagnostic.schema or "<unsupported>",
         store:marker() or "<absent>",
-        #store:list()
+        store:count()
     )
     if diagnostic.kind == "damaged" then
         print("Azeroth Ledger: damaged values:", diagnostic.damagedCount)
@@ -393,6 +428,11 @@ SlashCmdList.AZEROTHLEDGER = function(message)
         end
     elseif message == "status" then
         printStatus()
+    elseif message == "profile" then
+        print("Azeroth Ledger: session timings in milliseconds; frame budget 2 ms; open target 250 ms")
+        for label, timing in pairs(addon.Collection.timings) do
+            print(label, "samples", timing.frames, "total", timing.total, "maximum", timing.maximum)
+        end
     elseif message == "scan" then
         scanAll()
         print("Azeroth Ledger: readable storage checked")
@@ -415,6 +455,7 @@ if client.frame then
         "ADDON_LOADED",
         "PLAYER_LOGIN",
         "BAG_UPDATE_DELAYED",
+        "BAG_UPDATE",
         "PLAYER_EQUIPMENT_CHANGED",
         "BANKFRAME_OPENED",
         "BANKFRAME_CLOSED",
@@ -452,7 +493,7 @@ if client.frame then
             client.issues[#client.issues + 1] = event .. " (unusable)"
         end
     end
-    local ok = pcall(client.frame.SetScript, client.frame, "OnEvent", function(_, event, ...)
+    local function handleEvent(_, event, ...)
         if event == "ADDON_LOADED" then
             if ... == addonName then
                 initializeStore()
@@ -469,16 +510,21 @@ if client.frame then
         if event == "PLAYER_LOGIN" then
             scanAll()
             printStatus()
+        elseif event == "BAG_UPDATE" then
+            local bag = ...
+            if type(bag) == "number" then
+                pendingBags[bag] = true
+            end
         elseif event == "BAG_UPDATE_DELAYED" then
             mailAwaitingBag = false
             mailTakeAmbiguous = false
-            if bankOpen then
-                scanAll()
-            else
-                scanPossessions()
-            end
+            queueInventory()
         elseif event == "PLAYER_EQUIPMENT_CHANGED" then
-            scanAll()
+            local slot = ...
+            if type(slot) == "number" then
+                pendingEquipment[slot] = true
+            end
+            queueInventory()
         elseif event == "BANKFRAME_OPENED" then
             bankOpen = true
             scanAll()
@@ -588,7 +634,12 @@ if client.frame then
         elseif event == "GET_ITEM_INFO_RECEIVED" then
             local _, success = ...
             if success then
-                scanAll()
+                for _, area in ipairs({ "bags", "equipped", "bank" }) do
+                    local unreadable = scanner:unreadable(area)
+                    if unreadable and (area ~= "bank" or bankOpen) then
+                        scan(area, nil, unreadable)
+                    end
+                end
             end
         elseif event == "QUEST_LOOT_RECEIVED" then
             rewardReceipt(addon.Reward.quest(_G, ...))
@@ -607,6 +658,12 @@ if client.frame then
         elseif event == "UPDATE_TRADESKILL_CAST_STOPPED" or event == "TRADE_SKILL_CLOSE" then
             craftRecipeID = nil
         end
+    end
+    local ok = pcall(client.frame.SetScript, client.frame, "OnEvent", function(frame, event, ...)
+        local arguments = { n = select("#", ...), ... }
+        addon.Collection.measure(_G, "Event " .. event, function()
+            handleEvent(frame, event, unpack(arguments, 1, arguments.n))
+        end)
     end)
     if not ok then
         client.issues[#client.issues + 1] = "CreateFrame events (unusable)"

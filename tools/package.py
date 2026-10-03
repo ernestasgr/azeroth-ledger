@@ -24,7 +24,7 @@ def manifest_files(path: Path) -> list[str]:
 def check() -> list[Path]:
     toc = ADDON / "AzerothLedger.toc"
     assert manifest_files(toc) == list(SOURCE_ORDER), "main TOC load order changed"
-    assert manifest_files(TESTS / "AzerothLedger_Tests.toc") == ["Smoke.lua", "Vendor.lua", "Exchange.lua", "Evidence.lua", "Collection.lua", "Journal.lua", "Presentation.lua"]
+    assert manifest_files(TESTS / "AzerothLedger_Tests.toc") == ["Smoke.lua", "Vendor.lua", "Exchange.lua", "Evidence.lua", "Collection.lua", "Journal.lua", "Presentation.lua", "PerformanceFixture.lua", "Performance.lua"]
 
     main = toc.read_text(encoding="utf-8")
     companion = (TESTS / "AzerothLedger_Tests.toc").read_text(encoding="utf-8")

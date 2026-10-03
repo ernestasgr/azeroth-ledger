@@ -1,0 +1,19 @@
+{
+  "surrogateParseMs": 231.00000000000009,
+  "serializedBytes": 8253855,
+  "schemaOpenMs": 208,
+  "journalRows": 9000,
+  "surrogateSerializeMs": 1093,
+  "maximumBookFrameMs": 4,
+  "entries": 10000,
+  "maximumStorageUpdateMs": 1.0000000000000009,
+  "nonzeroItemSourcePairs": 20000,
+  "collectionQueryFrames": 173,
+  "maximumQueryFrameMs": 2,
+  "lifetimeGained": 20000,
+  "retainedLinks": 20000,
+  "collectionOpenMs": 7,
+  "collectionQueryWorkMs": 271,
+  "environment": "Windows AMD64, Lua 5.1 via Lupa",
+  "scope": "Host replay, native frame port, synthetic metadata; not a WoW client measurement"
+}

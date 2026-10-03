@@ -338,4 +338,26 @@ event("BAG_UPDATE_DELAYED")
 assert(addon.store:breakdown("6889:0").methods.Crafted == 3, "Older reward masked a newer confirmed craft")
 assert(addon.store:breakdown("6889:0").methods.Looted == 3, "Newest reward arbitration changed proven loot totals")
 event("LOOT_CLOSED")
+-- Native timer boundary: an event burst reads only its changed container once.
+local timers, reads = {}, {}
+_G.C_Timer = {
+    After = function(_, callback)
+        timers[#timers + 1] = callback
+    end,
+}
+local slots = C_Container.GetContainerNumSlots
+C_Container.GetContainerNumSlots = function(bag)
+    reads[bag] = (reads[bag] or 0) + 1
+    return slots(bag)
+end
+clock = 1930
+event("BAG_UPDATE", 0)
+event("BAG_UPDATE_DELAYED")
+event("BAG_UPDATE", 0)
+event("BAG_UPDATE_DELAYED")
+assert(#timers == 1 and next(reads) == nil, "Inventory burst must wait and coalesce")
+timers[1]()
+assert(reads[0] == 1 and reads[1] == nil and reads[-1] == nil, "Unchanged containers must use checked snapshots")
+assert(addon.store:area("Mindria", "Classic Beta PvE", "bags").seenAt == 1930)
+_G.C_Timer = nil
 print("loot_event_spec: passed")

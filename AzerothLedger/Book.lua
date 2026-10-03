@@ -328,7 +328,7 @@ local function warning(book)
     return count > 0 and (count .. " unresolved records • no guessed gains") or ""
 end
 
-render = function(book, requestedKey)
+local function renderBody(book, requestedKey)
     local scopeKey = (book.filter.realm or "") .. ":" .. (book.filter.character or "")
     if book.lastDetailScope ~= scopeKey then
         book.detailsAccount = not book.filter.character and not book.filter.realm
@@ -337,34 +337,80 @@ render = function(book, requestedKey)
     local journal = book.filter.view == "Journal"
     local gallery = book.filter.view == "Gallery"
     local size = pageSize(book)
-    local result
-    if journal then
-        result = {
-            rows = addon.Journal.query(book.store, book.filter.search),
+    local revision = book.store:revision()
+    if book.queryJob and not book.queryJob.done and book.queryStore == book.store then
+        revision = book.queryRevision
+    elseif book.metadataPending then
+        book.metadataRevision = (book.metadataRevision or 0) + 1
+        book.metadataPending = false
+    end
+    local fields = { tostring(revision), tostring(book.metadataRevision or 0), book.character, book.realm }
+    for _, name in ipairs({
+        "view",
+        "search",
+        "category",
+        "character",
+        "realm",
+        "historical",
+        "foundOnce",
+        "place",
+        "placeKind",
+    }) do
+        fields[#fields + 1] = tostring(book.filter[name])
+    end
+    local queryKey = table.concat(fields, "\031")
+    if book.queryKey ~= queryKey then
+        book.queryKey = queryKey
+        book.queryRevision, book.queryStore = revision, book.store
+        if journal then
+            book.queryJob = addon.Collection.startWork(book.api, "Journal query", function(pause)
+                local rows = addon.Journal.query(book.store, book.filter.search, pause)
+                local bySequence, positions = {}, {}
+                for index, row in ipairs(rows) do
+                    row.record = book.store:find(row.key)
+                    row.metadata = addon.Client.itemMetadata(book.api, row.record)
+                    row.recorded = row.quantity
+                    bySequence[row.sequence], positions[row.sequence] = row, index
+                    pause()
+                end
+                return {
+                    rows = rows,
+                    categories = {},
+                    places = {},
+                    loading = 0,
+                    matchedCount = 0,
+                    discoveryCount = book.store:count(),
+                    bySequence = bySequence,
+                    positions = positions,
+                }
+            end)
+        else
+            book.queryJob = addon.Collection.startQuery(
+                book.api,
+                book.store,
+                book.character,
+                book.realm,
+                book.filter,
+                function(record)
+                    return addon.Client.itemMetadata(book.api, record)
+                end
+            )
+        end
+    end
+    local result = book.queryJob:step()
+        or {
+            rows = {},
             categories = {},
             places = {},
-            loading = 0,
+            loading = 1,
             matchedCount = 0,
-            discoveryCount = #book.store:list(),
+            discoveryCount = book.store:count(),
         }
-        for _, row in ipairs(result.rows) do
-            row.record = book.store:find(row.key)
-            row.metadata = addon.Client.itemMetadata(book.api, row.record)
-            row.recorded = row.quantity
-        end
-        local selected
-        for _, row in ipairs(result.rows) do
-            if row.sequence == book.selectedSequence then
-                selected = row
-            end
-        end
+    if journal then
+        local selected = result.bySequence and result.bySequence[book.selectedSequence]
         selected = selected or result.rows[(book.page - 1) * size + 1] or result.rows[1]
         book.selectedSequence = selected and selected.sequence or nil
         requestedKey = selected and selected.key or nil
-    else
-        result = addon.Collection.query(book.store, book.character, book.realm, book.filter, function(record)
-            return addon.Client.itemMetadata(book.api, record)
-        end)
     end
     book.result = result
     local pages = math.max(1, math.ceil(#result.rows / size))
@@ -402,9 +448,15 @@ render = function(book, requestedKey)
     if journal then
         state = "No retained activity. Retention limits are in AddOns Settings."
     end
+    if not book.queryJob.done then
+        state = "Loading your Collection…"
+    end
     book.empty:SetText(state)
     book.empty:SetShown(#result.rows == 0)
-    book.loading:SetText(result.loading > 0 and (result.loading .. " items awaiting item data") or "")
+    book.loading:SetText(
+        not book.queryJob.done and "Preparing items across frames…"
+            or (result.loading > 0 and (result.loading .. " items awaiting item data") or "")
+    )
     book.warning:SetText(warning(book))
     book.scope:SetText(book.filter.character or "All characters")
     book.realmFilter:SetText(book.filter.realm or "All realms")
@@ -466,7 +518,13 @@ render = function(book, requestedKey)
         end
         selectItem(book, requestedKey or book.selected or (result.rows[1] and result.rows[1].key))
     end
-    book.dirty = false
+    book.dirty = not book.queryJob.done or book.queryRevision ~= book.store:revision() or book.metadataPending
+end
+
+render = function(book, requestedKey)
+    return addon.Collection.measure(book.api, "Book frame", function()
+        return renderBody(book, requestedKey)
+    end)
 end
 
 local function change(book, field, value)
@@ -658,15 +716,8 @@ local function keyboard(book, key)
             renderMenu(book)
             return
         end
-        local index = 1
-        for position, row in ipairs(book.result.rows) do
-            if
-                book.filter.view == "Journal" and row.sequence == book.selectedSequence
-                or book.filter.view ~= "Journal" and row.key == book.selected
-            then
-                index = position
-            end
-        end
+        local selected = book.filter.view == "Journal" and book.selectedSequence or book.selected
+        local index = book.result.positions and book.result.positions[selected] or 1
         index = math.max(1, math.min(#book.result.rows, index + (key == "UP" and -1 or 1)))
         local row = book.result.rows[index]
         if row then
@@ -984,7 +1035,14 @@ local function create(api)
             render(book)
         end
     end)
-    frame:SetScript("OnEvent", function()
+    frame:SetScript("OnEvent", function(_, event)
+        if not event or event == "GET_ITEM_INFO_RECEIVED" or event == "ITEM_DATA_LOAD_RESULT" then
+            if book.queryJob and not book.queryJob.done then
+                book.metadataPending = true
+            else
+                book.metadataRevision = (book.metadataRevision or 0) + 1
+            end
+        end
         book.dirty = true
         fit(book)
     end)
@@ -1018,15 +1076,20 @@ end
 ---@param filterRealm? string
 ---@return table?
 function Book.open(api, store, character, realm, filterCharacter, filterRealm)
-    if type(api.CreateFrame) ~= "function" then
-        return nil
-    end
-    active = active or create(api)
-    active.store, active.character, active.realm = store, character, realm
-    active.filter.character, active.filter.realm = filterCharacter, filterRealm
-    render(active)
-    active.frame:Show()
-    return active.frame
+    return addon.Collection.measure(api, "Collection open", function()
+        if type(api.CreateFrame) ~= "function" then
+            return nil
+        end
+        active = active or create(api)
+        if active.store ~= store then
+            active.queryKey = nil
+        end
+        active.store, active.character, active.realm = store, character, realm
+        active.filter.character, active.filter.realm = filterCharacter, filterRealm
+        render(active)
+        active.frame:Show()
+        return active.frame
+    end)
 end
 
 function Book.refresh(store, character, realm)

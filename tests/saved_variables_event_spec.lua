@@ -21,8 +21,18 @@ addon.Client = {
         return { frame = frame, issues = {}, build = "1.60.1.70009", interface = "16001", locale = "enUS" }
     end,
 }
-addon.Scan = { capture = function() end }
-addon.Collection = { refresh = function() end, open = function() end }
+addon.Scan = {
+    reader = function()
+        return { capture = function() end }
+    end,
+}
+addon.Collection = {
+    refresh = function() end,
+    open = function() end,
+    measure = function(_, _, action)
+        return action()
+    end,
+}
 SlashCmdList = {}
 
 local key = assert(addon.Item.key(link, 4540))
