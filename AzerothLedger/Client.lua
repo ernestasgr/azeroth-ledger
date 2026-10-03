@@ -70,20 +70,59 @@ function Client.inspect(api)
     return result
 end
 
+local requestedItems = setmetatable({}, { __mode = "k" })
+
+local function requestItem(api, itemID)
+    local request = api.C_Item and api.C_Item.RequestLoadItemDataByID
+    if type(request) ~= "function" or not itemID then
+        return
+    end
+    local requested = requestedItems[api] or {}
+    requestedItems[api] = requested
+    if not requested[itemID] then
+        requested[itemID] = true
+        pcall(request, itemID)
+    end
+end
+
+local function usableIcon(icon)
+    return (type(icon) == "number" and icon > 0) or (type(icon) == "string" and icon ~= "")
+end
+
 ---@param api table
----@param record {links: string[]}
+---@param record {links: string[], itemID?: integer}
 ---@return AzerothLedgerItemMetadata
 function Client.itemMetadata(api, record)
+    local itemID = record.itemID or tonumber(record.links[1]:match("item:(%d+)"))
+    local icon
+    local iconReader = api.C_Item and api.C_Item.GetItemIconByID
+    if type(iconReader) == "function" then
+        local ok, value = pcall(iconReader, itemID or record.links[1])
+        if ok and usableIcon(value) then
+            icon = value
+        end
+    end
     local read = api.C_Item and api.C_Item.GetItemInfo
     if type(read) ~= "function" then
-        return { category = "Unknown", loading = true }
+        requestItem(api, itemID)
+        return { category = "Unknown", loading = true, icon = icon }
     end
-    local ok, name, _, quality, _, _, _, _, _, _, icon, _, classID = pcall(read, record.links[1])
+    local ok, name, _, quality, _, _, _, _, _, _, fullIcon, _, classID = pcall(read, record.links[1])
+    icon = icon or (ok and usableIcon(fullIcon) and fullIcon or nil)
     if not ok or type(name) ~= "string" or type(quality) ~= "number" or type(classID) ~= "number" then
-        return { category = "Unknown", loading = true }
+        requestItem(api, itemID)
+        return { category = "Unknown", loading = true, icon = icon }
+    end
+    if not icon then
+        requestItem(api, itemID)
     end
     local categories = { [2] = "Weapons", [4] = "Armour", [9] = "Recipes", [7] = "Materials", [0] = "Consumables" }
-    return { category = quality == 0 and "Junk" or categories[classID] or "Other", quality = quality, icon = icon }
+    return {
+        category = quality == 0 and "Junk" or categories[classID] or "Other",
+        quality = quality,
+        icon = icon,
+        loading = not icon,
+    }
 end
 
 ---@param api table

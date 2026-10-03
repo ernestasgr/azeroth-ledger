@@ -6,8 +6,10 @@ local Widgets = addon.BookWidgets
 local colors = Widgets.colors
 local PAGE_SIZE = 7
 local MENU_SIZE = 8
+local DETAIL_HEIGHT = 320
 local render
 local showMenu
+local details
 
 local function stamp(at)
     return at and date("%d %b %Y  %H:%M", at) or "Unknown"
@@ -52,8 +54,14 @@ local function detailRow(book, index)
     row.right = Widgets.text(book.api, row, "", 254, 4, 84, 12)
     row.right:SetJustifyH("RIGHT")
     row.line = Widgets.fill(row, colors.edge, 0, 26, 338, 1, "ARTWORK")
+    row.section = Widgets.fill(row, colors.raised, 0, 12, 338, 32)
     row.link = Widgets.button(book, row, "", 0, 0, 338, 30, function(_, mouseButton)
-        Widgets.openLink(book.api, row.fullLink, mouseButton)
+        if row.action then
+            book.showAllLinks = not book.showAllLinks
+            details(book, book.selected)
+        else
+            Widgets.openLink(book.api, row.fullLink, mouseButton)
+        end
     end)
     tooltip(book, row.link, function()
         return row.fullLink
@@ -62,11 +70,22 @@ local function detailRow(book, index)
     return row
 end
 
-local function details(book, key)
+function details(book, key)
     local previous = book.selected
     local oldScroll = book.detailScroll:GetVerticalScroll()
     book.selected = key
-    local model = key and addon.Collection.inspect(book.store, key, book.character, book.realm, book.filter)
+    if previous ~= key then
+        book.showAllLinks = false
+    end
+    local scope = {}
+    if not book.detailsAccount then
+        if book.filter.character or book.filter.realm then
+            scope = { character = book.filter.character, realm = book.filter.realm }
+        else
+            scope = { character = book.character, realm = book.realm }
+        end
+    end
+    local model = key and addon.Collection.inspect(book.store, key, book.character, book.realm, scope)
     book.detailEmpty:SetShown(not model)
     book.detailHeader:SetShown(model ~= nil)
     book.detailScroll:SetShown(model ~= nil)
@@ -81,14 +100,17 @@ local function details(book, key)
     local itemName = record.links[1]:match("%[([^%]]+)%]") or ("Item " .. record.itemID)
     book.itemTitle:SetText(itemName)
     book.itemTitle:SetTextColor(unpack(Widgets.quality(book.api, info.quality)))
-    book.itemCategory:SetText(info.category .. "  •  Account history")
+    book.itemCategory:SetText(info.category .. "  •  " .. model.scopeLabel)
     book.itemIcon:SetTexture(info.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
     book.itemLink = record.links[#record.links]
     book.ownership:SetText(model.ownership)
     book.ownership:SetTextColor(unpack(model.ownership == "Present" and colors.green or colors.gold))
     book.recorded:SetText(tostring(model.breakdown.recorded))
-    book.gained:SetText(tostring(record.totalGained))
-    book.initial:SetText(tostring(record.firstSeenUnits))
+    book.gained:SetText(tostring(model.breakdown.gained))
+    book.initial:SetText(tostring(model.breakdown.initial))
+    book.selectedTotals:SetText(book.filter.realm and not book.filter.character and "Realm" or "Character")
+    Widgets.select(book.selectedTotals, not book.detailsAccount)
+    Widgets.select(book.accountTotals, book.detailsAccount)
     local index, y = 0, 0
     local function write(kind, left, right)
         index = index + 1
@@ -102,16 +124,27 @@ local function details(book, key)
         row.left:SetWidth(kind == "note" and 338 or 246)
         row.right:SetWidth(84)
         row.left:SetTextColor(unpack(kind == "section" and colors.gold or colors.text))
+        row.left:SetFont(book.api.STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", kind == "section" and 13 or 12, "")
         row.right:SetTextColor(unpack(colors.muted))
         row.left:SetText(left)
         row.right:SetText(right or "")
-        row.left:SetShown(kind ~= "link")
-        row.right:SetShown(kind ~= "link")
-        row.link:SetShown(kind == "link")
+        local clickable = kind == "link" or kind == "action"
+        row.left:SetShown(not clickable)
+        row.right:SetShown(not clickable)
+        row.link:SetShown(clickable)
         row.line:SetShown(kind == "section")
+        row.section:SetShown(kind == "section")
+        row.fullLink = kind == "link" and left or nil
+        row.action = kind == "action"
         local height = math.max(24, row.left:GetStringHeight() + 10, row.right:GetStringHeight() + 10)
         if kind == "section" then
-            height = 38
+            row.left:ClearAllPoints()
+            row.left:SetPoint("TOPLEFT", 10, -20)
+            row.line:ClearAllPoints()
+            row.line:SetPoint("TOPLEFT", 0, -12)
+            row.line:SetSize(2, 32)
+            row.line:SetColorTexture(unpack(colors.gold))
+            height = 56
         end
         if kind == "date" then
             row.left:SetWidth(118)
@@ -120,8 +153,7 @@ local function details(book, key)
             row.right:SetWidth(218)
             height = math.max(24, row.right:GetStringHeight() + 10)
         end
-        if kind == "link" then
-            row.fullLink = left
+        if clickable then
             row.link:SetText(left)
             height = 34
         end
@@ -130,10 +162,10 @@ local function details(book, key)
         y = y + height
     end
     write("section", "Discovery history")
-    write("date", "First Seen", stamp(record.firstSeen))
-    write("date", "Latest Seen", stamp(record.lastSeen))
-    write("date", "First known gain", stamp(record.firstGained))
-    write("date", "Latest known gain", stamp(record.lastGained))
+    write("date", "First Seen", stamp(model.firstSeen))
+    write("date", "Latest Seen", stamp(model.lastSeen))
+    write("date", "First known gain", stamp(model.firstGained))
+    write("date", "Latest known gain", stamp(model.lastGained))
     local function breakdown(title, totals)
         write("section", title)
         local labels = {}
@@ -168,11 +200,34 @@ local function details(book, key)
     write("note", model.evidence)
     write("section", "Item links & variant")
     write("note", "Variant " .. record.key)
-    for _, link in ipairs(record.links) do
-        write("link", link)
+    write(
+        "note",
+        #model.links
+            .. (#model.links == 1 and " item version" or " item versions")
+            .. " • "
+            .. #record.links
+            .. " recorded links (account)"
+    )
+    if #model.links > 1 then
+        write("note", "Hover links to compare enchants and gems.")
+    end
+    if book.showAllLinks then
+        for _, link in ipairs(record.links) do
+            write("link", link)
+        end
+    else
+        for _, group in ipairs(model.links) do
+            write("link", group.link)
+        end
+    end
+    if #record.links > #model.links then
+        write(
+            "action",
+            book.showAllLinks and "Show distinct versions" or ("Show all " .. #record.links .. " recorded links")
+        )
     end
     book.detailBody:SetHeight(math.max(y, 1))
-    book.detailScroll:SetVerticalScroll(previous == key and math.min(oldScroll, math.max(0, y - 352)) or 0)
+    book.detailScroll:SetVerticalScroll(previous == key and math.min(oldScroll, math.max(0, y - DETAIL_HEIGHT)) or 0)
 end
 
 local function selectItem(book, key)
@@ -201,6 +256,11 @@ local function warning(book)
 end
 
 render = function(book, requestedKey)
+    local scopeKey = (book.filter.realm or "") .. ":" .. (book.filter.character or "")
+    if book.lastDetailScope ~= scopeKey then
+        book.detailsAccount = not book.filter.character and not book.filter.realm
+        book.lastDetailScope = scopeKey
+    end
     local result = addon.Collection.query(book.store, book.character, book.realm, book.filter, function(record)
         return addon.Client.itemMetadata(book.api, record)
     end)
@@ -243,7 +303,7 @@ render = function(book, requestedKey)
             row.subtitle:SetText(
                 book.filter.view == "Discoveries" and ("First Seen " .. stamp(item.discoveredAt)) or item.category
             )
-            row.quantity:SetText(tostring(item.record.firstSeenUnits + item.record.totalGained))
+            row.quantity:SetText(tostring(item.recorded))
         end
     end
     book.pageLabel:SetText(book.page .. " / " .. pages)
@@ -619,12 +679,20 @@ local function create(api)
         Widgets.text(api, detailPanel, "Select an item to explore\nits history.", 32, 234, 336, 15, colors.muted)
     book.detailHeader = api.CreateFrame("Frame", nil, detailPanel)
     book.detailHeader:SetPoint("TOPLEFT")
-    book.detailHeader:SetSize(400, 164)
+    book.detailHeader:SetSize(400, 196)
     book.itemIcon = Widgets.icon(book.detailHeader, 16, 16, 44)
     book.itemTitle = Widgets.text(api, book.detailHeader, "", 74, 17, 310, 17)
     book.itemTitle:SetHeight(40)
     book.itemCategory = Widgets.text(api, book.detailHeader, "", 74, 61, 310, 10, colors.muted)
-    book.ownership = Widgets.text(api, book.detailHeader, "", 16, 84, 368, 11, colors.green)
+    book.selectedTotals = Widgets.button(book, book.detailHeader, "Character", 16, 84, 174, 26, function()
+        book.detailsAccount = false
+        details(book, book.selected)
+    end)
+    book.accountTotals = Widgets.button(book, book.detailHeader, "Account", 206, 84, 178, 26, function()
+        book.detailsAccount = true
+        details(book, book.selected)
+    end)
+    book.ownership = Widgets.text(api, book.detailHeader, "", 16, 119, 368, 11, colors.green)
     local itemLink = api.CreateFrame("Button", nil, book.detailHeader)
     itemLink:SetPoint("TOPLEFT", 16, -12)
     itemLink:SetSize(368, 68)
@@ -637,16 +705,16 @@ local function create(api)
     end)
     book.controls[#book.controls + 1] = itemLink
     local function statistic(label, x)
-        Widgets.fill(book.detailHeader, colors.raised, x, 111, 116, 49)
-        Widgets.text(api, book.detailHeader, label, x + 10, 119, 96, 9, colors.muted)
-        return Widgets.text(api, book.detailHeader, "", x + 10, 136, 96, 18)
+        Widgets.fill(book.detailHeader, colors.raised, x, 143, 116, 49)
+        Widgets.text(api, book.detailHeader, label, x + 10, 151, 96, 9, colors.muted)
+        return Widgets.text(api, book.detailHeader, "", x + 10, 168, 96, 18)
     end
     book.recorded = statistic("RECORDED", 16)
     book.gained = statistic("TOTAL GAINED", 142)
     book.initial = statistic("INITIALLY SEEN", 268)
     book.detailScroll = api.CreateFrame("ScrollFrame", nil, detailPanel, "UIPanelScrollFrameTemplate")
-    book.detailScroll:SetPoint("TOPLEFT", 16, -176)
-    book.detailScroll:SetSize(344, 352)
+    book.detailScroll:SetPoint("TOPLEFT", 16, -208)
+    book.detailScroll:SetSize(344, DETAIL_HEIGHT)
     book.detailBody = api.CreateFrame("Frame", nil, book.detailScroll)
     book.detailBody:SetPoint("TOPLEFT", book.detailScroll, "TOPLEFT", 0, 0)
     book.detailBody:SetSize(338, 1)
@@ -718,6 +786,7 @@ local function create(api)
         Widgets.hideTooltip(api)
     end)
     frame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+    frame:RegisterEvent("ITEM_DATA_LOAD_RESULT")
     frame:RegisterEvent("UI_SCALE_CHANGED")
     frame:RegisterEvent("DISPLAY_SIZE_CHANGED")
     if api.UISpecialFrames then

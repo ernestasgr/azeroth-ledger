@@ -363,13 +363,15 @@ local _, addon = ...
 ---@field evidenceSummary fun(self: AzerothLedgerStore): AzerothLedgerEvidenceState
 ---@field expireEvidence fun(self: AzerothLedgerStore, at: integer): boolean
 ---@field correctGain fun(self: AzerothLedgerStore, proof: AzerothLedgerGainCorrection): boolean
----@field breakdown fun(self: ALStore, key: string): AzerothLedgerBreakdown?
+---@field breakdown fun(self: ALStore, key: string, scope?: {character?: string, realm?: string}): AzerothLedgerBreakdown?
 ---@field lootSourceProof fun(self: ALStore, slots: ALLootSlots, at: integer, actor: ALActor): boolean
 
 ---@alias ALLootSlots AzerothLedgerLootSlot[]
 
 ---@class AzerothLedgerBreakdown
 ---@field recorded integer
+---@field initial integer
+---@field gained integer
 ---@field methods table<string, integer>
 ---@field sources table<string, integer>
 
@@ -1368,29 +1370,51 @@ function Schema.open(raw, save)
         return true
     end
 
-    function store.breakdown(_self, key)
+    function store.breakdown(_self, key, scope)
         local record = valid[key]
         if not record then
             return nil
         end
+        scope = scope or {}
+        local scoped = scope.character ~= nil or scope.realm ~= nil
+        local function matches(character, realm)
+            return (not scope.character or scope.character == character) and (not scope.realm or scope.realm == realm)
+        end
+        local initial = record.firstSeenUnits
+        if scoped then
+            initial = 0
+            for _, seen in ipairs(record.characters) do
+                if matches(seen.name, seen.realm) then
+                    initial = initial + seen.firstSeenUnits
+                end
+            end
+        end
         local result = {
-            recorded = record.firstSeenUnits + record.totalGained,
-            methods = { Seen = record.firstSeenUnits },
-            sources = { ["Initial stock"] = record.firstSeenUnits },
+            recorded = 0,
+            initial = initial,
+            gained = scoped and 0 or record.totalGained,
+            methods = { Seen = initial },
+            sources = { ["Initial stock"] = initial },
         }
         for _, gain in ipairs(record.gains) do
-            local quantity = gain.quantity - (gain.refunded or 0)
-            result.methods[gain.method] = (result.methods[gain.method] or 0) + quantity
-            local source = gain.source
-            local label = source and (source.name or source.guid) or "Unknown"
-            if source and source.kind == "player" then
-                label = source.name .. "-" .. source.realm
+            if matches(gain.character, gain.realm) then
+                local quantity = gain.quantity - (gain.refunded or 0)
+                if scoped then
+                    result.gained = result.gained + quantity
+                end
+                result.methods[gain.method] = (result.methods[gain.method] or 0) + quantity
+                local source = gain.source
+                local label = source and (source.name or source.guid) or "Unknown"
+                if source and source.kind == "player" then
+                    label = source.name .. "-" .. source.realm
+                end
+                if gain.context then
+                    label = gain.context.name or (gain.context.kind .. " " .. gain.context.id)
+                end
+                result.sources[label] = (result.sources[label] or 0) + quantity
             end
-            if gain.context then
-                label = gain.context.name or (gain.context.kind .. " " .. gain.context.id)
-            end
-            result.sources[label] = (result.sources[label] or 0) + quantity
         end
+        result.recorded = result.initial + result.gained
         return result
     end
 

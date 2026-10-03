@@ -42,4 +42,36 @@ function Item.key(link, itemID)
     return table.concat(parts, ":")
 end
 
+---@param links string[]
+---@return {link: string, count: integer}[]
+-- Viewer level/spec and instance ID do not create another visible item version.
+-- Preserve enchant, gems, intrinsic bonuses and all original full links in the ledger.
+function Item.linkGroups(links)
+    local groups, byKey = {}, {}
+    for _, link in ipairs(links) do
+        local payload = link:match("item:([%d:%-]+)|")
+        local key = link
+        if payload then
+            local fields = {}
+            for field in (payload .. ":"):gmatch("([^:]*):") do
+                fields[#fields + 1] = tostring(tonumber(field) or 0)
+            end
+            fields[8], fields[9], fields[10] = "0", "0", "0"
+            while fields[#fields] == "0" do
+                fields[#fields] = nil
+            end
+            key = table.concat(fields, ":")
+        end
+        local group = byKey[key]
+        if group then
+            group.count = group.count + 1
+        else
+            group = { link = link, count = 1 }
+            byKey[key] = group
+            groups[#groups + 1] = group
+        end
+    end
+    return groups
+end
+
 addon.Item = Item

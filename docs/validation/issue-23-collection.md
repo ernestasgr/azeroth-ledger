@@ -1,6 +1,6 @@
 # Issue #23: native Collection book
 
-The current book is version 0.7.1. Its visual and interaction redesign is documented in [collection-redesign.md](collection-redesign.md); the 0.7.0 evidence below records the original implementation and installation.
+The current book is version 0.7.2. Its visual and interaction redesign is documented in [collection-redesign.md](collection-redesign.md); the 0.7.0 evidence below records the original implementation and installation.
 
 Version 0.7.0 replaces the scrolling Collection dump with navigation, twelve searchable item rows per page, and persistent details. Categories use numeric item classes and quality from the installed client's `C_Item.GetItemInfo` declaration; missing, failed or delayed metadata remains Unknown and searchable. Item-data events refresh the visible projection without saving metadata or changing quantities.
 

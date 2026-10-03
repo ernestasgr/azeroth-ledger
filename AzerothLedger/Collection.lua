@@ -8,7 +8,7 @@ local Collection = {}
 ---@field GameFontNormal table
 
 local function stamp(seconds)
-    return date("%Y-%m-%d %H:%M", seconds)
+    return seconds and date("%Y-%m-%d %H:%M", seconds) or "Unknown"
 end
 
 local function matchesFilter(filterCharacter, filterRealm, name, realm)
@@ -408,6 +408,7 @@ end
 ---@field ownership string
 ---@field discoveredAt integer
 ---@field metadata AzerothLedgerItemMetadata
+---@field recorded integer
 
 ---@param store ALStore
 ---@param character string
@@ -467,6 +468,7 @@ function Collection.query(store, character, realm, filter, metadata)
                     ownership = status,
                     discoveredAt = (not filter.character and not filter.realm) and record.firstSeen or discoveredAt,
                     metadata = info,
+                    recorded = assert(store:breakdown(record.key, filter)).recorded,
                 }
             end
         end
@@ -492,8 +494,14 @@ end
 ---@class AzerothLedgerItemDetails
 ---@field record AzerothLedgerRecord
 ---@field breakdown AzerothLedgerBreakdown
+---@field links {link: string, count: integer}[]
 ---@field ownership string
 ---@field evidence string
+---@field firstSeen? integer
+---@field lastSeen? integer
+---@field firstGained? integer
+---@field lastGained? integer
+---@field scopeLabel string
 ---@field checks {character: string, realm: string, area: string, quantity?: integer, at?: integer, online: boolean}[]
 
 ---@param store ALStore
@@ -509,16 +517,24 @@ function Collection.inspect(store, key, character, realm, filter)
         return nil
     end
     local strength = "Seen in storage"
+    local firstGained, lastGained
     for _, gain in ipairs(record.gains) do
-        if gain.source or gain.context then
-            strength = "Confirmed gain with specific source"
-            break
+        if matchesFilter(filter.character, filter.realm, gain.character, gain.realm) then
+            firstGained = math.min(firstGained or gain.at, gain.at)
+            lastGained = math.max(lastGained or gain.at, gain.at)
+            if gain.source or gain.context then
+                strength = "Confirmed gain with specific source"
+            elseif strength ~= "Confirmed gain with specific source" then
+                strength = "Confirmed " .. gain.method .. " gain; source Unknown"
+            end
         end
-        strength = "Confirmed " .. gain.method .. " gain; source Unknown"
     end
     local checks = {}
+    local firstSeen, lastSeen
     for _, seen in ipairs(record.characters) do
         if matchesFilter(filter.character, filter.realm, seen.name, seen.realm) then
+            firstSeen = math.min(firstSeen or seen.firstSeen, seen.firstSeen)
+            lastSeen = math.max(lastSeen or seen.lastSeen, seen.lastSeen)
             for _, area in ipairs(storageAreas) do
                 local state = store:area(seen.name, seen.realm, area)
                 local observation = latestObservation(record, seen.name, seen.realm, area)
@@ -541,7 +557,15 @@ function Collection.inspect(store, key, character, realm, filter)
     end
     return {
         record = record,
-        breakdown = assert(store:breakdown(key)),
+        breakdown = assert(store:breakdown(key, filter)),
+        links = addon.Item.linkGroups(record.links),
+        firstSeen = firstSeen,
+        lastSeen = lastSeen,
+        firstGained = firstGained,
+        lastGained = lastGained,
+        scopeLabel = filter.character and (filter.character .. (filter.realm and ("-" .. filter.realm) or ""))
+            or filter.realm
+            or "Account",
         evidence = strength,
         checks = checks,
         ownership = ownership(store, record, character, realm, filter.character, filter.realm),
@@ -565,14 +589,14 @@ function Collection.details(store, key, character, realm, filter)
     for _, link in ipairs(record.links) do
         lines[#lines + 1] = link
     end
-    lines[#lines + 1] = "First Seen " .. stamp(record.firstSeen)
-    lines[#lines + 1] = "Latest Seen " .. stamp(record.lastSeen)
-    lines[#lines + 1] = "First confirmed gain: " .. (record.firstGained and stamp(record.firstGained) or "Unknown")
-    lines[#lines + 1] = "Latest confirmed gain: " .. (record.lastGained and stamp(record.lastGained) or "Unknown")
+    lines[#lines + 1] = "First Seen " .. stamp(model.firstSeen)
+    lines[#lines + 1] = "Latest Seen " .. stamp(model.lastSeen)
+    lines[#lines + 1] = "First confirmed gain: " .. stamp(model.firstGained)
+    lines[#lines + 1] = "Latest confirmed gain: " .. stamp(model.lastGained)
     lines[#lines + 1] = "Strongest evidence: " .. model.evidence
     local breakdown = model.breakdown
-    lines[#lines + 1] = "Recorded units: " .. breakdown.recorded .. " (account-wide)"
-    lines[#lines + 1] = "Total gained: " .. record.totalGained
+    lines[#lines + 1] = "Recorded units: " .. breakdown.recorded .. " (" .. model.scopeLabel .. ")"
+    lines[#lines + 1] = "Total gained: " .. breakdown.gained
     for _, group in ipairs({ { "Method", breakdown.methods }, { "Source", breakdown.sources } }) do
         local labels = {}
         for label in pairs(group[2]) do

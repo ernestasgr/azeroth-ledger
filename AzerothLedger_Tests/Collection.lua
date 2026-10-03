@@ -74,11 +74,54 @@ function tests.FoundOnceIsAccountWideAndRefundRemovesItWithoutAnotherDiscovery(_
     local detail = table.concat(addon.Collection.details(store, key, "Ada", "A", filter), "\n")
     WoWUnit.IsTrue(detail:find("offline; current ownership Unknown", 1, true) ~= nil)
     WoWUnit.IsTrue(detail:find("checked", 1, true) ~= nil)
-    WoWUnit.IsTrue(detail:find("Recorded units: 0", 1, true) ~= nil)
+    WoWUnit.IsTrue(detail:find("Recorded units: 1", 1, true) ~= nil)
 end
 
 local function metadata(record)
     return { category = record.itemID == 100 and "Weapons" or "Materials" }
+end
+
+function tests.ViewerContextLinksCollapseWithoutLosingEnchants(_self)
+    local store, scan, writes = fixture()
+    local viewerLink = "|cff1eff00|Hitem:100:0:0:0:0:0:42:8:20:7:0:0:1:111|h[Sword]|h|r"
+    scan("Ada", "A", "bags", 1002, { { itemID = 100, link = viewerLink, quantity = 1 } })
+    local before = writes()
+    local model = addon.Collection.inspect(store, addon.Item.key(bear, 100), "Ada", "A")
+    WoWUnit.AreEqual(2, #model.links)
+    WoWUnit.AreEqual(3, #model.record.links)
+    WoWUnit.AreEqual(2, model.links[1].count)
+    WoWUnit.AreEqual(before, writes())
+end
+
+function tests.CharacterTotalsSeparateInitialStockAndGainsFromAccountHistory(_self)
+    local store, scan, writes = fixture()
+    local key = addon.Item.key(meat, 2672)
+    scan("Ben", "B", "bags", 1003, { { itemID = 2672, link = meat, quantity = 10 } })
+    local actor = { character = "Ada", realm = "A", level = 12, place = "Forest" }
+    WoWUnit.IsTrue(store:lootOpen({
+        character = "Ada",
+        realm = "A",
+        level = 12,
+        at = 1010,
+        place = "Forest",
+        slots = { { key = key, quantity = 2 } },
+    }))
+    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 2 }, 1011, actor))
+    scan("Ada", "A", "bags", 1012, { { itemID = 2672, link = meat, quantity = 402 } })
+    local before = writes()
+    local filter = { character = "Ben", realm = "B", search = "Meat" }
+    local detail = addon.Collection.inspect(store, key, "Ada", "A", filter)
+    WoWUnit.AreEqual(10, detail.breakdown.recorded)
+    WoWUnit.AreEqual(0, detail.breakdown.gained)
+    WoWUnit.AreEqual(10, detail.breakdown.initial)
+    WoWUnit.AreEqual(nil, detail.breakdown.methods.Looted)
+    WoWUnit.AreEqual(1003, detail.firstSeen)
+    WoWUnit.AreEqual(nil, detail.firstGained)
+    WoWUnit.AreEqual("Seen in storage", detail.evidence)
+    WoWUnit.AreEqual(10, addon.Collection.query(store, "Ada", "A", filter).rows[1].recorded)
+    WoWUnit.AreEqual(402, store:breakdown(key).recorded)
+    WoWUnit.AreEqual(10, addon.Collection.inspect(store, key, "Ada", "A", { realm = "B" }).breakdown.recorded)
+    WoWUnit.AreEqual(before, writes())
 end
 
 function tests.SearchCountsDiscoveriesRatherThanStockAndKeepsVariants(_self)

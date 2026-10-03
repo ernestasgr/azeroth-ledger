@@ -44,6 +44,14 @@ for index = 1, 14 do
     }
 end
 assert(store:scan({ character = "Ada", realm = "A", area = "bags", complete = true, seenAt = 1000, items = items }))
+assert(store:scan({
+    character = "Ben",
+    realm = "B",
+    area = "bags",
+    complete = true,
+    seenAt = 1001,
+    items = { { itemID = 2672, link = "|cffffffff|Hitem:2672:0:0:0:0:0:0:0:15:7|h[Meat]|h|r", quantity = 10 } },
+}))
 local before = writes
 local frame = assert(addon.Collection.open(api, store, "Ada", "A"))
 local function find(text, kind)
@@ -73,6 +81,11 @@ find("15 discoveries")
 find("400")
 find("Discovery history")
 find("How it was recorded")
+click("Show all 2 recorded links")
+find("|Hitem:2672::::::::|h[Meat]|h", "Button")
+find("|cffffffff|Hitem:2672:0:0:0:0:0:0:0:15:7|h[Meat]|h|r", "Button")
+click("Show distinct versions")
+find("Show all 2 recorded links", "Button")
 scroll.scripts.OnMouseWheel(scroll, -1)
 assert(scroll:GetVerticalScroll() == 48)
 addon.Collection.refresh(store, "Ada", "A")
@@ -142,6 +155,24 @@ ready = true
 frame.scripts.OnEvent()
 frame.scripts.OnUpdate()
 assert(writes == before, "browsing must not write SavedVariables")
+click("All characters")
+click("Ben-B")
+click("Meat")
+find("Character", "Button")
+find("10")
+click("Account")
+find("400")
+click("Character")
+local stats = find("RECORDED", "FontString").parent
+local scopedRecorded = false
+for _, control in ipairs(controls) do
+    if control.parent == stats and control.text == "10" then
+        scopedRecorded = true
+    end
+    assert(not (control.parent == stats and control.text == "400"), "character totals must not show account stock")
+end
+assert(scopedRecorded, "the detail statistic must show the selected character's initial stock")
+click("Clear filters")
 click("All recorded places")
 local menu = find("Next", "Button").parent
 assert(menu.background:GetHeight() == menu:GetHeight(), "a short menu must not paint beyond its visible bounds")
