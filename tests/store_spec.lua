@@ -79,7 +79,7 @@ assert(damagedVendor:scan({
     items = {},
 }))
 assert(saved.vendor == vendorEvidence)
-assert(not damagedVendor:pruneJournal(0))
+assert(not damagedVendor:setRetention("vendor", 0))
 local future = { schema = 9, records = {}, areas = {} }
 local unsupported = open(future)
 assert(unsupported:diagnostic().kind == "unsupported")

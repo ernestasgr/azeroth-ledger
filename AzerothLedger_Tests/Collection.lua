@@ -230,7 +230,7 @@ function tests.RecordedPlacesRequireGainEvidenceAndTimelineSurvivesPruning(_self
     WoWUnit.IsTrue(detail:find("Recorded units: 402", 1, true) ~= nil)
     WoWUnit.IsTrue(detail:find("Method total: Seen 400", 1, true) ~= nil)
     WoWUnit.IsTrue(detail:find("Source total: Unknown 2", 1, true) ~= nil)
-    WoWUnit.IsTrue(store:pruneJournal(0))
+    WoWUnit.IsTrue(store:setRetention("vendor", 0))
     result = addon.Collection.query(store, "Ada", "A", { view = "Discoveries" }, metadata)
     WoWUnit.AreEqual(3, #result.rows)
     WoWUnit.AreEqual(1001, result.rows[1].discoveredAt)
