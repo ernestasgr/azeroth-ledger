@@ -22,7 +22,9 @@ local function fixture(count)
             firstGained = 1001,
             lastGained = 1001,
             links = { link, (link:gsub("::::::::", ":1:::::::")) },
-            characters = { { name = "Fixture", realm = "Test", firstSeen = 1000, lastSeen = 1000, firstSeenUnits = 1 } },
+            characters = { -- Character first check is independent of account gains.
+                { name = "Fixture", realm = "Test", firstSeen = 1000, lastSeen = 1000, firstSeenUnits = 1 },
+            },
             observations = {
                 {
                     character = "Fixture",

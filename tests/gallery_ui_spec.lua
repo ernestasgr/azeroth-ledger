@@ -1,6 +1,6 @@
 -- Native UI boundary replay; native model rendering still requires the Forever client.
 local addon = {}
-for _, source in ipairs({ "Item", "Schema", "Client", "Collection", "Journal", "BookWidgets", "Book" }) do
+for _, source in ipairs({ "Item", "Work", "Schema", "Client", "Collection", "Journal", "BookWidgets", "Book" }) do
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
 end
 date = os.date

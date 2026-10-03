@@ -1,6 +1,7 @@
 local addon = {}
 for _, source in ipairs({
     "Item",
+    "Work",
     "Schema",
     "Client",
     "Scan",

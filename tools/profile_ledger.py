@@ -20,7 +20,7 @@ def main() -> None:
     lua = LuaRuntime(unpack_returned_tuples=True)
     measurements = lua.execute(r'''
         local addon = {}
-        for _, name in ipairs({ "Item", "Schema", "Client", "Collection", "Journal", "BookWidgets", "Book" }) do
+        for _, name in ipairs({ "Item", "Work", "Schema", "Client", "Collection", "Journal", "BookWidgets", "Book" }) do
             assert(loadfile("AzerothLedger/" .. name .. ".lua"))("AzerothLedger", addon)
         end
         date = os.date
@@ -40,19 +40,19 @@ def main() -> None:
         repeat
             frames = frames + 1
             frame.scripts.OnUpdate(frame)
-        until addon.Collection.timings["Collection query"]
-            and addon.Collection.timings["Collection query"].frames > 0
+        until addon.Work.timings["Collection query"]
+            and addon.Work.timings["Collection query"].frames > 0
             and (function()
                 for _, control in ipairs(native.controls) do
                     if control.text == "10000 items" and control:IsVisible() then return true end
                 end
             end)()
-        local open = addon.Collection.timings["Collection open"].maximum
-        local query = addon.Collection.timings["Collection query"]
-        local render = addon.Collection.timings["Book frame"].maximum
-        for _, control in ipairs(native.controls) do
-            if control.text == "Next" and control.kind == "Button" then control:Click(); break end
-        end
+        local open = addon.Work.timings["Collection open"].maximum
+        local query = addon.Work.timings["Collection query"]
+        local render = addon.Work.timings["Book frame"].maximum
+        started = os.clock()
+        frame.scripts.OnKeyDown(frame, "PAGEDOWN")
+        local paging = (os.clock() - started) * 1000
         local update = 0
         for index = 1, 100 do
             started = os.clock()
@@ -85,7 +85,8 @@ def main() -> None:
         return { entries = 10000, journalRows = 9000, retainedLinks = links, lifetimeGained = gained,
             nonzeroItemSourcePairs = sourcePairs, schemaOpenMs = load, collectionOpenMs = open,
             collectionQueryFrames = query.frames, collectionQueryWorkMs = query.total,
-            maximumQueryFrameMs = query.maximum, maximumBookFrameMs = render, maximumStorageUpdateMs = update,
+            maximumQueryFrameMs = query.maximum, maximumBookFrameMs = render, keyboardPagingMs = paging,
+            maximumStorageUpdateMs = update,
             serializedBytes = #serialized, surrogateSerializeMs = save, surrogateParseMs = parse }
     ''')
     report = dict(measurements.items())

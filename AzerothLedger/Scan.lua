@@ -30,6 +30,24 @@ local function add(items, itemID, link, quantity, location)
     return addon.Item.key(link, itemID) ~= nil
 end
 
+local function appendCached(snapshot, cached)
+    for _, item in ipairs(cached.items) do
+        snapshot.items[#snapshot.items + 1] = item
+    end
+    snapshot.complete = snapshot.complete and cached.complete
+end
+
+local function retainCapture(cache, id, snapshot, first, complete)
+    if not cache then
+        return
+    end
+    local items = {}
+    for index = first + 1, #snapshot.items do
+        items[#items + 1] = snapshot.items[index]
+    end
+    cache[id] = { items = items, complete = complete }
+end
+
 ---@param api AzerothLedgerScanApi
 ---@param area 'bags'|'bank'|'equipped'
 ---@param bankOpen boolean
@@ -76,10 +94,7 @@ function Scan.capture(api, area, bankOpen, cache, affected)
         for slot = 1, 19 do
             local cached = cache and cache[slot]
             if cached and affected and not affected[slot] then
-                for _, item in ipairs(cached.items) do
-                    snapshot.items[#snapshot.items + 1] = item
-                end
-                snapshot.complete = snapshot.complete and cached.complete
+                appendCached(snapshot, cached)
             else
                 local first = #snapshot.items
                 local ok, readable = pcall(function()
@@ -94,12 +109,7 @@ function Scan.capture(api, area, bankOpen, cache, affected)
                 elseif not readable then
                     snapshot.complete = false
                 end
-                if cache then
-                    cache[slot] = { items = {}, complete = ok and readable == true }
-                    for index = first + 1, #snapshot.items do
-                        cache[slot].items[#cache[slot].items + 1] = snapshot.items[index]
-                    end
-                end
+                retainCapture(cache, slot, snapshot, first, ok and readable == true)
             end
         end
         return snapshot
@@ -116,10 +126,7 @@ function Scan.capture(api, area, bankOpen, cache, affected)
     for _, bag in ipairs(containerIDs[area] or {}) do
         local cached = cache and cache[bag]
         if cached and affected and not affected[bag] then
-            for _, item in ipairs(cached.items) do
-                snapshot.items[#snapshot.items + 1] = item
-            end
-            snapshot.complete = snapshot.complete and cached.complete
+            appendCached(snapshot, cached)
         else
             local first, complete = #snapshot.items, true
             local slotsOK, slots = pcall(function()
@@ -147,12 +154,7 @@ function Scan.capture(api, area, bankOpen, cache, affected)
                     end
                 end
             end
-            if cache then
-                cache[bag] = { items = {}, complete = complete }
-                for index = first + 1, #snapshot.items do
-                    cache[bag].items[#cache[bag].items + 1] = snapshot.items[index]
-                end
-            end
+            retainCapture(cache, bag, snapshot, first, complete)
         end
     end
     return snapshot
@@ -163,10 +165,10 @@ end
 function Scan.reader(api)
     local caches = { bags = {}, bank = {}, equipped = {} }
     local reader = {}
-    function reader:capture(area, bankOpen, affected)
+    function reader.capture(_self, area, bankOpen, affected)
         return Scan.capture(api, area, bankOpen, caches[area], affected)
     end
-    function reader:unreadable(area)
+    function reader.unreadable(_self, area)
         local result = {}
         for id, cached in pairs(caches[area]) do
             if not cached.complete then

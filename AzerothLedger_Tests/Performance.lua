@@ -25,11 +25,11 @@ end
 -- Opens anonymous synthetic data. The production store and SavedVariables are untouched.
 SLASH_AZEROTHLEDGERPERFORMANCE1 = "/alperf"
 SlashCmdList.AZEROTHLEDGERPERFORMANCE = function()
-    addon.Collection.timings = {}
-    local raw = addon.Collection.measure(_G, "Fixture build", function()
+    addon.Work.timings = {}
+    local raw = addon.Work.measure(_G, "Fixture build", function()
         return companion.performanceFixture(10000)
     end)
-    local store = addon.Collection.measure(_G, "Fixture store load", function()
+    local store = addon.Work.measure(_G, "Fixture store load", function()
         return addon.Schema.open(raw, function() end)
     end)
     addon.Collection.open(_G, store, "Fixture", "Test")

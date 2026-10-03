@@ -1,5 +1,5 @@
 local addon = {}
-for _, name in ipairs({ "Item", "Schema", "Client", "Scan", "Collection" }) do
+for _, name in ipairs({ "Item", "Work", "Schema", "Client", "Scan", "Collection" }) do
     assert(loadfile("AzerothLedger/" .. name .. ".lua"))("AzerothLedger", addon)
 end
 date = os.date
@@ -92,4 +92,39 @@ local beforePage = metadataReads
 frame.scripts.OnKeyDown(frame, "PAGEDOWN")
 assert(visible("2 / 1429"))
 assert(metadataReads - beforePage < 20, "Paging must reuse its completed query")
+frame.scripts.OnEvent(frame, "ITEM_DATA_LOAD_RESULT", 10001, true)
+frame.scripts.OnUpdate(frame)
+assert(visible("Loading your Collection…"))
+for _ = 1, 12000 do
+    if visible("10000 items") then
+        break
+    end
+    frame.scripts.OnUpdate(frame)
+end
+assert(visible("10000 items") and visible("2 / 1429"), "A background refresh must preserve the current page")
 print("performance_spec: native loading and cached paging passed")
+
+local raw = fixture(3)
+local failSave = false
+local atomic = addon.Schema.open(raw, function()
+    if failSave then
+        error("test save failure")
+    end
+end)
+local priorRevision = atomic:revision()
+failSave = true
+local accepted = pcall(
+    atomic.scan,
+    atomic,
+    { character = "Fixture", realm = "Test", area = "bags", seenAt = 1002, complete = true, items = {} }
+)
+assert(not accepted and atomic:revision() == priorRevision)
+assert(atomic:find("10001:0").observations[1].quantity == 1)
+assert(addon.Schema.open(raw, function() end):find("10001:0").observations[1].quantity == 1)
+failSave = false
+assert(
+    atomic:scan({ character = "Fixture", realm = "Test", area = "bags", seenAt = 1002, complete = true, items = {} })
+)
+local cleared = atomic:find("10001:0").observations
+assert(cleared[#cleared].quantity == 0, "Failed save must leave the held-item index usable")
+print("performance_spec: failed save preserves public and saved facts")

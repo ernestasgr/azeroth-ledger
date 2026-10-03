@@ -12,7 +12,7 @@ function frame:SetScript(script, handler)
     end
 end
 
-for _, source in ipairs({ "Item", "Schema" }) do
+for _, source in ipairs({ "Item", "Work", "Schema" }) do
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
 end
 
@@ -29,9 +29,6 @@ addon.Scan = {
 addon.Collection = {
     refresh = function() end,
     open = function() end,
-    measure = function(_, _, action)
-        return action()
-    end,
 }
 SlashCmdList = {}
 

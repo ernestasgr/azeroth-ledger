@@ -5,6 +5,7 @@
 ## SavedVariables: AzerothLedgerDB
 
 Item.lua
+Work.lua
 Schema.lua
 Client.lua
 Scan.lua

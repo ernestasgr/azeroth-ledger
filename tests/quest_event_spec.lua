@@ -75,7 +75,18 @@ _G.GetQuestItemInfo = function(kind)
 end
 SlashCmdList = {}
 
-for _, source in ipairs({ "Item", "Schema", "Client", "Scan", "Loot", "Reward", "Vendor", "Collection", "Main" }) do
+for _, source in ipairs({
+    "Item",
+    "Work", -- Frame work and profiling precede consumers.
+    "Schema",
+    "Client",
+    "Scan",
+    "Loot",
+    "Reward",
+    "Vendor",
+    "Collection",
+    "Main",
+}) do
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
 end
 

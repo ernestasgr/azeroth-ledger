@@ -363,7 +363,7 @@ local function renderBody(book, requestedKey)
         book.queryKey = queryKey
         book.queryRevision, book.queryStore = revision, book.store
         if journal then
-            book.queryJob = addon.Collection.startWork(book.api, "Journal query", function(pause)
+            book.queryJob = addon.Work.start(book.api, "Journal query", function(pause)
                 local rows = addon.Journal.query(book.store, book.filter.search, pause)
                 local bySequence, positions = {}, {}
                 for index, row in ipairs(rows) do
@@ -398,14 +398,26 @@ local function renderBody(book, requestedKey)
         end
     end
     local result = book.queryJob:step()
-        or {
-            rows = {},
-            categories = {},
-            places = {},
-            loading = 1,
-            matchedCount = 0,
-            discoveryCount = book.store:count(),
-        }
+    if not result then
+        book.empty:SetText("Loading your Collection…")
+        book.empty:Show()
+        book.loading:SetText("Loading items…")
+        book.count:SetText("Loading…")
+        book.discoveries:SetText(book.store:count() .. " discoveries")
+        for _, row in ipairs(book.rows) do
+            row:Hide()
+        end
+        for _, row in ipairs(book.galleryRows) do
+            row:Hide()
+        end
+        book.previewPanel:Hide()
+        book.detailHeader:Hide()
+        book.detailScroll:Hide()
+        Widgets.enable(book.previous, false)
+        Widgets.enable(book.next, false)
+        book.dirty = true
+        return
+    end
     if journal then
         local selected = result.bySequence and result.bySequence[book.selectedSequence]
         selected = selected or result.rows[(book.page - 1) * size + 1] or result.rows[1]
@@ -448,15 +460,9 @@ local function renderBody(book, requestedKey)
     if journal then
         state = "No retained activity. Retention limits are in AddOns Settings."
     end
-    if not book.queryJob.done then
-        state = "Loading your Collection…"
-    end
     book.empty:SetText(state)
     book.empty:SetShown(#result.rows == 0)
-    book.loading:SetText(
-        not book.queryJob.done and "Preparing items across frames…"
-            or (result.loading > 0 and (result.loading .. " items awaiting item data") or "")
-    )
+    book.loading:SetText(result.loading > 0 and (result.loading .. " items awaiting item data") or "")
     book.warning:SetText(warning(book))
     book.scope:SetText(book.filter.character or "All characters")
     book.realmFilter:SetText(book.filter.realm or "All realms")
@@ -522,7 +528,7 @@ local function renderBody(book, requestedKey)
 end
 
 render = function(book, requestedKey)
-    return addon.Collection.measure(book.api, "Book frame", function()
+    return addon.Work.measure(book.api, "Book frame", function()
         return renderBody(book, requestedKey)
     end)
 end
@@ -1076,7 +1082,7 @@ end
 ---@param filterRealm? string
 ---@return table?
 function Book.open(api, store, character, realm, filterCharacter, filterRealm)
-    return addon.Collection.measure(api, "Collection open", function()
+    return addon.Work.measure(api, "Collection open", function()
         if type(api.CreateFrame) ~= "function" then
             return nil
         end

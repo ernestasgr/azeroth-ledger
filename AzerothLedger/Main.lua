@@ -105,7 +105,7 @@ local function flushInventoryBody()
 end
 
 local function flushInventory()
-    addon.Collection.measure(_G, "Inventory update", flushInventoryBody)
+    addon.Work.measure(_G, "Inventory update", flushInventoryBody)
 end
 
 local function queueInventory()
@@ -430,7 +430,7 @@ SlashCmdList.AZEROTHLEDGER = function(message)
         printStatus()
     elseif message == "profile" then
         print("Azeroth Ledger: session timings in milliseconds; frame budget 2 ms; open target 250 ms")
-        for label, timing in pairs(addon.Collection.timings) do
+        for label, timing in pairs(addon.Work.timings) do
             print(label, "samples", timing.frames, "total", timing.total, "maximum", timing.maximum)
         end
     elseif message == "scan" then
@@ -661,7 +661,7 @@ if client.frame then
     end
     local ok = pcall(client.frame.SetScript, client.frame, "OnEvent", function(frame, event, ...)
         local arguments = { n = select("#", ...), ... }
-        addon.Collection.measure(_G, "Event " .. event, function()
+        addon.Work.measure(_G, "Event " .. event, function()
             handleEvent(frame, event, unpack(arguments, 1, arguments.n))
         end)
     end)

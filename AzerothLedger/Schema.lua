@@ -183,7 +183,7 @@ end
 ---@field realm string
 ---@field at integer
 ---@field confirmed boolean
----@field baseline table<string, {quantity: integer, gained: integer}>
+---@field baseline table<string, {quantity: integer, gained: integer, discovery?: boolean}>
 
 ---@class AzerothLedgerRewardState
 ---@field nextID integer
@@ -947,6 +947,7 @@ local function validRewardState(rewards)
                 or item.quantity < 0
                 or not isInteger(item.gained)
                 or item.gained < 0
+                or (item.discovery ~= nil and type(item.discovery) ~= "boolean")
             then
                 return false
             end
@@ -1218,11 +1219,11 @@ function Schema.open(raw, save)
         damagedCount = damagedCount + 1
     end
     -- Runtime indexes are rebuilt from validated facts, never persisted or pruned.
-    local scopeRecords, actorIndex, keys, keyIndex = {}, {}, {}, {}
+    local scopeRecords, actorIndex, recordKeys, keyIndex = {}, {}, {}, {}
     local revision = 0
     local function indexRecord(key, record)
         if not keyIndex[key] then
-            keys[#keys + 1], keyIndex[key] = key, true
+            recordKeys[#recordKeys + 1], keyIndex[key] = key, true
         end
         local previous = valid[key]
         for _, observation in ipairs(previous and previous.observations or {}) do
@@ -1348,6 +1349,7 @@ function Schema.open(raw, save)
         end)
         -- Capture previously unheld items lazily before their first change during
         -- an active action. Late item identification keeps the pre-action totals.
+        local previousRecords = {}
         for key, record in pairs(fields.records or {}) do
             local before = valid[key]
             for _, session in ipairs(nextValue.loot and nextValue.loot.sessions or {}) do
@@ -1357,20 +1359,30 @@ function Schema.open(raw, save)
                 end
             end
             for _, preparation in ipairs(nextValue.rewards and nextValue.rewards.preparations or {}) do
-                if before and not preparation.baseline[key] then
+                if not preparation.baseline[key] then
                     preparation.baseline[key] = {
                         quantity = priorQuantity(before, preparation.character, preparation.realm, "bags")
                             + priorQuantity(before, preparation.character, preparation.realm, "equipped"),
-                        gained = before.totalGained,
+                        gained = before and before.totalGained or 0,
+                        discovery = before == nil,
                     }
                 end
             end
-            indexRecord(key, record)
+            previousRecords[key] = raw.records[key] or false
             nextValue.records[key] = record
+        end
+        local savedOK, failure = pcall(save, nextValue)
+        if not savedOK then
+            for key, record in pairs(previousRecords) do
+                raw.records[key] = record or nil
+            end
+            error(failure)
+        end
+        for key, record in pairs(fields.records or {}) do
+            indexRecord(key, record)
         end
         revision = revision + 1
         journalHealthy = true
-        save(nextValue)
         raw = nextValue
         if not validDisplay(nextValue.display) or nextValue.display.toasts then
             for _, record in ipairs(discovered) do
@@ -1460,7 +1472,7 @@ function Schema.open(raw, save)
             return chronological(b, a)
         end
         if pause then
-            addon.Collection.sort(result, newestFirst, pause)
+            addon.Work.sort(result, newestFirst, pause)
         else
             table.sort(result, newestFirst)
         end
@@ -1842,7 +1854,7 @@ function Schema.open(raw, save)
     end
 
     function store.count(_self)
-        return #keys
+        return #recordKeys
     end
     function store.revision(_self)
         return revision
@@ -1850,11 +1862,11 @@ function Schema.open(raw, save)
     -- A stable-length cursor copies one record at a time. Consumers restart when
     -- the revision changes; no query can edit permanent records through it.
     function store.cursor(_self)
-        local index, count = 0, #keys
+        local index, count = 0, #recordKeys
         return function()
             index = index + 1
             if index <= count then
-                return copyRecord(valid[keys[index]])
+                return copyRecord(valid[recordKeys[index]])
             end
         end
     end
@@ -3373,8 +3385,8 @@ function Schema.open(raw, save)
         local nextID = (rewards and isInteger(rewards.nextID) and rewards.nextID or 0) + 1
         local baseline = {}
         local possessions = {}
-        for _, area in ipairs({ "bags", "equipped" }) do
-            for key in pairs(heldKeys(actor.character, actor.realm, area)) do
+        for _, storageArea in ipairs({ "bags", "equipped" }) do
+            for key in pairs(heldKeys(actor.character, actor.realm, storageArea)) do
                 possessions[key] = true
             end
         end
@@ -3489,7 +3501,7 @@ function Schema.open(raw, save)
                     or (valid[receipt.key] and valid[receipt.key].totalGained or 0),
                 quantity = 0,
                 awarded = 0,
-                discovery = preparation and not before or not valid[receipt.key],
+                discovery = preparation and (not before or before.discovery == true) or not valid[receipt.key],
                 confirmed = receipt.method == "Crafted" or (preparation and preparation.confirmed) or false,
                 choiceGroup = receipt.choiceGroup,
                 specific = receipt.method == "Quest" and not receipt.preview or nil,
