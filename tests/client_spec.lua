@@ -38,4 +38,17 @@ local missing = addon.Client.inspect({})
 assert(#missing.issues == 4)
 assert(missing.build == "<unavailable>")
 
+local automaticIcon = addon.Client.itemMetadata({
+    C_Item = {
+        GetItemInfo = function()
+            return nil
+        end,
+        GetItemIconByID = function(itemID)
+            assert(itemID == 2672)
+            return 133970
+        end,
+    },
+}, { itemID = 2672, links = { "|Hitem:2672::::::::|h[Meat]|h" } })
+assert(automaticIcon.icon == 133970, "an uncached item name must not hide its automatically available icon")
+assert(automaticIcon.loading == true)
 print("client_spec: passed")

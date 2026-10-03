@@ -56,6 +56,7 @@ local _, addon = ...
 ---@field realm string
 ---@field level integer
 ---@field place string
+---@field placeKind? 'zone'|'dungeon'
 ---@field method 'Looted'|'Quest'|'Crafted'|'Vendor'|'Obtained'
 ---@field refunded? integer
 ---@field source? AzerothLedgerLootSource|AzerothLedgerVendorSource|AzerothLedgerPlayerSource
@@ -75,6 +76,7 @@ local _, addon = ...
 ---@field at integer
 ---@field level integer
 ---@field place string
+---@field placeKind? 'zone'|'dungeon'
 ---@field slots AzerothLedgerLootSlot[]
 
 ---@class AzerothLedgerLootClaim
@@ -107,6 +109,7 @@ local _, addon = ...
 ---@field realm string
 ---@field level integer
 ---@field place string
+---@field placeKind? 'zone'|'dungeon'
 ---@field slots table<string, AzerothLedgerLootSessionSlot>
 ---@field credits table<string, integer>
 ---@field baselineQuantities table<string, integer>
@@ -137,6 +140,7 @@ local _, addon = ...
 ---@class AzerothLedgerGainActor: AzerothLedgerActor
 ---@field level integer
 ---@field place string
+---@field placeKind? 'zone'|'dungeon'
 ---@field vendorName? string
 
 ---@alias ALGainActor AzerothLedgerGainActor
@@ -154,6 +158,7 @@ local _, addon = ...
 ---@field realm string
 ---@field level integer
 ---@field place string
+---@field placeKind? 'zone'|'dungeon'
 ---@field at integer
 ---@field baseline integer
 ---@field baselineGained integer
@@ -197,6 +202,7 @@ local _, addon = ...
 ---@field realm string
 ---@field level integer
 ---@field place string
+---@field placeKind? 'zone'|'dungeon'
 ---@field baseline integer
 ---@field baselineGained integer
 ---@field receiptQuantity integer
@@ -249,6 +255,7 @@ local _, addon = ...
 ---@field realm string
 ---@field level integer
 ---@field place string
+---@field placeKind? 'zone'|'dungeon'
 ---@field baseline integer
 ---@field baselineGained integer
 ---@field discovery boolean
@@ -356,13 +363,19 @@ local _, addon = ...
 ---@field evidenceSummary fun(self: AzerothLedgerStore): AzerothLedgerEvidenceState
 ---@field expireEvidence fun(self: AzerothLedgerStore, at: integer): boolean
 ---@field correctGain fun(self: AzerothLedgerStore, proof: AzerothLedgerGainCorrection): boolean
----@field breakdown fun(self: ALStore, key: string): AzerothLedgerBreakdown?
+---@field breakdown fun(self: ALStore, key: string, scope?: ALCountScope): AzerothLedgerBreakdown?
 ---@field lootSourceProof fun(self: ALStore, slots: ALLootSlots, at: integer, actor: ALActor): boolean
 
 ---@alias ALLootSlots AzerothLedgerLootSlot[]
 
+---@class ALCountScope
+---@field character? string
+---@field realm? string
+
 ---@class AzerothLedgerBreakdown
----@field recorded integer
+---@field recorded? integer
+---@field initial? integer
+---@field gained integer
 ---@field methods table<string, integer>
 ---@field sources table<string, integer>
 
@@ -569,6 +582,7 @@ local function copyRecord(record)
             realm = gain.realm,
             level = gain.level,
             place = gain.place,
+            placeKind = gain.placeKind,
             method = gain.method,
             refunded = gain.refunded,
             corrections = gain.corrections and copyArray(gain.corrections) or nil,
@@ -596,6 +610,10 @@ local function copyRecord(record)
         characters = copyArray(record.characters),
         observations = copyArray(record.observations),
     }
+end
+
+local function validPlaceKind(kind)
+    return kind == nil or kind == "zone" or kind == "dungeon"
 end
 
 local function validRecord(key, record)
@@ -668,6 +686,7 @@ local function validRecord(key, record)
             or not isName(gain.realm)
             or not isInteger(gain.level)
             or type(gain.place) ~= "string"
+            or not validPlaceKind(gain.placeKind)
             or not gainMethods[gain.method]
             or not validRefunded(gain)
             or gainIDs[gain.id]
@@ -1355,28 +1374,43 @@ function Schema.open(raw, save)
         return true
     end
 
-    function store.breakdown(_self, key)
+    function store.breakdown(_self, key, scope)
         local record = valid[key]
         if not record then
             return nil
         end
+        scope = scope or {}
+        local scoped = scope.character ~= nil or scope.realm ~= nil
+        local function matches(character, realm)
+            return (not scope.character or scope.character == character) and (not scope.realm or scope.realm == realm)
+        end
+        local initial = not scoped and record.firstSeenUnits or nil
         local result = {
-            recorded = record.firstSeenUnits + record.totalGained,
-            methods = { Seen = record.firstSeenUnits },
-            sources = { ["Initial stock"] = record.firstSeenUnits },
+            initial = initial,
+            gained = scoped and 0 or record.totalGained,
+            methods = initial and { Seen = initial } or {},
+            sources = initial and { ["Initial stock"] = initial } or {},
         }
         for _, gain in ipairs(record.gains) do
-            local quantity = gain.quantity - (gain.refunded or 0)
-            result.methods[gain.method] = (result.methods[gain.method] or 0) + quantity
-            local source = gain.source
-            local label = source and (source.name or source.guid) or "Unknown"
-            if source and source.kind == "player" then
-                label = source.name .. "-" .. source.realm
+            if matches(gain.character, gain.realm) then
+                local quantity = gain.quantity - (gain.refunded or 0)
+                if scoped then
+                    result.gained = result.gained + quantity
+                end
+                result.methods[gain.method] = (result.methods[gain.method] or 0) + quantity
+                local source = gain.source
+                local label = source and (source.name or source.guid) or "Unknown"
+                if source and source.kind == "player" then
+                    label = source.name .. "-" .. source.realm
+                end
+                if gain.context then
+                    label = gain.context.name or (gain.context.kind .. " " .. gain.context.id)
+                end
+                result.sources[label] = (result.sources[label] or 0) + quantity
             end
-            if gain.context then
-                label = gain.context.name or (gain.context.kind .. " " .. gain.context.id)
-            end
-            result.sources[label] = (result.sources[label] or 0) + quantity
+        end
+        if initial then
+            result.recorded = initial + result.gained
         end
         return result
     end
@@ -1578,11 +1612,27 @@ function Schema.open(raw, save)
         end
         local gainID = tostring(session.id) .. ":" .. key
         local gain
+        local contributions, total, corrected = {}, 0, false
         for _, entry in ipairs(record.gains) do
+            if entry.id == gainID or entry.id:sub(1, #gainID + 7) == gainID .. ":share:" then
+                contributions[#contributions + 1] = entry
+                total = total + entry.quantity
+                corrected = corrected or entry.corrections ~= nil
+            end
             if entry.id == gainID then
                 gain = entry
-                break
             end
+        end
+        if #contributions > 1 and not corrected and slot.limit == session.awarded[key] and total == slot.limit then
+            gain = copyValue(contributions[1])
+            gain.id, gain.quantity, gain.source = gainID, total, nil
+            for index = #record.gains, 1, -1 do
+                local entry = record.gains[index]
+                if entry.id == gainID or entry.id:sub(1, #gainID + 7) == gainID .. ":share:" then
+                    table.remove(record.gains, index)
+                end
+            end
+            record.gains[#record.gains + 1] = gain
         end
         if not gain then
             for index, share in ipairs(shares) do
@@ -1641,7 +1691,43 @@ function Schema.open(raw, save)
         end
     end
 
-    local function award(session, key, records)
+    -- Craft/quest receipts can share the chat channel with loot. A newer,
+    -- item-specific loot cycle is required to override a confirmed reward.
+    local function lootRewardSession(key, at, actor, context)
+        local rewards = type(raw.rewards) == "table" and raw.rewards.sessions or nil
+        local latest
+        for _, reward in ipairs(type(rewards) == "table" and rewards or {}) do
+            if
+                validRewardSession(reward)
+                and reward.confirmed
+                and reward.key == key
+                and reward.character == actor.character
+                and reward.realm == actor.realm
+                and at >= reward.at
+                and at - reward.at < 60
+            then
+                if not latest or reward.at > latest.at then
+                    latest = reward
+                end
+            end
+        end
+        if not latest then
+            return false
+        end
+        local current = context or activeSession(at)
+        if
+            not current
+            or current.openedAt <= latest.at
+            or type(current.slots[key]) ~= "table"
+            or current.character ~= actor.character
+            or current.realm ~= actor.realm
+        then
+            return true
+        end
+        return false, current
+    end
+
+    local function award(session, key, records, at)
         local receipt = session.receipts[key]
         local record = records[key]
         if type(receipt) ~= "table" or not isInteger(receipt.quantity) or not isInteger(receipt.at) or not record then
@@ -1650,7 +1736,13 @@ function Schema.open(raw, save)
         local awarded = isInteger(session.awarded[key]) and session.awarded[key] or 0
         local credit = isInteger(session.credits[key]) and session.credits[key] or 0
         local slot = session.slots[key]
-        local limit = type(slot) == "table" and slot.limit or nil
+        if type(slot) ~= "table" then
+            return
+        end
+        if lootRewardSession(key, at or receipt.at, session, session) then
+            return
+        end
+        local limit = slot.limit
         local target = math.min(credit, receipt.quantity, isInteger(limit) and limit or math.huge)
         local baselineGained = session.baselineGains[key]
         if not isInteger(baselineGained) then
@@ -1682,6 +1774,7 @@ function Schema.open(raw, save)
                 realm = session.realm,
                 level = session.level,
                 place = session.place,
+                placeKind = session.placeKind,
                 method = "Looted",
                 source = type(session.slots[key]) == "table" and session.slots[key].source or nil,
             }
@@ -1704,6 +1797,37 @@ function Schema.open(raw, save)
         records[key] = record
     end
 
+    ---@param entries AzerothLedgerLootSlot[]
+    ---@return table<string, AzerothLedgerLootSessionSlot>?
+    local function lootSlots(entries)
+        local slots = {}
+        for index, entry in ipairs(entries) do
+            if
+                type(entry) ~= "table"
+                or type(entry.key) ~= "string"
+                or not validLootSource(entry.source)
+                or (entry.quantity ~= nil and (not isInteger(entry.quantity) or entry.quantity < 1))
+            then
+                return nil
+            end
+            local share = {
+                source = copyValue(entry.source),
+                quantity = entry.quantity,
+                slot = entry.slot or index,
+                sourceIndex = entry.sourceIndex or 1,
+            }
+            local slot = slots[entry.key]
+            if slot then
+                slot.shares[#slot.shares + 1] = share
+                slot.source = nil
+                slot.limit = slot.limit and entry.quantity and slot.limit + entry.quantity or nil
+            else
+                slots[entry.key] = { source = copyValue(entry.source), limit = entry.quantity, shares = { share } }
+            end
+        end
+        return slots
+    end
+
     ---@param context AzerothLedgerLootContext
     function store.lootOpen(_self, context)
         if
@@ -1714,6 +1838,7 @@ function Schema.open(raw, save)
             or not isInteger(context.at)
             or not isInteger(context.level)
             or type(context.place) ~= "string"
+            or not validPlaceKind(context.placeKind)
             or type(context.slots) ~= "table"
         then
             return false
@@ -1722,59 +1847,27 @@ function Schema.open(raw, save)
         if not baseline or not baseline.complete then
             return false
         end
-        local slots = {}
+        local slots = lootSlots(context.slots)
+        if not slots then
+            return false
+        end
         local baselineQuantities = {}
         local baselineGains = {}
-        for index, slot in ipairs(context.slots) do
-            if
-                type(slot) ~= "table"
-                or type(slot.key) ~= "string"
-                or not validLootSource(slot.source)
-                or (slot.quantity ~= nil and (not isInteger(slot.quantity) or slot.quantity < 1))
-            then
-                return false
-            end
-            if type(slot) == "table" and type(slot.key) == "string" then
-                if slots[slot.key] then
-                    local shares = slots[slot.key].shares
-                    shares[#shares + 1] = {
-                        source = copyValue(slot.source),
-                        quantity = slot.quantity,
-                        slot = slot.slot or index,
-                        sourceIndex = slot.sourceIndex or 1,
-                    }
-                    slots[slot.key].source = nil
-                    if slots[slot.key].limit and isInteger(slot.quantity) and slot.quantity > 0 then
-                        slots[slot.key].limit = slots[slot.key].limit + slot.quantity
-                    else
-                        slots[slot.key].limit = nil
-                    end
-                else
-                    slots[slot.key] = {
-                        source = copyValue(slot.source),
-                        limit = isInteger(slot.quantity) and slot.quantity > 0 and slot.quantity or nil,
-                        shares = {
-                            {
-                                source = copyValue(slot.source),
-                                quantity = slot.quantity,
-                                slot = slot.slot or index,
-                                sourceIndex = slot.sourceIndex or 1,
-                            },
-                        },
-                    }
-                    local record = valid[slot.key]
-                    baselineGains[slot.key] = record and record.totalGained or 0
-                    for _, observation in ipairs(record and record.observations or {}) do
-                        if
-                            observation.character == context.character
-                            and observation.realm == context.realm
-                            and observation.area == "bags"
-                        then
-                            baselineQuantities[slot.key] = observation.quantity
-                        end
-                    end
+        -- Keep the full pre-loot baseline: unreadable slots may identify later.
+        for key, record in pairs(valid) do
+            baselineGains[key] = record.totalGained
+            for _, observation in ipairs(record.observations) do
+                if
+                    observation.character == context.character
+                    and observation.realm == context.realm
+                    and observation.area == "bags"
+                then
+                    baselineQuantities[key] = observation.quantity
                 end
             end
+        end
+        for key in pairs(slots) do
+            baselineGains[key] = baselineGains[key] or 0
         end
         local loot = type(raw.loot) == "table" and raw.loot or nil
         local previousID = loot and loot.nextID or nil
@@ -1803,6 +1896,7 @@ function Schema.open(raw, save)
             realm = context.realm,
             level = context.level,
             place = context.place,
+            placeKind = context.placeKind,
             slots = slots,
             credits = {},
             baselineQuantities = baselineQuantities,
@@ -1850,6 +1944,86 @@ function Schema.open(raw, save)
         end
         local session = copyValue(current)
         local keys = {}
+        local additions = {}
+        if not session.closedAt then
+            for index, proof in ipairs(slots) do
+                local existing = session.slots[proof.key]
+                local captured = existing ~= nil and existing.shares == nil
+                for _, share in ipairs(existing and existing.shares or {}) do
+                    if share.slot == (proof.slot or index) then
+                        captured = true
+                        break
+                    end
+                end
+                if not captured then
+                    local addition = copyValue(proof)
+                    addition.slot = proof.slot or index
+                    additions[#additions + 1] = addition
+                end
+            end
+        end
+        local newSlots = lootSlots(additions) or {}
+        if #additions > 0 then
+            if not reserveCandidate("lootOpen", { slots = additions }, at, actor, #additions) then
+                return false
+            end
+            for key, slot in pairs(newSlots) do
+                local existing = session.slots[key]
+                if existing and existing.shares then
+                    for _, share in ipairs(slot.shares or {}) do
+                        existing.shares[#existing.shares + 1] = share
+                    end
+                    existing.limit = existing.limit and slot.limit and existing.limit + slot.limit or nil
+                    existing.source = nil
+                else
+                    session.slots[key] = slot
+                end
+                session.baselineGains[key] = session.baselineGains[key] or 0
+                keys[key] = true
+            end
+        end
+        for key, incoming in pairs(lootSlots(slots) or {}) do
+            local slot = session.slots[key]
+            local gainID = tostring(session.id) .. ":" .. key
+            local corrected = false
+            for _, entry in ipairs(valid[key] and valid[key].gains or {}) do
+                if
+                    (entry.id == gainID or entry.id:sub(1, #gainID + 7) == gainID .. ":share:")
+                    and entry.corrections
+                then
+                    corrected = true
+                end
+            end
+            if slot and slot.shares and not corrected then
+                for index = #slot.shares, 1, -1 do
+                    local share = slot.shares[index]
+                    if not share.source and share.quantity then
+                        local captured, quantity, known = 0, 0, false
+                        local replacement = {}
+                        for _, existing in ipairs(slot.shares) do
+                            if existing.slot == share.slot then
+                                captured = captured + 1
+                            end
+                        end
+                        for _, proof in ipairs(incoming.shares or {}) do
+                            if proof.slot == share.slot then
+                                replacement[#replacement + 1] = proof
+                                quantity = quantity + (proof.quantity or 0)
+                                known = known or proof.source ~= nil
+                            end
+                        end
+                        if captured == 1 and #replacement > 1 and known and quantity == share.quantity then
+                            table.remove(slot.shares, index)
+                            for replacementIndex = #replacement, 1, -1 do
+                                table.insert(slot.shares, index, copyValue(replacement[replacementIndex]))
+                            end
+                            slot.source = nil
+                            keys[key] = true
+                        end
+                    end
+                end
+            end
+        end
         for index, proof in ipairs(slots) do
             if type(proof) ~= "table" or type(proof.key) ~= "string" or not validLootSource(proof.source) then
                 return false
@@ -1875,6 +2049,20 @@ function Schema.open(raw, save)
         if not next(keys) then
             return false
         end
+        local loot = copyValue(raw.loot)
+        for index, entry in ipairs(loot.sessions) do
+            if entry.id == session.id then
+                loot.sessions[index] = session
+            else
+                for key in pairs(newSlots) do
+                    if entry.slots[key] then
+                        -- An overlapping session cannot prove either source.
+                        entry.slots[key].source, entry.slots[key].shares = nil, nil
+                        session.slots[key].source, session.slots[key].shares = nil, nil
+                    end
+                end
+            end
+        end
         local records = {}
         for key, record in pairs(raw.records) do
             records[key] = record
@@ -1882,21 +2070,66 @@ function Schema.open(raw, save)
         for key in pairs(keys) do
             if valid[key] then
                 local record = copyRecord(valid[key])
+                local previous = current.slots[key]
+                local gainID = tostring(session.id) .. ":" .. key
+                for _, entry in ipairs(record.gains) do
+                    if
+                        entry.id:sub(1, #gainID + 7) == gainID .. ":share:"
+                        and entry.source
+                        and not entry.corrections
+                    then
+                        local previousIndex = tonumber(entry.id:sub(#gainID + 8))
+                        local share = previous and previous.shares and previous.shares[previousIndex]
+                        for nextIndex, proof in ipairs(session.slots[key].shares or {}) do
+                            if
+                                share
+                                and proof.slot == share.slot
+                                and proof.sourceIndex == share.sourceIndex
+                                and proof.quantity == share.quantity
+                                and sameSource(proof.source, share.source)
+                            then
+                                entry.id = gainID .. ":share:" .. nextIndex
+                                break
+                            end
+                        end
+                    end
+                end
+                if newSlots[key] and previous and previous.shares and #previous.shares == 1 then
+                    for _, entry in ipairs(record.gains) do
+                        if entry.id == gainID and entry.source and not entry.corrections then
+                            -- Keep already proven units separate from later ambiguous shares.
+                            entry.id = gainID .. ":share:1"
+                        end
+                    end
+                end
                 attributeLoot(session, key, record)
-                if not validRecord(key, record) then
+                records[key] = record
+                award(session, key, records, at)
+                if not validRecord(key, records[key]) then
                     return false
                 end
-                records[key] = record
             end
         end
-        local loot = copyValue(raw.loot)
-        for index, entry in ipairs(loot.sessions) do
-            if entry.id == session.id then
-                loot.sessions[index] = session
-                break
+        local evidence = evidenceState()
+        if not evidence then
+            return false
+        end
+        for index = #evidence.unresolved, 1, -1 do
+            local entry = evidence.unresolved[index]
+            if
+                entry.kind == "lootReceipt"
+                and entry.reason == "unmatched"
+                and entry.character == session.character
+                and entry.realm == session.realm
+                and entry.at >= session.openedAt
+                and entry.at <= at
+                and keys[entry.detail.key]
+                and session.receipts[entry.detail.key]
+            then
+                table.remove(evidence.unresolved, index)
             end
         end
-        saveFields({ loot = loot, records = records })
+        saveFields({ loot = loot, records = records, evidence = evidence })
         for key in pairs(keys) do
             if records[key] then
                 valid[key] = copyRecord(records[key])
@@ -1913,38 +2146,59 @@ function Schema.open(raw, save)
             or nil
         if
             not readable
-            or not session
             or type(receipt) ~= "table"
             or type(receipt.key) ~= "string"
-            or type(session.slots[receipt.key]) ~= "table"
             or not isInteger(receipt.quantity)
             or receipt.quantity < 1
+            or not isInteger(at)
+            or type(actor) ~= "table"
+            or not isName(actor.character)
+            or not isName(actor.realm)
         then
             return false
         end
-        local rewards = type(raw.rewards) == "table" and raw.rewards.sessions or nil
-        for _, reward in ipairs(type(rewards) == "table" and rewards or {}) do
-            if
-                validRewardSession(reward)
-                and reward.confirmed
-                and reward.key == receipt.key
-                and reward.character == actor.character
-                and reward.realm == actor.realm
-                and at >= reward.at
-                and at - reward.at < 60
-            then
-                local current = activeSession(at)
-                if
-                    not current
-                    or current.openedAt <= reward.at
-                    or type(current.slots[receipt.key]) ~= "table"
-                    or current.character ~= actor.character
-                    or current.realm ~= actor.realm
-                then
-                    return true
-                end
-                session = current
+        local handled, preferred = lootRewardSession(receipt.key, at, actor)
+        if handled then
+            return true
+        end
+        session = preferred or session
+        local current = activeSession(at)
+        if
+            session
+            and current
+            and not current.closedAt
+            and current.id ~= session.id
+            and current.character == actor.character
+            and current.realm == actor.realm
+            and not current.slots[receipt.key]
+        then
+            local credit = session.credits[receipt.key] or 0
+            local limit = session.slots[receipt.key].limit or math.huge
+            if math.min(credit, limit) <= (session.awarded[receipt.key] or 0) then
+                session = nil
             end
+        end
+        if not session then
+            local pending = activeSession(at)
+            if
+                pending
+                and not pending.closedAt
+                and pending.character == actor.character
+                and pending.realm == actor.realm
+            then
+                -- A personal receipt can precede its readable slot. It remains
+                -- unresolved until that same live cycle proves the item.
+                local existing = pending.receipts[receipt.key]
+                pending.receipts[receipt.key] = {
+                    quantity = (existing and existing.quantity or 0) + receipt.quantity,
+                    at = existing and existing.at or at,
+                }
+                saveFields({})
+            end
+            return false
+        end
+        if type(session.slots[receipt.key]) ~= "table" then
+            return false
         end
         local existing = session.receipts[receipt.key]
         session.receipts[receipt.key] = {
@@ -1955,7 +2209,7 @@ function Schema.open(raw, save)
         for key, record in pairs(raw.records) do
             nextRecords[key] = record
         end
-        award(session, receipt.key, nextRecords)
+        award(session, receipt.key, nextRecords, at)
         saveFields({ records = nextRecords })
         if nextRecords[receipt.key] then
             valid[receipt.key] = copyRecord(nextRecords[receipt.key])
@@ -2047,6 +2301,7 @@ function Schema.open(raw, save)
             or not isName(actor.realm)
             or not isInteger(actor.level)
             or type(actor.place) ~= "string"
+            or not validPlaceKind(actor.placeKind)
         then
             return false
         end
@@ -2072,6 +2327,7 @@ function Schema.open(raw, save)
             realm = actor.realm,
             level = actor.level,
             place = actor.place,
+            placeKind = actor.placeKind,
             baseline = bagQuantity(record, actor.character, actor.realm),
             baselineGained = characterGained(record, actor.character, actor.realm),
             discovery = record == nil,
@@ -2330,6 +2586,7 @@ function Schema.open(raw, save)
                                 realm = action.realm,
                                 level = action.level,
                                 place = action.place,
+                                placeKind = action.placeKind,
                                 method = "Obtained",
                                 source = action.peerName
                                         and action.peerRealm
@@ -2428,6 +2685,7 @@ function Schema.open(raw, save)
             or not isName(actor.realm)
             or not isInteger(actor.level)
             or type(actor.place) ~= "string"
+            or not validPlaceKind(actor.placeKind)
             or (actor.vendorName ~= nil and not isName(actor.vendorName))
         then
             return false
@@ -2470,6 +2728,7 @@ function Schema.open(raw, save)
             realm = actor.realm,
             level = actor.level,
             place = actor.place,
+            placeKind = actor.placeKind,
             vendorName = actor.vendorName,
             baseline = areaQuantity(record, actor.character, actor.realm, actionArea),
             baselineGained = record and record.totalGained or 0,
@@ -2540,6 +2799,7 @@ function Schema.open(raw, save)
                                 realm = action.realm,
                                 level = action.level,
                                 place = action.place,
+                                placeKind = action.placeKind,
                                 method = "Vendor",
                                 source = action.vendorName and { kind = "vendor", name = action.vendorName } or nil,
                             }
@@ -2815,6 +3075,7 @@ function Schema.open(raw, save)
             or not isName(actor.realm)
             or not isInteger(actor.level)
             or type(actor.place) ~= "string"
+            or not validPlaceKind(actor.placeKind)
             or (receipt.preview ~= nil and type(receipt.preview) ~= "boolean")
             or (receipt.choiceGroup ~= nil and (type(receipt.choiceGroup) ~= "string" or receipt.choiceGroup == ""))
             or (receipt.choiceGroup ~= nil and (receipt.method ~= "Quest" or not receipt.preview))
@@ -2865,6 +3126,7 @@ function Schema.open(raw, save)
                 realm = actor.realm,
                 level = actor.level,
                 place = actor.place,
+                placeKind = actor.placeKind,
                 at = at,
                 baseline = preparation and (before and before.quantity or 0)
                     or bagQuantity(valid[receipt.key], actor.character, actor.realm),
@@ -2970,6 +3232,7 @@ function Schema.open(raw, save)
                 realm = session.realm,
                 level = session.level,
                 place = session.place,
+                placeKind = session.placeKind,
                 method = session.method,
                 context = session.context,
             }
@@ -3147,7 +3410,7 @@ function Schema.open(raw, save)
                 local baselineQuantity = isInteger(session.baselineQuantities[key]) and session.baselineQuantities[key]
                     or 0
                 local increase = group.quantity - baselineQuantity
-                if increase > 0 and type(session.slots[key]) == "table" then
+                if increase > 0 then
                     local credit = isInteger(session.credits[key]) and session.credits[key] or 0
                     session.credits[key] = math.max(credit, increase)
                     if not valid[key] then
@@ -3223,7 +3486,7 @@ function Schema.open(raw, save)
             end
             nextRecords[key] = record
             if session then
-                award(session, key, nextRecords)
+                award(session, key, nextRecords, snapshot.seenAt)
             end
             if snapshot.area == "bags" and snapshot.complete and type(oldScope) == "table" and oldScope.complete then
                 for _, reward in ipairs(activeRewards) do
@@ -3353,7 +3616,12 @@ function Schema.open(raw, save)
             return false
         end
         if name == "lootOpen" then
-            if not isInteger(detail.level) or type(detail.place) ~= "string" or type(detail.slots) ~= "table" then
+            if
+                not isInteger(detail.level)
+                or type(detail.place) ~= "string"
+                or not validPlaceKind(detail.placeKind)
+                or type(detail.slots) ~= "table"
+            then
                 return false
             end
             for _, slot in ipairs(detail.slots) do
@@ -3374,7 +3642,7 @@ function Schema.open(raw, save)
         if name == "lootReceipt" or name == "vendorReceipt" then
             return true
         end
-        if not isInteger(actor.level) or type(actor.place) ~= "string" then
+        if not isInteger(actor.level) or type(actor.place) ~= "string" or not validPlaceKind(actor.placeKind) then
             return false
         end
         if name == "rewardReceipt" then
