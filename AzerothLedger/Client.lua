@@ -70,4 +70,81 @@ function Client.inspect(api)
     return result
 end
 
+local requestedItems = setmetatable({}, { __mode = "k" })
+
+local function requestItem(api, itemID)
+    local request = api.C_Item and api.C_Item.RequestLoadItemDataByID
+    if type(request) ~= "function" or not itemID then
+        return
+    end
+    local requested = requestedItems[api] or {}
+    requestedItems[api] = requested
+    if not requested[itemID] then
+        requested[itemID] = true
+        pcall(request, itemID)
+    end
+end
+
+local function usableIcon(icon)
+    return (type(icon) == "number" and icon > 0) or (type(icon) == "string" and icon ~= "")
+end
+
+---@param api table
+---@param record {links: string[], itemID?: integer}
+---@return AzerothLedgerItemMetadata
+function Client.itemMetadata(api, record)
+    local itemID = record.itemID or tonumber(record.links[1]:match("item:(%d+)"))
+    local icon
+    local iconReader = api.C_Item and api.C_Item.GetItemIconByID
+    if type(iconReader) == "function" then
+        local ok, value = pcall(iconReader, itemID or record.links[1])
+        if ok and usableIcon(value) then
+            icon = value
+        end
+    end
+    local read = api.C_Item and api.C_Item.GetItemInfo
+    if type(read) ~= "function" then
+        requestItem(api, itemID)
+        return { category = "Unknown", loading = true, icon = icon }
+    end
+    local ok, name, _, quality, _, _, _, _, _, _, fullIcon, _, classID = pcall(read, record.links[1])
+    icon = icon or (ok and usableIcon(fullIcon) and fullIcon or nil)
+    if not ok or type(name) ~= "string" or type(quality) ~= "number" or type(classID) ~= "number" then
+        requestItem(api, itemID)
+        return { category = "Unknown", loading = true, icon = icon }
+    end
+    if not icon then
+        requestItem(api, itemID)
+    end
+    local categories = { [2] = "Weapons", [4] = "Armour", [9] = "Recipes", [7] = "Materials", [0] = "Consumables" }
+    return {
+        category = quality == 0 and "Junk" or categories[classID] or "Other",
+        quality = quality,
+        icon = icon,
+        loading = not icon,
+    }
+end
+
+---@param api table
+---@return string, 'zone'|'dungeon'|nil
+function Client.place(api)
+    if type(api.GetRealZoneText) ~= "function" then
+        return "Unknown", nil
+    end
+    local ok, place = pcall(api.GetRealZoneText)
+    if not ok or type(place) ~= "string" or place == "" then
+        return "Unknown", nil
+    end
+    if type(api.IsInInstance) == "function" then
+        local readable, inside, kind = pcall(api.IsInInstance)
+        if readable and inside == false then
+            return place, "zone"
+        end
+        if readable and inside == true and (kind == "party" or kind == "raid") then
+            return place, "dungeon"
+        end
+    end
+    return place, nil
+end
+
 addon.Client = Client

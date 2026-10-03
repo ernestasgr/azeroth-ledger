@@ -1,0 +1,140 @@
+local _, addon = ...
+
+local Widgets = {}
+Widgets.colors = {
+    canvas = { 0.075, 0.075, 0.08, 1 },
+    panel = { 0.105, 0.105, 0.11, 1 },
+    raised = { 0.14, 0.14, 0.15, 1 },
+    edge = { 0.24, 0.23, 0.21, 1 },
+    text = { 0.9, 0.87, 0.81, 1 },
+    muted = { 0.57, 0.56, 0.53, 1 },
+    gold = { 0.8, 0.66, 0.41, 1 },
+    selected = { 0.23, 0.2, 0.145, 1 },
+    green = { 0.49, 0.75, 0.54, 1 },
+}
+local colors = Widgets.colors
+
+function Widgets.fill(parent, color, x, y, width, height, layer)
+    local texture = parent:CreateTexture(nil, layer or "BACKGROUND")
+    texture:SetPoint("TOPLEFT", x, -y)
+    texture:SetSize(width, height)
+    texture:SetColorTexture(unpack(color))
+    return texture
+end
+
+function Widgets.text(api, parent, value, x, y, width, size, color)
+    local font = parent:CreateFontString(nil, "OVERLAY")
+    font:SetPoint("TOPLEFT", x, -y)
+    font:SetWidth(width)
+    font:SetFont(api.STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", size or 12, "")
+    font:SetJustifyH("LEFT")
+    font:SetJustifyV("TOP")
+    font:SetWordWrap(true)
+    font:SetTextColor(unpack(color or colors.text))
+    font:SetShadowColor(0, 0, 0, 0.4)
+    font:SetShadowOffset(0, -1)
+    font:SetText(value)
+    return font
+end
+
+function Widgets.panel(api, parent, x, y, width, height, color)
+    local frame = api.CreateFrame("Frame", nil, parent)
+    frame:SetPoint("TOPLEFT", x, -y)
+    frame:SetSize(width, height)
+    frame.background = Widgets.fill(frame, color or colors.panel, 0, 0, width, height)
+    return frame
+end
+
+-- Navigation and rows use restrained highlights; only selection receives the gold accent.
+function Widgets.button(book, parent, value, x, y, width, height, callback, bordered)
+    local control = book.api.CreateFrame("Button", nil, parent)
+    control:SetPoint("TOPLEFT", x, -y)
+    control:SetSize(width, height)
+    control.background = Widgets.fill(control, bordered and colors.raised or colors.panel, 0, 0, width, height)
+    local highlight = Widgets.fill(control, { 1, 0.87, 0.6, 0.065 }, 0, 0, width, height, "HIGHLIGHT")
+    control:SetHighlightTexture(highlight)
+    control.accent = Widgets.fill(control, colors.gold, 0, 0, 2, height, "ARTWORK")
+    control.accent:Hide()
+    local font = Widgets.text(book.api, control, value, 12, (height - 13) / 2, width - 24, 12)
+    font:SetWordWrap(false)
+    control:SetFontString(font)
+    control:SetText(value)
+    control:SetScript("OnClick", callback)
+    book.controls[#book.controls + 1] = control
+    return control
+end
+
+function Widgets.select(control, selected)
+    control.background:SetColorTexture(unpack(selected and colors.selected or colors.panel))
+    control:GetFontString():SetTextColor(unpack(control.nameColor or (selected and colors.gold or colors.text)))
+    control.accent:SetShown(selected)
+end
+
+function Widgets.enable(control, enabled)
+    control:SetEnabled(enabled)
+    control:SetAlpha(enabled and 1 or 0.35)
+end
+
+function Widgets.dropdown(book, parent, value, x, y, width, callback)
+    local control = Widgets.button(book, parent, value, x, y, width, 32, callback, true)
+    control:GetFontString():SetWidth(width - 38)
+    local arrow = control:CreateTexture(nil, "ARTWORK")
+    arrow:SetPoint("TOPRIGHT", -8, -8)
+    arrow:SetSize(16, 16)
+    arrow:SetTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up")
+    return control
+end
+
+function Widgets.checkbox(book, parent, value, x, y, width, callback)
+    local control = Widgets.button(book, parent, value, x, y, width, 26, callback)
+    control:GetFontString():ClearAllPoints()
+    control:GetFontString():SetPoint("TOPLEFT", 26, -7)
+    control:GetFontString():SetWidth(width - 26)
+    Widgets.fill(control, colors.edge, 4, 5, 15, 15, "ARTWORK")
+    Widgets.fill(control, colors.canvas, 5, 6, 13, 13, "ARTWORK")
+    control.mark = Widgets.fill(control, colors.gold, 8, 9, 7, 7, "OVERLAY")
+    control.mark:Hide()
+    return control
+end
+
+function Widgets.icon(parent, x, y, size)
+    Widgets.fill(parent, colors.edge, x - 1, y - 1, size + 2, size + 2, "ARTWORK")
+    local texture = parent:CreateTexture(nil, "ARTWORK")
+    texture:SetPoint("TOPLEFT", x, -y)
+    texture:SetSize(size, size)
+    texture:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    texture:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+    return texture
+end
+
+function Widgets.quality(api, quality)
+    local itemColors = api.ITEM_QUALITY_COLORS
+    local color = itemColors and itemColors[quality or 1]
+    return color and { color.r, color.g, color.b, 1 } or colors.text
+end
+
+function Widgets.tooltip(api, control, link)
+    if api.GameTooltip and link then
+        api.GameTooltip:SetOwner(control, "ANCHOR_RIGHT")
+        api.GameTooltip:SetHyperlink(link)
+        api.GameTooltip:Show()
+    end
+end
+
+function Widgets.hideTooltip(api)
+    if api.GameTooltip then
+        api.GameTooltip:Hide()
+    end
+end
+
+function Widgets.openLink(api, link, mouseButton)
+    if api.HandleModifiedItemClick and api.HandleModifiedItemClick(link) then
+        return
+    end
+    local payload = link and link:match("|H(.-)|h")
+    if payload and api.SetItemRef then
+        api.SetItemRef(payload, link, mouseButton or "LeftButton")
+    end
+end
+
+addon.BookWidgets = Widgets
