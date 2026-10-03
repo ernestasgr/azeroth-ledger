@@ -54,19 +54,19 @@ C_Container = {
 }
 LOOT_ITEM_SELF = "You receive loot: %s"
 LOOT_ITEM_SELF_MULTIPLE = "You receive loot: %sx%d"
-GetNumLootItems = function()
+_G.GetNumLootItems = function()
     return twoSlots and 2 or 1
 end
-GetLootSlotLink = function(slot)
+_G.GetLootSlotLink = function(slot)
     if slot == 2 then
         return eggReadable and (sameItemSlots and link or eggLink) or nil
     end
     return linkReadable and link or nil
 end
-GetLootSlotInfo = function(slot)
+_G.GetLootSlotInfo = function(slot)
     return nil, "Loot item", (slot == 2 or splitSource) and 3 or 1
 end
-GetLootSourceInfo = function(slot)
+_G.GetLootSourceInfo = function(slot)
     if not sourceReadable then
         return nil
     elseif splitSource then
@@ -77,7 +77,7 @@ GetLootSourceInfo = function(slot)
     end
     return "Creature-0-6783-1-118-1984-000040D7BC", slot == 2 and 3 or 1
 end
-UnitGUID = function()
+_G.UnitGUID = function()
     return "Creature-0-6783-1-118-1984-000040D7BC"
 end
 SlashCmdList = {}
