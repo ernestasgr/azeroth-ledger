@@ -11,6 +11,7 @@ function SettingsPanel.register(api, store)
         "RegisterProxySetting",
         "CreateSliderOptions",
         "CreateSlider",
+        "CreateCheckbox",
         "RegisterAddOnCategory",
     }) do
         if type(settings) ~= "table" or type(settings[name]) ~= "function" then
@@ -18,6 +19,25 @@ function SettingsPanel.register(api, store)
         end
     end
     local category = settings.RegisterVerticalLayoutCategory("Azeroth Ledger")
+    for _, definition in ipairs({
+        { key = "tooltips", name = "Show Collection facts in item tooltips" },
+        { key = "toasts", name = "Show first-discovery toasts" },
+    }) do
+        local setting = settings.RegisterProxySetting(
+            category,
+            "AzerothLedger_" .. definition.key,
+            settings.VarType.Boolean,
+            definition.name,
+            true,
+            function()
+                return store:display()[definition.key]
+            end,
+            function(value)
+                store:setDisplay(definition.key, value)
+            end
+        )
+        settings.CreateCheckbox(category, setting, "Affects the next interaction. Collection facts are kept.")
+    end
     for _, definition in ipairs(addon.Schema.retentionOptions()) do
         local setting = settings.RegisterProxySetting(
             category,

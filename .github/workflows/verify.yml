@@ -37,6 +37,7 @@ jobs:
           lua tests/book_query_spec.lua
           lua tests/book_ui_spec.lua
           lua tests/journal_spec.lua
+          lua tests/presentation_spec.lua
           lua tests/reward_spec.lua
           lua tests/quest_event_spec.lua
           lua tests/quest_delayed_event_spec.lua

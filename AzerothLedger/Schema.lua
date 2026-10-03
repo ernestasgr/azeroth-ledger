@@ -1,5 +1,10 @@
 local _, addon = ...
 
+local displayDefaults = { tooltips = true, toasts = true }
+local function validDisplay(value)
+    return type(value) == "table" and type(value.tooltips) == "boolean" and type(value.toasts) == "boolean"
+end
+
 ---@class AzerothLedgerObservation
 ---@field character string
 ---@field realm string
@@ -287,6 +292,7 @@ local _, addon = ...
 ---@field lastSeen integer
 ---@field firstSeenUnits integer
 ---@field totalGained integer
+---@field evidencedDiscovery? boolean
 ---@field gains AzerothLedgerGain[]
 ---@field firstGained? integer
 ---@field lastGained? integer
@@ -306,6 +312,7 @@ local _, addon = ...
 ---@field exchange? AzerothLedgerExchangeState
 ---@field evidence? AzerothLedgerEvidenceState
 ---@field retention? table<string, integer>
+---@field display? table<string, boolean>
 ---@field journal? ALJournalState
 
 ---@class ALJournalReference
@@ -374,6 +381,9 @@ local _, addon = ...
 ---@field exchangeUnresolved fun(self: AzerothLedgerStore): AzerothLedgerExchangeAction[]
 ---@field retention fun(self: ALStore): table<string, integer>
 ---@field setRetention fun(self: ALStore, category: string, limit: integer): boolean
+---@field display fun(self: ALStore): table<string, boolean>
+---@field setDisplay fun(self: ALStore, control: string, enabled: boolean): boolean
+---@field takeDiscoveries fun(self: ALStore): AzerothLedgerRecord[]
 ---@field journal fun(self: ALStore): table[]
 ---@field unresolved fun(self: AzerothLedgerStore): AzerothLedgerEvidence[]
 ---@field evidenceSummary fun(self: AzerothLedgerStore): AzerothLedgerEvidenceState
@@ -660,6 +670,7 @@ local function copyRecord(record)
         lastSeen = record.lastSeen,
         firstSeenUnits = record.firstSeenUnits,
         totalGained = record.totalGained,
+        evidencedDiscovery = record.evidencedDiscovery,
         gains = gains,
         firstGained = record.firstGained,
         lastGained = record.lastGained,
@@ -678,6 +689,7 @@ local function validRecord(key, record)
         type(key) ~= "string"
         or type(record) ~= "table"
         or record.key ~= key
+        or (record.evidencedDiscovery ~= nil and type(record.evidencedDiscovery) ~= "boolean")
         or not isInteger(record.itemID)
         or record.itemID <= 0
         or not isInteger(record.firstSeen)
@@ -1199,6 +1211,10 @@ function Schema.open(raw, save)
         end
     end
 
+    if supported and raw.display ~= nil and not validDisplay(raw.display) then
+        damagedCount = damagedCount + 1
+    end
+    local discoveries = {}
     local function saveFields(fields)
         local nextValue = {
             schema = CURRENT_SCHEMA,
@@ -1212,6 +1228,7 @@ function Schema.open(raw, save)
             exchange = fields.exchange or raw.exchange,
             evidence = fields.evidence or raw.evidence,
             retention = fields.retention or raw.retention,
+            display = fields.display or raw.display,
             journal = validJournal(raw.journal) and copyValue(raw.journal) or { nextSequence = 1, gains = {} },
         }
         local history = nextValue.journal
@@ -1268,11 +1285,43 @@ function Schema.open(raw, save)
                 trimHistory(state.journal, limits[category == "exchange" and "transfers" or "vendor"])
             end
         end
+        local discovered = {}
+        for key, record in pairs(fields.records or {}) do
+            if record.evidencedDiscovery and not (raw.records[key] and raw.records[key].evidencedDiscovery) then
+                discovered[#discovered + 1] = copyRecord(record)
+            end
+        end
+        table.sort(discovered, function(a, b)
+            return a.key < b.key
+        end)
         save(nextValue)
         raw = nextValue
+        if not validDisplay(nextValue.display) or nextValue.display.toasts then
+            for _, record in ipairs(discovered) do
+                discoveries[#discoveries + 1] = record
+            end
+        end
     end
 
     local store = {}
+    function store.display(_self)
+        return copyValue(readable and validDisplay(raw.display) and raw.display or displayDefaults)
+    end
+
+    function store.setDisplay(_self, control, enabled)
+        if not readable or displayDefaults[control] == nil or type(enabled) ~= "boolean" then
+            return false
+        end
+        local values = store:display()
+        values[control] = enabled
+        saveFields({ display = values })
+        return true
+    end
+    function store.takeDiscoveries(_self)
+        local result = discoveries
+        discoveries = {}
+        return result
+    end
     function store.retention(_self)
         return retention()
     end
@@ -2013,6 +2062,7 @@ function Schema.open(raw, save)
         record.firstGained = record.firstGained and math.min(record.firstGained, gain.at) or gain.at
         record.lastGained = record.lastGained and math.max(record.lastGained, gain.at) or gain.at
         if session.discoveries[key] then
+            record.evidencedDiscovery = true
             record.firstSeenUnits = math.max(0, record.firstSeenUnits - quantity)
             for _, character in ipairs(record.characters) do
                 if character.name == session.character and character.realm == session.realm then
@@ -2826,6 +2876,7 @@ function Schema.open(raw, save)
                             record.lastGained = record.lastGained and math.max(record.lastGained, action.at)
                                 or action.at
                             if action.discovery then
+                                record.evidencedDiscovery = true
                                 record.firstSeenUnits = math.max(0, record.firstSeenUnits - quantity)
                                 for _, seen in ipairs(record.characters) do
                                     if seen.name == action.character and seen.realm == action.realm then
@@ -3033,6 +3084,7 @@ function Schema.open(raw, save)
                             record.lastGained = record.lastGained and math.max(record.lastGained, action.at)
                                 or action.at
                             if not valid[action.key] then
+                                record.evidencedDiscovery = true
                                 record.firstSeenUnits = math.max(0, record.firstSeenUnits - quantity)
                                 for _, seen in ipairs(record.characters) do
                                     if seen.name == action.character and seen.realm == action.realm then
@@ -3450,6 +3502,7 @@ function Schema.open(raw, save)
         record.firstGained = record.firstGained and math.min(record.firstGained, gain.at) or gain.at
         record.lastGained = record.lastGained and math.max(record.lastGained, gain.at) or gain.at
         if session.discovery then
+            record.evidencedDiscovery = true
             record.firstSeenUnits = math.max(0, record.firstSeenUnits - quantity)
             for _, character in ipairs(record.characters) do
                 if character.name == session.character and character.realm == session.realm then
