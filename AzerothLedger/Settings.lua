@@ -1,10 +1,5 @@
 local _, addon = ...
 local SettingsPanel = {}
-local definitions = {
-    { key = "gains", name = "Recent gains", default = 1000, maximum = 5000 },
-    { key = "transfers", name = "Alt transfers", default = 250, maximum = 2000 },
-    { key = "vendor", name = "Vendor sales, refunds and buybacks", default = 250, maximum = 2000 },
-}
 
 ---@param api table
 ---@param store ALStore
@@ -23,7 +18,7 @@ function SettingsPanel.register(api, store)
         end
     end
     local category = settings.RegisterVerticalLayoutCategory("Azeroth Ledger")
-    for _, definition in ipairs(definitions) do
+    for _, definition in ipairs(addon.Schema.retentionOptions()) do
         local setting = settings.RegisterProxySetting(
             category,
             "AzerothLedger_" .. definition.key,

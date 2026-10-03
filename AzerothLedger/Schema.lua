@@ -410,8 +410,16 @@ local _, addon = ...
 local CURRENT_SCHEMA = 2
 local areas = { bags = true, bank = true, equipped = true }
 local gainMethods = { Looted = true, Quest = true, Crafted = true, Vendor = true, Obtained = true }
-local retentionDefaults = { gains = 1000, transfers = 250, vendor = 250 }
-local retentionMaximums = { gains = 5000, transfers = 2000, vendor = 2000 }
+local retentionDefinitions = {
+    { key = "gains", name = "Recent gains", default = 1000, maximum = 5000 },
+    { key = "transfers", name = "Alt transfers", default = 250, maximum = 2000 },
+    { key = "vendor", name = "Vendor sales, refunds and buybacks", default = 250, maximum = 2000 },
+}
+local retentionDefaults, retentionMaximums = {}, {}
+for _, definition in ipairs(retentionDefinitions) do
+    retentionDefaults[definition.key] = definition.default
+    retentionMaximums[definition.key] = definition.maximum
+end
 
 local function isInteger(value)
     return type(value) == "number" and value ~= math.huge and value ~= -math.huge and value == math.floor(value)
@@ -1075,6 +1083,10 @@ end
 
 local Schema = {}
 
+function Schema.retentionOptions()
+    return copyValue(retentionDefinitions)
+end
+
 ---@param raw any
 ---@param save fun(value: AzerothLedgerData)
 ---@return AzerothLedgerStore
@@ -1136,7 +1148,8 @@ function Schema.open(raw, save)
     end
 
     local function retention()
-        return validRetention(raw.retention) and copyValue(raw.retention) or copyValue(retentionDefaults)
+        return type(raw) == "table" and validRetention(raw.retention) and copyValue(raw.retention)
+            or copyValue(retentionDefaults)
     end
 
     local function validJournal(value)
@@ -1168,6 +1181,22 @@ function Schema.open(raw, save)
     end
     if supported and raw.journal ~= nil and not validJournal(raw.journal) then
         damagedCount = damagedCount + 1
+    end
+    if readable then
+        for _, category in ipairs({ "exchange", "vendor" }) do
+            local state = raw[category]
+            local validState = category == "exchange" and validExchangeState or validVendorState
+            for _, entry in ipairs(state and validState(state) and state.journal or {}) do
+                if not valid[entry.key] then
+                    damagedCount = damagedCount + 1
+                end
+            end
+        end
+        for _, entry in ipairs(validJournal(raw.journal) and raw.journal.gains or {}) do
+            if not valid[entry.key] then
+                damagedCount = damagedCount + 1
+            end
+        end
     end
 
     local function saveFields(fields)
@@ -1289,7 +1318,7 @@ function Schema.open(raw, save)
             local state = raw[category]
             local validState = category == "exchange" and validExchangeState or validVendorState
             for _, entry in ipairs(state and validState(state) and state.journal or {}) do
-                if isInteger(entry.sequence) and entry.sequence > 0 then
+                if valid[entry.key] and isInteger(entry.sequence) and entry.sequence > 0 then
                     local row = copyValue(entry)
                     row.category = category == "exchange" and "transfer" or "vendor"
                     result[#result + 1] = row

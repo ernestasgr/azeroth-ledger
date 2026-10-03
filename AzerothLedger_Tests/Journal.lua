@@ -150,6 +150,13 @@ function tests.TransferLimitPreservesStockAndDiscoveryDates(_self)
     scan("Ada", 1007, 2)
     exchange("Ben", "Ada", "in", 1008)
     scan("Ben", 1010, 1)
+    WoWUnit.IsTrue(store:setRetention("transfers", 1))
+    exchange("Ada", "Ben", "out", 1011)
+    scan("Ada", 1013, 1)
+    exchange("Ben", "Ada", "in", 1014)
+    scan("Ben", 1016, 2)
+    WoWUnit.AreEqual(1, #store:exchangeActivity())
+    WoWUnit.AreEqual(1014, store:exchangeActivity()[1].at)
     local rows = addon.Journal.query(store)
     WoWUnit.AreEqual("transfer", rows[1].category)
     WoWUnit.AreEqual("Ada-Realm → Ben-Realm", rows[1].actors)
@@ -165,8 +172,44 @@ function tests.TransferLimitPreservesStockAndDiscoveryDates(_self)
     WoWUnit.AreEqual(totals.sources.Unknown, store:breakdown(key).sources.Unknown)
     clock(1020)
     action("sale", 1)
-    bags(1)
+    bags(0)
     WoWUnit.AreEqual(1, #store:vendorActivity())
+end
+
+function tests.DanglingHistoryIsIsolatedWithADiagnostic(_self)
+    local saved
+    local store = addon.Schema.open(nil, function(value)
+        saved = value
+    end)
+    local actor = { character = "Ada", realm = "Realm", level = 12, place = "Elwynn" }
+    local function scan(at, quantity)
+        WoWUnit.IsTrue(store:scan({
+            character = "Ada",
+            realm = "Realm",
+            area = "bags",
+            complete = true,
+            seenAt = at,
+            items = {
+                { itemID = 4540, link = link, quantity = quantity },
+                { itemID = 159, link = "|Hitem:159::::::::|h[Water]|h", quantity = 1 },
+            },
+        }))
+    end
+    scan(100, 2)
+    WoWUnit.IsTrue(
+        store:vendorAction({ kind = "sale", key = key, itemID = 4540, link = link, quantity = 1 }, 101, actor)
+    )
+    scan(102, 1)
+    saved.records[key] = "damaged"
+    store = addon.Schema.open(saved, function() end)
+    WoWUnit.AreEqual("damaged", store:diagnostic().kind)
+    WoWUnit.AreEqual(1, #store:list())
+    WoWUnit.AreEqual(0, #addon.Journal.query(store))
+    local unsupported = addon.Schema.open(42, function()
+        error("Read-only data was written")
+    end)
+    WoWUnit.AreEqual(1000, unsupported:retention().gains)
+    WoWUnit.AreEqual(false, unsupported:setRetention("gains", 0))
 end
 
 function tests.PurchaseIsOneGainAndZeroRetentionPreservesRefundReferences(_self)
