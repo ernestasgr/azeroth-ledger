@@ -1,10 +1,11 @@
 local addonName, addon = ...
 
-local REVISION = "0.7.2"
+local REVISION = "0.7.3"
 local store
 local client = addon.Client.inspect(_G)
 local bankOpen = false
 local merchantOpen = false
+local lootCaptured = false
 local merchantName
 local merchantSlots
 local merchantEquippedSlots
@@ -106,7 +107,14 @@ local function lootOpen()
         return
     end
     context.slots = slots
-    store:lootOpen(context)
+    -- Fast loot can finish at READY. OPENED must keep that pre-gain baseline.
+    if lootCaptured then
+        if store:lootSourceProof(slots, context.at, context) then
+            addon.Collection.refresh(store, context.character, context.realm)
+        end
+    elseif #slots > 0 then
+        lootCaptured = store:lootOpen(context)
+    end
 end
 
 local function lootMessage(message)
@@ -401,6 +409,7 @@ if client.frame then
         "MERCHANT_SHOW",
         "MERCHANT_CLOSED",
         "MERCHANT_UPDATE",
+        "LOOT_READY",
         "LOOT_OPENED",
         "LOOT_CLOSED",
         "LOOT_SLOT_CHANGED",
@@ -548,7 +557,7 @@ if client.frame then
                 tradePrepared = false
                 tradePreparedIDs = nil
             end
-        elseif event == "LOOT_OPENED" then
+        elseif event == "LOOT_READY" or event == "LOOT_OPENED" then
             lootOpen()
         elseif event == "LOOT_SLOT_CHANGED" then
             local context = playerContext()
@@ -557,6 +566,7 @@ if client.frame then
                 addon.Collection.refresh(store, context.character, context.realm)
             end
         elseif event == "LOOT_CLOSED" then
+            lootCaptured = false
             local at = now()
             if at then
                 store:lootClose(at)
