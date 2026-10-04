@@ -6,6 +6,126 @@ local bear = "|Hitem:100:0:0:0:0:0:42:1:60:0:0:0:1:111|h[Sword]|h"
 local enchanted = "|Hitem:100:88:55:0:0:0:42:9:60:0:0:0:1:111|h[Sword]|h"
 local wolf = "|Hitem:100:0:0:0:0:0:43:1:60:0:0:0:1:111|h[Sword]|h"
 
+function tests.ContainerSpawnsShareOneSourceTotalWithoutLosingTheirGUIDs(_self)
+    local saved
+    local store = addon.Schema.open(nil, function(value)
+        saved = value
+    end)
+    local link = "|Hitem:11583::::::::|h[Cactus Apple]|h"
+    local key = addon.Item.key(link, 11583)
+    local slots = {}
+    for index, spawn in ipairs({ "0000422303", "0000422406", "0000422422", "000042245A", "0000C22422" }) do
+        slots[index] = {
+            key = key,
+            quantity = 1,
+            slot = index,
+            source = { kind = "container", guid = "GameObject-0-6783-1-14-171938-" .. spawn },
+        }
+    end
+    WoWUnit.IsTrue(store:scan({
+        character = "Ada",
+        realm = "A",
+        area = "bags",
+        seenAt = 1000,
+        complete = true,
+        items = {},
+    }))
+    WoWUnit.IsTrue(store:lootOpen({
+        character = "Ada",
+        realm = "A",
+        at = 1001,
+        level = 1,
+        place = "Durotar",
+        slots = slots,
+    }))
+    WoWUnit.IsTrue(
+        store:lootReceipt(
+            { key = key, itemID = 11583, link = link, quantity = 5 },
+            1002,
+            { character = "Ada", realm = "A" }
+        )
+    )
+    WoWUnit.IsTrue(store:scan({
+        character = "Ada",
+        realm = "A",
+        area = "bags",
+        seenAt = 1003,
+        complete = true,
+        items = { { itemID = 11583, link = link, quantity = 5 } },
+    }))
+    store = addon.Schema.open(saved, function() end)
+    local rows = 0
+    for _, quantity in pairs(store:breakdown(key, { character = "Ada", realm = "A" }).sources) do
+        if quantity > 0 then
+            rows = rows + 1
+        end
+    end
+    WoWUnit.AreEqual(1, rows)
+    WoWUnit.AreEqual(5, store:breakdown(key).sources["Container #171938"])
+    local gains = store:find(key).gains
+    WoWUnit.AreEqual(5, #gains)
+    for index, gain in ipairs(gains) do
+        WoWUnit.AreEqual(slots[index].source.guid, gain.source.guid)
+    end
+    -- An observed name on one spawn also labels unnamed spawns of this type.
+    saved.records[key].gains[1].source.name = "Cactus Apple"
+    store = addon.Schema.open(saved, function() end)
+    WoWUnit.AreEqual(5, store:breakdown(key).sources["Cactus Apple"])
+    WoWUnit.AreEqual(5, store:breakdown(key, { character = "Ada", realm = "A" }).sources["Cactus Apple"])
+    WoWUnit.AreEqual(0, store:breakdown(key, { character = "Ben", realm = "A" }).gained)
+    WoWUnit.AreEqual(nil, next(store:breakdown(key, { realm = "B" }).sources))
+    -- Equal names do not merge different container types.
+    saved.records[key].gains[5].source.guid = "GameObject-0-6783-1-14-171939-0000C22422"
+    saved.records[key].gains[5].source.name = "Cactus Apple"
+    store = addon.Schema.open(saved, function() end)
+    WoWUnit.AreEqual(4, store:breakdown(key).sources["Cactus Apple (container #171938)"])
+    WoWUnit.AreEqual(1, store:breakdown(key).sources["Cactus Apple (container #171939)"])
+    -- Conflicting names fall back to the proven type instead of choosing one.
+    saved.records[key].gains[2].source.name = "Another name"
+    store = addon.Schema.open(saved, function() end)
+    WoWUnit.AreEqual(4, store:breakdown(key).sources["Container #171938"])
+    WoWUnit.AreEqual(1, store:breakdown(key).sources["Cactus Apple"])
+    WoWUnit.AreEqual(5, store:find(key).totalGained)
+end
+
+function tests.ContainerNamesRequireTheExactLootedGUID(_self)
+    local guid = "GameObject-0-6783-1-14-171938-0000422303"
+    local other = "GameObject-0-6783-1-14-171938-0000422406"
+    local cursorGUID, npcMatches, readable = guid, false, true
+    local api = {
+        GetNumLootItems = function()
+            return 1
+        end,
+        GetLootSlotLink = function()
+            return meat
+        end,
+        GetLootSourceInfo = function()
+            return guid, 1
+        end,
+        UnitGUID = function(unit)
+            return npcMatches and unit == "npc" and guid or other
+        end,
+        UnitName = function(unit)
+            return npcMatches and unit == "npc" and "Cactus Apple" or "Nearby container"
+        end,
+        Enum = { TooltipDataType = { Object = 4 } },
+        C_TooltipInfo = {
+            GetWorldCursor = function()
+                assert(readable, "Unreadable tooltip")
+                return { type = 4, guid = cursorGUID, lines = { { leftText = "Cactus Apple" } } }
+            end,
+        },
+    }
+    WoWUnit.AreEqual("Cactus Apple", addon.Loot.open(api)[1].source.name)
+    cursorGUID = other
+    WoWUnit.AreEqual(nil, addon.Loot.open(api)[1].source.name)
+    npcMatches = true
+    WoWUnit.AreEqual("Cactus Apple", addon.Loot.open(api)[1].source.name)
+    npcMatches, readable = false, false
+    WoWUnit.AreEqual(nil, addon.Loot.open(api)[1].source.name)
+    WoWUnit.AreEqual("Container #171938", addon.Schema.sourceText(addon.Loot.open(api)[1].source))
+end
+
 function tests.IconAndCheckboxContentCannotBeCoveredByTheirBackings(_self)
     ---@type fun(frameType: string): table
     local createFrame = CreateFrame

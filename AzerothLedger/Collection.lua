@@ -16,10 +16,7 @@ local function matchesFilter(filterCharacter, filterRealm, name, realm)
 end
 
 local function sourceText(source)
-    if source and source.kind == "player" then
-        return source.name .. "-" .. source.realm
-    end
-    return source and (source.name or (source.kind .. " " .. source.guid)) or "Unknown"
+    return addon.Schema.sourceText(source)
 end
 
 local function contextText(context)
