@@ -4,8 +4,31 @@ for _, source in ipairs({ "Item", "Work", "Schema", "Client", "Collection", "Jou
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
 end
 date = os.date
-local native = assert(loadfile("tests/support/native_ui.lua"))().create()
+local native = assert(loadfile("tests/support/native_ui.lua"))().create({
+    rejectedTextures = { ["Interface\\Icons\\INV_Misc_Food_14"] = true },
+})
 local controls = native.controls
+local function assertIconsAboveBackings()
+    local layers = { BACKGROUND = 1, BORDER = 2, ARTWORK = 3, OVERLAY = 4, HIGHLIGHT = 5 }
+    for _, icon in ipairs(controls) do
+        if icon.kind == "Texture" and icon.texture and icon:IsVisible() and icon.width == icon.height then
+            for _, backing in ipairs(controls) do
+                if
+                    backing.parent == icon.parent
+                    and backing.kind == "Texture"
+                    and backing.color
+                    and backing.color[4] == 1
+                    and backing.width == icon.width + 2
+                    and backing.height == icon.height + 2
+                then
+                    local iconOrder = layers[icon.layer] * 16 + (icon.subLevel or 0)
+                    local backingOrder = layers[backing.layer] * 16 + (backing.subLevel or 0)
+                    assert(iconOrder > backingOrder, "Opaque icon backing can cover the icon in WoW")
+                end
+            end
+        end
+    end
+end
 local ready = true
 local api = native.api
 api.IsControlKeyDown = function()
@@ -78,7 +101,14 @@ for _, control in ipairs(controls) do
 end
 find("15 items")
 find("15 discoveries")
+assertIconsAboveBackings()
+for _, control in ipairs(controls) do
+    if control.kind == "Texture" and control:IsVisible() and control.width == 32 and control.height == 32 then
+        assert(control.texture ~= nil, "A rejected item texture left a blank Collection icon")
+    end
+end
 click("Gallery")
+assertIconsAboveBackings()
 find("14 items")
 find("1 / 3")
 frame.scripts.OnKeyDown(frame, "PAGEDOWN")
@@ -253,6 +283,7 @@ assert(store:scan({
 addon.Collection.refresh(store, "Ada", "A")
 frame.scripts.OnUpdate(frame, 0.1)
 find("1 activities")
+assertIconsAboveBackings()
 click("Purchase • Bread")
 find("Purchase ×2")
 find("Matched item gain; Vendor: Unknown source")

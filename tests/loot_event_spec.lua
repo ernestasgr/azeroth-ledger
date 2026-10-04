@@ -183,6 +183,13 @@ event("CHAT_MSG_LOOT", "You receive loot: " .. link .. "x4")
 units = 8
 event("BAG_UPDATE_DELAYED")
 assert(addon.store:find("7098:0").totalGained == 7, "Later-readable same-item slot was lost or counted twice")
+local partialKnown = 0
+for _, gain in ipairs(addon.store:find("7098:0").gains) do
+    if gain.at == 1430 and gain.source and gain.source.name == "Young Thistle Boar" then
+        partialKnown = partialKnown + gain.quantity
+    end
+end
+assert(partialKnown == 2, "Matching slots from the same corpse left a measured partial gain Unknown")
 event("LOOT_CLOSED")
 
 -- A proven first-slot gain must retain its source when a later slot introduces
@@ -371,4 +378,24 @@ timers[1]()
 assert(reads[0] == 1 and reads[1] == nil and reads[-1] == nil, "Unchanged containers must use checked snapshots")
 assert(addon.store:area("Mindria", "Classic Beta PvE", "bags").seenAt == 1930)
 _G.C_Timer = nil
+
+-- Completed drops cannot compete with the next corpse within a minute.
+twoSlots, splitSource = false, false
+for _, at in ipairs({ 1980, 1990 }) do
+    clock = at
+    event("LOOT_READY", true, false)
+    event("LOOT_OPENED", true, false)
+    event("CHAT_MSG_LOOT", "You receive loot: " .. link)
+    units = units + 1
+    event("BAG_UPDATE_DELAYED")
+    event("LOOT_CLOSED")
+    event("LOOT_CLOSED")
+end
+local recentKnown = 0
+for _, gain in ipairs(addon.store:find("7098:0").gains) do
+    if gain.at >= 1980 and gain.source then
+        recentKnown = recentKnown + gain.quantity
+    end
+end
+assert(recentKnown == 2, "Looting the same item again within 60 seconds lost its proven source")
 print("loot_event_spec: passed")

@@ -14,8 +14,8 @@ Widgets.colors = {
 }
 local colors = Widgets.colors
 
-function Widgets.fill(parent, color, x, y, width, height, layer)
-    local texture = parent:CreateTexture(nil, layer or "BACKGROUND")
+function Widgets.fill(parent, color, x, y, width, height, layer, subLevel)
+    local texture = parent:CreateTexture(nil, layer or "BACKGROUND", nil, subLevel or 0)
     texture:SetPoint("TOPLEFT", x, -y)
     texture:SetSize(width, height)
     texture:SetColorTexture(unpack(color))
@@ -91,7 +91,7 @@ function Widgets.checkbox(book, parent, value, x, y, width, callback)
     control:GetFontString():SetPoint("TOPLEFT", 26, -7)
     control:GetFontString():SetWidth(width - 26)
     Widgets.fill(control, colors.edge, 4, 5, 15, 15, "ARTWORK")
-    Widgets.fill(control, colors.canvas, 5, 6, 13, 13, "ARTWORK")
+    Widgets.fill(control, colors.canvas, 5, 6, 13, 13, "ARTWORK", 1)
     control.mark = Widgets.fill(control, colors.gold, 8, 9, 7, 7, "OVERLAY")
     control.mark:Hide()
     return control
@@ -99,12 +99,21 @@ end
 
 function Widgets.icon(parent, x, y, size)
     Widgets.fill(parent, colors.edge, x - 1, y - 1, size + 2, size + 2, "ARTWORK")
-    local texture = parent:CreateTexture(nil, "ARTWORK")
+    -- Equal-layer textures can be batched out of creation order by WoW.
+    -- Keep the image explicitly above its opaque backing.
+    local texture = parent:CreateTexture(nil, "ARTWORK", nil, 1)
     texture:SetPoint("TOPLEFT", x, -y)
     texture:SetSize(size, size)
     texture:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     texture:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
     return texture
+end
+
+function Widgets.itemIcon(texture, icon)
+    local fallback = "Interface\\Icons\\INV_Misc_QuestionMark"
+    if texture:SetTexture(icon or fallback) == false then
+        texture:SetTexture(fallback)
+    end
 end
 
 function Widgets.quality(api, quality)

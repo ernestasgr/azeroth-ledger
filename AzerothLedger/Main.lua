@@ -1,6 +1,6 @@
 local addonName, addon = ...
 
-local REVISION = "0.11.0"
+local REVISION = "0.11.3"
 local store
 local client = addon.Client.inspect(_G)
 local bankOpen = false
