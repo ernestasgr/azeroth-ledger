@@ -1099,6 +1099,29 @@ end
 
 local Schema = {}
 
+-- The entry ID identifies the container type; the final field identifies a
+-- particular spawn. Keep the complete GUID in the gain as its original proof.
+local function containerID(source)
+    if not source or source.kind ~= "container" then
+        return nil
+    end
+    local id = source.guid:match("^GameObject%-%d+%-%d+%-%d+%-%d+%-(%d+)%-%x+$")
+    local entry = id and tonumber(id)
+    return entry and entry > 0 and entry <= 4294967295 and tostring(entry) or nil
+end
+
+---@param source? AzerothLedgerLootSource|AzerothLedgerVendorSource|AzerothLedgerPlayerSource
+---@return string
+function Schema.sourceText(source)
+    if not source then
+        return "Unknown"
+    elseif source.kind == "player" then
+        return source.name .. "-" .. source.realm
+    end
+    local id = containerID(source)
+    return source.name or (id and ("Container #" .. id)) or source.guid or ("Unnamed " .. source.kind)
+end
+
 function Schema.retentionOptions()
     return copyValue(retentionDefinitions)
 end
@@ -1648,7 +1671,12 @@ function Schema.open(raw, save)
     end
 
     local function canEnrichLootSource(current, proof)
-        return not current or (current.guid == proof.guid and current.kind == proof.kind)
+        return not current
+            or (
+                current.guid == proof.guid
+                and current.kind == proof.kind
+                and (current.name == nil or proof.name ~= nil)
+            )
     end
 
     function store.correctGain(_self, proof)
@@ -1765,6 +1793,7 @@ function Schema.open(raw, save)
             methods = initial and { Seen = initial } or {},
             sources = initial and { ["Initial stock"] = initial } or {},
         }
+        local containers = {}
         for _, gain in ipairs(record.gains) do
             if matches(gain.character, gain.realm) then
                 local quantity = gain.quantity - (gain.refunded or 0)
@@ -1773,15 +1802,37 @@ function Schema.open(raw, save)
                 end
                 result.methods[gain.method] = (result.methods[gain.method] or 0) + quantity
                 local source = gain.source
-                local label = source and (source.name or source.guid) or "Unknown"
-                if source and source.kind == "player" then
-                    label = source.name .. "-" .. source.realm
+                local id = containerID(source)
+                if id and not gain.context then
+                    local group = containers[id] or { quantity = 0, names = {} }
+                    containers[id] = group
+                    group.quantity = group.quantity + quantity
+                    if source.name then
+                        group.names[source.name] = true
+                    end
+                else
+                    local label = Schema.sourceText(source)
+                    if gain.context then
+                        label = gain.context.name or (gain.context.kind .. " " .. gain.context.id)
+                    end
+                    result.sources[label] = (result.sources[label] or 0) + quantity
                 end
-                if gain.context then
-                    label = gain.context.name or (gain.context.kind .. " " .. gain.context.id)
-                end
-                result.sources[label] = (result.sources[label] or 0) + quantity
             end
+        end
+        local labels = {}
+        for id, group in pairs(containers) do
+            local name = next(group.names)
+            -- Conflicting recorded names stay neutral rather than picking one.
+            local label = name and not next(group.names, name) and name or ("Container #" .. id)
+            group.label = label
+            labels[label] = (labels[label] or 0) + 1
+        end
+        for id, group in pairs(containers) do
+            local label = group.label
+            if labels[label] > 1 or result.sources[label] ~= nil then
+                label = label .. " (container #" .. id .. ")"
+            end
+            result.sources[label] = group.quantity
         end
         if initial then
             result.recorded = initial + result.gained

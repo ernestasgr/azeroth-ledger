@@ -7,6 +7,9 @@ end
 
 local function source(gain)
     if gain.source then
+        if gain.source.kind == "container" then
+            return addon.Schema.sourceText(gain.source)
+        end
         return gain.source.name and actor(gain.source.name, gain.source.realm) or "Unnamed " .. gain.source.kind
     end
     if gain.context then

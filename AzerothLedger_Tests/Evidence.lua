@@ -408,7 +408,7 @@ function tests.LootAdapterPreservesEverySourcePair(_self)
     WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 3 }, 1011, actor))
     scan(1012, 8)
     WoWUnit.AreEqual(1, store:breakdown(key).sources["Creature-0-1-2-3-4-5"])
-    WoWUnit.AreEqual(2, store:breakdown(key).sources["GameObject-0-1-2-3-6-7"])
+    WoWUnit.AreEqual(2, store:breakdown(key).sources["Container #6"])
     api.UnitGUID = function()
         return "Creature-0-1-2-3-4-5"
     end
@@ -427,6 +427,27 @@ function tests.LootAdapterPreservesEverySourcePair(_self)
     WoWUnit.AreEqual(1, #mismatched)
     WoWUnit.AreEqual(nil, mismatched[1].source)
     WoWUnit.AreEqual(3, mismatched[1].quantity)
+end
+
+function tests.LaterUnreadableContainerNameKeepsTheObservedName(_self)
+    local store, scan = fixture()
+    local guid = "GameObject-0-6783-1-14-171938-0000422303"
+    WoWUnit.IsTrue(store:lootOpen({
+        character = "Ada",
+        realm = "Realm",
+        at = 1010,
+        level = 12,
+        place = "Forest",
+        slots = { { key = key, quantity = 1, source = { kind = "container", guid = guid, name = "Cactus Apple" } } },
+    }))
+    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1011, actor))
+    scan(1012, 6)
+    WoWUnit.IsTrue(not store:lootSourceProof({
+        { key = key, quantity = 1, source = { kind = "container", guid = guid } },
+    }, 1013, actor))
+    WoWUnit.AreEqual("Cactus Apple", store:find(key).gains[1].source.name)
+    WoWUnit.AreEqual(1, store:breakdown(key).sources["Cactus Apple"])
+    WoWUnit.AreEqual(1, store:find(key).totalGained)
 end
 
 function tests.MalformedScanCannotExpireOrChangeEvidence(_self)
