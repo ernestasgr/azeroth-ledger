@@ -11,6 +11,8 @@ local Loot = {}
 ---@field GetLootSourceInfo? fun(slot: integer): string?, integer?, string?
 ---@field UnitGUID? fun(unit: string): string?
 ---@field UnitName? fun(unit: string): string?
+---@field C_TooltipInfo? {GetWorldCursor?: fun(): table?}
+---@field Enum? {TooltipDataType?: {Object?: integer}}
 
 local function escape(text)
     return (text:gsub("([^%w])", "%%%1"))
@@ -35,11 +37,28 @@ local function source(api, guid)
         return nil
     end
     local result = { kind = kind == "GameObject" and "container" or "mob", guid = guid }
-    if kind ~= "GameObject" and type(api.UnitGUID) == "function" and type(api.UnitName) == "function" then
-        local targetOK, targetGUID = pcall(api.UnitGUID, "target")
-        if targetOK and targetGUID == guid then
-            local nameOK, name = pcall(api.UnitName, "target")
-            if nameOK and type(name) == "string" and name ~= "" then
+    if type(api.UnitGUID) == "function" and type(api.UnitName) == "function" then
+        for _, unit in ipairs({ "target", "npc", "mouseover" }) do
+            local unitOK, unitGUID = pcall(api.UnitGUID, unit)
+            if unitOK and unitGUID == guid then
+                local nameOK, name = pcall(api.UnitName, unit)
+                if nameOK and type(name) == "string" and name ~= "" and #name <= 128 then
+                    result.name = name
+                    return result
+                end
+            end
+        end
+    end
+    local tooltipInfo = api.C_TooltipInfo
+    local objectType = api.Enum and api.Enum.TooltipDataType and api.Enum.TooltipDataType.Object
+    if kind == "GameObject" and objectType and tooltipInfo and type(tooltipInfo.GetWorldCursor) == "function" then
+        local tooltipOK, data = pcall(tooltipInfo.GetWorldCursor)
+        -- A hovered name is evidence only when the tooltip proves this exact
+        -- looted object, not merely something nearby under the cursor.
+        if tooltipOK and type(data) == "table" and data.type == objectType and data.guid == guid then
+            local first = type(data.lines) == "table" and data.lines[1]
+            local name = type(first) == "table" and first.leftText
+            if type(name) == "string" and name ~= "" and #name <= 128 then
                 result.name = name
             end
         end
