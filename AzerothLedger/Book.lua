@@ -135,6 +135,10 @@ function details(book, key)
         book.previewLink = nil
         return
     end
+    if previous ~= key then
+        Widgets.fade(book, book.detailHeader, 0.35, 0.65)
+        Widgets.fade(book, book.detailScroll, 0.35, 0.65)
+    end
     local record = model.record
     if gallery then
         updatePreview(book)
@@ -148,6 +152,7 @@ function details(book, key)
     book.itemLink = record.links[#record.links]
     book.ownership:SetText(model.ownership)
     book.ownership:SetTextColor(unpack(model.ownership == "Present" and colors.green or colors.gold))
+    book.ownershipDot:SetColorTexture(unpack(model.ownership == "Present" and colors.green or colors.gold))
     book.recorded:SetText(
         book.detailsAccount and tostring(model.breakdown.recorded)
             or checkedQuantity(model.checkedUnits, model.uncheckedAreas)
@@ -187,12 +192,16 @@ function details(book, key)
         local height = math.max(24, row.left:GetStringHeight() + 10, row.right:GetStringHeight() + 10)
         if kind == "section" then
             row.left:ClearAllPoints()
-            row.left:SetPoint("TOPLEFT", 10, -20)
+            row.left:SetPoint("TOPLEFT", 10, -16)
             row.line:ClearAllPoints()
-            row.line:SetPoint("TOPLEFT", 0, -12)
-            row.line:SetSize(2, 32)
+            row.line:SetPoint("TOPLEFT", 0, -16)
+            row.line:SetSize(2, 14)
             row.line:SetColorTexture(unpack(colors.gold))
-            height = 56
+            row.section:ClearAllPoints()
+            row.section:SetPoint("TOPLEFT", 0, -6)
+            row.section:SetSize(338, 1)
+            row.section:SetColorTexture(unpack(colors.edge))
+            height = 40
         end
         if kind == "date" then
             row.left:SetWidth(118)
@@ -477,6 +486,7 @@ local function renderBody(book, requestedKey)
         local category = control.category
         Widgets.select(control, book.filter.category == category)
         control.count:SetText(tostring(category and (result.categories[category] or 0) or result.matchedCount))
+        control.count:SetTextColor(unpack(control.selected and colors.gold or colors.muted))
     end
     for _, row in ipairs(gallery and book.rows or book.galleryRows) do
         row:Hide()
@@ -616,6 +626,7 @@ showMenu = function(book, anchor, choices, selectChoice)
     book.menu:SetFrameLevel(book.frame:GetFrameLevel() + 20)
     renderMenu(book)
     book.menu:Show()
+    Widgets.fade(book, book.menu, 0.25, 0.75)
 end
 
 local function scopeMenu(book, anchor, kind)
@@ -758,6 +769,8 @@ local function create(api)
     Widgets.fill(frame, colors.canvas, 0, 0, 1100, 700)
     Widgets.fill(frame, colors.gold, 0, 0, 1100, 1, "ARTWORK")
     Widgets.fill(frame, colors.edge, 0, 699, 1100, 1, "ARTWORK")
+    Widgets.fill(frame, colors.edge, 0, 0, 1, 700, "ARTWORK")
+    Widgets.fill(frame, colors.edge, 1099, 0, 1, 700, "ARTWORK")
     local header = Widgets.panel(api, frame, 0, 0, 1100, 82, colors.panel)
     header:EnableMouse(true)
     header:RegisterForDrag("LeftButton")
@@ -771,7 +784,9 @@ local function create(api)
     emblem:SetTexture("Interface\\Icons\\INV_Misc_Book_09")
     Widgets.text(api, header, "Azeroth Ledger", 70, 20, 420, 24, colors.gold)
     Widgets.text(api, header, "Your account's item collection", 72, 51, 420, 12, colors.muted)
-    book.discoveries = Widgets.text(api, header, "", 700, 27, 300, 18)
+    Widgets.fill(header, colors.gold, 0, 22, 3, 38, "ARTWORK")
+    Widgets.fill(header, colors.raised, 810, 20, 192, 42)
+    book.discoveries = Widgets.text(api, header, "", 820, 32, 170, 16, colors.gold)
     book.discoveries:SetJustifyH("RIGHT")
 
     local sidebar = Widgets.panel(api, frame, 20, 100, 178, 552)
@@ -805,19 +820,22 @@ local function create(api)
     end)
     Widgets.text(api, sidebar, "Only places linked to\nrecorded gains appear here.", 12, 467, 154, 11, colors.muted)
 
-    book.collectionTab = Widgets.button(book, frame, "Collection", 218, 100, 106, 32, function()
+    Widgets.fill(frame, colors.edge, 218, 131, 440, 1, "ARTWORK")
+    book.collectionTab = Widgets.tab(book, frame, "Collection", 218, 100, 106, function()
         change(book, "view", "Collection")
     end)
-    book.discoveryTab = Widgets.button(book, frame, "Discoveries", 330, 100, 118, 32, function()
+    book.discoveryTab = Widgets.tab(book, frame, "Discoveries", 330, 100, 118, function()
         change(book, "view", "Discoveries")
     end)
-    book.journalTab = Widgets.button(book, frame, "Journal", 454, 100, 96, 32, function()
+    book.journalTab = Widgets.tab(book, frame, "Journal", 454, 100, 96, function()
         change(book, "view", "Journal")
     end)
-    book.galleryTab = Widgets.button(book, frame, "Gallery", 556, 100, 102, 32, function()
+    book.galleryTab = Widgets.tab(book, frame, "Gallery", 556, 100, 102, function()
         change(book, "view", "Gallery")
     end)
     local searchSurface = Widgets.panel(api, frame, 218, 146, 440, 36, colors.raised)
+    local searchAccent = Widgets.fill(searchSurface, colors.gold, 0, 35, 440, 1, "ARTWORK")
+    searchAccent:Hide()
     book.search = api.CreateFrame("EditBox", nil, searchSurface)
     book.search:SetPoint("TOPLEFT", 12, -2)
     book.search:SetSize(410, 32)
@@ -834,9 +852,11 @@ local function create(api)
     end)
     book.search:SetScript("OnEditFocusGained", function()
         book.placeholder:Hide()
+        searchAccent:Show()
         closeMenu(book)
     end)
     book.search:SetScript("OnEditFocusLost", function()
+        searchAccent:Hide()
         book.placeholder:SetShown(book.search:GetText() == "")
     end)
     book.search:SetScript("OnEscapePressed", function(self)
@@ -890,8 +910,9 @@ local function create(api)
         row:GetFontString():ClearAllPoints()
         row:GetFontString():SetPoint("TOPLEFT", 50, -6)
         row:GetFontString():SetWidth(320)
-        row.subtitle = Widgets.text(api, row, "", 50, 23, 320, 10, colors.muted)
-        row.quantity = Widgets.text(api, row, "", 378, 13, 48, 13, colors.muted)
+        row.subtitle = Widgets.text(api, row, "", 50, 23, 312, 10, colors.muted)
+        row.subtitle:SetWordWrap(false)
+        row.quantity = Widgets.text(api, row, "", 378, 13, 48, 13, colors.text)
         row.quantity:SetJustifyH("RIGHT")
         book.rows[index] = row
     end
@@ -926,15 +947,16 @@ local function create(api)
     book.itemTitle = Widgets.text(api, book.detailHeader, "", 74, 17, 310, 17)
     book.itemTitle:SetHeight(40)
     book.itemCategory = Widgets.text(api, book.detailHeader, "", 74, 61, 310, 10, colors.muted)
-    book.selectedTotals = Widgets.button(book, book.detailHeader, "Character", 16, 84, 174, 26, function()
+    book.selectedTotals = Widgets.tab(book, book.detailHeader, "Character", 16, 80, 174, function()
         book.detailsAccount = false
         details(book, book.selected)
     end)
-    book.accountTotals = Widgets.button(book, book.detailHeader, "Account", 206, 84, 178, 26, function()
+    book.accountTotals = Widgets.tab(book, book.detailHeader, "Account", 206, 80, 178, function()
         book.detailsAccount = true
         details(book, book.selected)
     end)
-    book.ownership = Widgets.text(api, book.detailHeader, "", 16, 119, 368, 11, colors.green)
+    book.ownership = Widgets.text(api, book.detailHeader, "", 26, 122, 348, 11, colors.green)
+    book.ownershipDot = Widgets.fill(book.detailHeader, colors.green, 16, 126, 4, 4, "ARTWORK")
     local itemLink = api.CreateFrame("Button", nil, book.detailHeader)
     itemLink:SetPoint("TOPLEFT", 16, -12)
     itemLink:SetSize(368, 68)
@@ -948,11 +970,13 @@ local function create(api)
     book.controls[#book.controls + 1] = itemLink
     local function statistic(label, x)
         Widgets.fill(book.detailHeader, colors.raised, x, 143, 116, 49)
+        Widgets.fill(book.detailHeader, colors.edge, x, 143, 116, 1, "ARTWORK")
         local caption = Widgets.text(api, book.detailHeader, label, x + 10, 151, 96, 9, colors.muted)
         return Widgets.text(api, book.detailHeader, "", x + 10, 168, 96, 18), caption
     end
     book.recorded, book.recordedLabel = statistic("RECORDED", 16)
     book.gained = statistic("TOTAL GAINED", 142)
+    book.gained:SetTextColor(unpack(colors.gold))
     book.initial, book.initialLabel = statistic("INITIALLY SEEN", 268)
     book.detailScroll = api.CreateFrame("ScrollFrame", nil, detailPanel, "UIPanelScrollFrameTemplate")
     book.detailScroll:SetPoint("TOPLEFT", 16, -208)
@@ -1053,6 +1077,7 @@ local function create(api)
         fit(book)
     end)
     frame:SetScript("OnHide", function()
+        Widgets.stopMotion(book)
         if book.focus then
             book.controls[book.focus]:UnlockHighlight()
             book.focus = nil
@@ -1093,7 +1118,12 @@ function Book.open(api, store, character, realm, filterCharacter, filterRealm)
         active.store, active.character, active.realm = store, character, realm
         active.filter.character, active.filter.realm = filterCharacter, filterRealm
         render(active)
+        local opening = not active.opened or not active.frame:IsShown()
         active.frame:Show()
+        if opening then
+            Widgets.fade(active, active.frame, 0.45, 0.75)
+        end
+        active.opened = true
         return active.frame
     end)
 end
