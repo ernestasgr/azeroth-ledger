@@ -46,6 +46,77 @@ function tests.ExpiredLootEvidenceCannotBecomeAGain(_self)
     WoWUnit.AreEqual("expired", store:unresolved()[1].reason)
 end
 
+function tests.CompletedLootDoesNotHideTheNextSource(_self)
+    local store, scan, open = fixture()
+    local first = { kind = "mob", guid = "Creature-0-1-2-3-4-5", name = "Boar" }
+    local second = { kind = "mob", guid = "Creature-0-1-2-3-4-6", name = "Wolf" }
+    WoWUnit.IsTrue(open(1010, first))
+    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1011, actor))
+    scan(1012, 6)
+    WoWUnit.IsTrue(store:lootClose(1012))
+    WoWUnit.IsTrue(open(1020, second))
+    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1021, actor))
+    scan(1022, 7)
+    WoWUnit.AreEqual(1, store:breakdown(key).sources.Boar)
+    WoWUnit.AreEqual(1, store:breakdown(key).sources.Wolf)
+    WoWUnit.AreEqual(nil, store:breakdown(key).sources.Unknown)
+    WoWUnit.AreEqual(2, store:find(key).totalGained)
+end
+
+function tests.SameCorpseSlotsKeepTheSourceOfPartialLoot(_self)
+    local store, scan = fixture()
+    local source = { kind = "mob", guid = "Creature-0-1-2-3-4-5", name = "Boar" }
+    WoWUnit.IsTrue(store:lootOpen({
+        character = actor.character,
+        realm = actor.realm,
+        level = actor.level,
+        place = actor.place,
+        at = 1010,
+        slots = {
+            { key = key, quantity = 2, source = source },
+            { key = key, quantity = 2, source = source },
+        },
+    }))
+    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 2 }, 1011, actor))
+    scan(1012, 7)
+    WoWUnit.AreEqual(2, store:find(key).totalGained)
+    WoWUnit.AreEqual(2, store:breakdown(key).sources.Boar)
+    WoWUnit.AreEqual(nil, store:breakdown(key).sources.Unknown)
+end
+
+function tests.UnsettledLootStillCompetesForTheNextSource(_self)
+    local store, scan, open = fixture()
+    WoWUnit.IsTrue(open(1010, { kind = "mob", guid = "Creature-0-1-2-3-4-5", name = "Boar" }))
+    WoWUnit.IsTrue(store:lootClose(1011))
+    WoWUnit.IsTrue(open(1020, { kind = "mob", guid = "Creature-0-1-2-3-4-6", name = "Wolf" }))
+    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1021, actor))
+    scan(1022, 6)
+    WoWUnit.AreEqual(1, store:breakdown(key).sources.Unknown)
+    WoWUnit.AreEqual(nil, store:breakdown(key).sources.Wolf)
+end
+
+function tests.CompletedLootDoesNotHideALaterReadableSlot(_self)
+    local store, scan, open = fixture()
+    local source = { kind = "mob", guid = "Creature-0-1-2-3-4-5", name = "Boar" }
+    WoWUnit.IsTrue(open(1010, source))
+    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1011, actor))
+    scan(1012, 6)
+    WoWUnit.IsTrue(store:lootClose(1012))
+    WoWUnit.IsTrue(store:lootOpen({
+        character = actor.character,
+        realm = actor.realm,
+        level = actor.level,
+        place = actor.place,
+        at = 1020,
+        slots = {},
+    }))
+    WoWUnit.IsTrue(store:lootSourceProof({ { key = key, quantity = 1, source = source } }, 1021, actor))
+    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1022, actor))
+    scan(1023, 7)
+    WoWUnit.AreEqual(2, store:breakdown(key).sources.Boar)
+    WoWUnit.AreEqual(nil, store:breakdown(key).sources.Unknown)
+end
+
 function tests.LaterSourceProofMovesTheSameUnitsOnce(_self)
     local store, scan, open = fixture()
     WoWUnit.IsTrue(open(1010))
