@@ -2,17 +2,50 @@ local _, addon = ...
 
 local Widgets = {}
 Widgets.colors = {
-    canvas = { 0.075, 0.075, 0.08, 1 },
-    panel = { 0.105, 0.105, 0.11, 1 },
-    raised = { 0.14, 0.14, 0.15, 1 },
-    edge = { 0.24, 0.23, 0.21, 1 },
-    text = { 0.9, 0.87, 0.81, 1 },
-    muted = { 0.57, 0.56, 0.53, 1 },
-    gold = { 0.8, 0.66, 0.41, 1 },
-    selected = { 0.23, 0.2, 0.145, 1 },
+    canvas = { 0.065, 0.07, 0.075, 1 },
+    panel = { 0.105, 0.11, 0.115, 1 },
+    raised = { 0.15, 0.15, 0.145, 1 },
+    edge = { 0.28, 0.26, 0.22, 1 },
+    text = { 0.94, 0.91, 0.85, 1 },
+    muted = { 0.67, 0.66, 0.62, 1 },
+    gold = { 0.87, 0.72, 0.46, 1 },
+    selected = { 0.25, 0.215, 0.15, 1 },
     green = { 0.49, 0.75, 0.54, 1 },
 }
 local colors = Widgets.colors
+
+-- Native, finite animations do no Lua work on idle frames. Reuse each group,
+-- and restore opacity on interruption so rapid input never leaves dim content.
+function Widgets.fade(book, region, duration, from)
+    if not book.frame:IsShown() or not region:IsShown() then
+        return
+    end
+    local group = region.ledgerFade
+    if not group then
+        group = region:CreateAnimationGroup()
+        local alpha = group:CreateAnimation("Alpha")
+        alpha:SetFromAlpha(from)
+        alpha:SetToAlpha(1)
+        alpha:SetDuration(duration)
+        alpha:SetSmoothing("OUT")
+        local function restore()
+            region:SetAlpha(1)
+        end
+        group:SetScript("OnFinished", restore)
+        group:SetScript("OnStop", restore)
+        region.ledgerFade = group
+        book.motionGroups = book.motionGroups or {}
+        book.motionGroups[#book.motionGroups + 1] = group
+    end
+    group:Stop()
+    group:Play()
+end
+
+function Widgets.stopMotion(book)
+    for _, group in ipairs(book.motionGroups or {}) do
+        group:Stop()
+    end
+end
 
 function Widgets.fill(parent, color, x, y, width, height, layer, subLevel)
     local texture = parent:CreateTexture(nil, layer or "BACKGROUND", nil, subLevel or 0)
@@ -42,6 +75,7 @@ function Widgets.panel(api, parent, x, y, width, height, color)
     frame:SetPoint("TOPLEFT", x, -y)
     frame:SetSize(width, height)
     frame.background = Widgets.fill(frame, color or colors.panel, 0, 0, width, height)
+    Widgets.fill(frame, { 0.87, 0.72, 0.46, 0.14 }, 0, 0, width, 1, "ARTWORK")
     return frame
 end
 
@@ -50,7 +84,9 @@ function Widgets.button(book, parent, value, x, y, width, height, callback, bord
     local control = book.api.CreateFrame("Button", nil, parent)
     control:SetPoint("TOPLEFT", x, -y)
     control:SetSize(width, height)
-    control.background = Widgets.fill(control, bordered and colors.raised or colors.panel, 0, 0, width, height)
+    control.book = book
+    control.baseColor = bordered and colors.raised or colors.panel
+    control.background = Widgets.fill(control, control.baseColor, 0, 0, width, height)
     local highlight = Widgets.fill(control, { 1, 0.87, 0.6, 0.065 }, 0, 0, width, height, "HIGHLIGHT")
     control:SetHighlightTexture(highlight)
     control.accent = Widgets.fill(control, colors.gold, 0, 0, 2, height, "ARTWORK")
@@ -64,10 +100,25 @@ function Widgets.button(book, parent, value, x, y, width, height, callback, bord
     return control
 end
 
+function Widgets.tab(book, parent, value, x, y, width, callback)
+    local control = Widgets.button(book, parent, value, x, y, width, 32, callback)
+    control.baseColor = colors.canvas
+    control.accent:ClearAllPoints()
+    control.accent:SetPoint("BOTTOMLEFT", 0, 0)
+    control.accent:SetSize(width, 2)
+    return control
+end
+
 function Widgets.select(control, selected)
-    control.background:SetColorTexture(unpack(selected and colors.selected or colors.panel))
+    control.background:SetColorTexture(unpack(selected and colors.selected or control.baseColor))
     control:GetFontString():SetTextColor(unpack(control.nameColor or (selected and colors.gold or colors.text)))
     control.accent:SetShown(selected)
+    if selected and not control.selected then
+        Widgets.fade(control.book, control.accent, 0.25, 0.35)
+    elseif not selected and control.accent.ledgerFade then
+        control.accent.ledgerFade:Stop()
+    end
+    control.selected = selected
 end
 
 function Widgets.enable(control, enabled)
