@@ -1930,10 +1930,21 @@ function Schema.open(raw, save)
         if gain.corrections then
             return
         end
-        if #shares == 1 then
-            if shares[1].source then
-                gain.source = copyValue(shares[1].source)
+        -- A partial take needs no division when every possible share proves
+        -- the same corpse or container. Missing or different sources still
+        -- require the complete measured take below.
+        local commonSource = shares[1] and shares[1].source
+        for _, share in ipairs(shares) do
+            if not sameSource(commonSource, share.source) then
+                commonSource = nil
+                break
             end
+        end
+        if commonSource then
+            gain.source = copyValue(commonSource)
+            return
+        end
+        if #shares == 1 then
             return
         end
         -- Only a complete, measured take of every slot proves the division.
@@ -2107,6 +2118,14 @@ function Schema.open(raw, save)
         return slots
     end
 
+    local function competingLoot(session, key, actor)
+        local slot = session.slots[key]
+        return session.character == actor.character
+            and session.realm == actor.realm
+            and slot ~= nil
+            and (not slot.limit or (session.awarded[key] or 0) < slot.limit)
+    end
+
     ---@param context AzerothLedgerLootContext
     function store.lootOpen(_self, context)
         if
@@ -2158,7 +2177,7 @@ function Schema.open(raw, save)
                     session.endedAt = context.at
                 end
                 for key, slot in pairs(slots) do
-                    if type(session.slots[key]) == "table" then
+                    if competingLoot(session, key, context) then
                         slot.source = nil
                         slot.shares = nil
                         session.slots[key].source = nil
@@ -2334,7 +2353,7 @@ function Schema.open(raw, save)
                 loot.sessions[index] = session
             else
                 for key in pairs(newSlots) do
-                    if entry.slots[key] then
+                    if competingLoot(entry, key, actor) then
                         -- An overlapping session cannot prove either source.
                         entry.slots[key].source, entry.slots[key].shares = nil, nil
                         session.slots[key].source, session.slots[key].shares = nil, nil

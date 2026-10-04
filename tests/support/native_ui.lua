@@ -1,7 +1,7 @@
 -- A native frame port used by interaction tests and the layout preview.
 local Native = {}
 
-function Native.create()
+function Native.create(options)
     local controls = {}
     local function create(kind, name, parent, template)
         local control = {
@@ -74,7 +74,12 @@ function Native.create()
             self.color = { ... }
         end
         function control:SetTexture(value)
+            if options and options.rejectedTextures and options.rejectedTextures[value] then
+                self.texture = nil
+                return false
+            end
             self.texture = value
+            return true
         end
         function control:SetTextColor(...)
             self.textColor = { ... }
@@ -208,10 +213,24 @@ function Native.create()
             region.layer = layer
             return region
         end
-        function control:CreateTexture(regionName, layer)
+        function control:CreateTexture(regionName, layer, regionTemplate, subLevel)
             local region = create("Texture", regionName, self)
             region.layer = layer
+            region.template = regionTemplate
+            region.subLevel = subLevel or 0
             return region
+        end
+        function control:GetDrawLayer()
+            return self.layer, self.subLevel
+        end
+        function control:GetRegions()
+            local regions = {}
+            for _, region in ipairs(controls) do
+                if region.parent == self and (region.kind == "Texture" or region.kind == "FontString") then
+                    regions[#regions + 1] = region
+                end
+            end
+            return unpack(regions)
         end
         return control
     end

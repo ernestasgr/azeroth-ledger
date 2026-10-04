@@ -1,9 +1,11 @@
 local addon = {}
-for _, source in ipairs({ "Item", "Schema", "Client", "Collection" }) do
+for _, source in ipairs({ "Item", "Schema", "Client", "Collection", "BookWidgets" }) do
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
 end
 AzerothLedger = addon
 date = os.date
+local native = assert(loadfile("tests/support/native_ui.lua"))().create()
+CreateFrame = native.api.CreateFrame
 local groups = {}
 local assertions = {
     AreEqual = function(expected, actual)

@@ -102,6 +102,13 @@ function Client.itemMetadata(api, record)
             icon = value
         end
     end
+    local instant = api.C_Item and api.C_Item.GetItemInfoInstant
+    if not icon and type(instant) == "function" then
+        local ok, _, _, _, _, value = pcall(instant, record.links[1])
+        if ok and usableIcon(value) then
+            icon = value
+        end
+    end
     local read = api.C_Item and api.C_Item.GetItemInfo
     if type(read) ~= "function" then
         requestItem(api, itemID)

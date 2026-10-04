@@ -144,7 +144,7 @@ function details(book, key)
     book.itemTitle:SetText(itemName)
     book.itemTitle:SetTextColor(unpack(Widgets.quality(book.api, info.quality)))
     book.itemCategory:SetText(info.category .. "  •  " .. model.scopeLabel)
-    book.itemIcon:SetTexture(info.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+    Widgets.itemIcon(book.itemIcon, info.icon)
     book.itemLink = record.links[#record.links]
     book.ownership:SetText(model.ownership)
     book.ownership:SetTextColor(unpack(model.ownership == "Present" and colors.green or colors.gold))
@@ -433,7 +433,7 @@ render = function(book, requestedKey)
             row:SetText(journal and (item.action .. " • " .. item.name) or item.name)
             row.nameColor = Widgets.quality(book.api, item.metadata.quality)
             row:GetFontString():SetTextColor(unpack(row.nameColor))
-            row.icon:SetTexture(item.metadata.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+            Widgets.itemIcon(row.icon, item.metadata.icon)
             row.subtitle:SetText(
                 journal and (stamp(item.at) .. " • " .. item.actors)
                     or (

@@ -6,6 +6,36 @@ local bear = "|Hitem:100:0:0:0:0:0:42:1:60:0:0:0:1:111|h[Sword]|h"
 local enchanted = "|Hitem:100:88:55:0:0:0:42:9:60:0:0:0:1:111|h[Sword]|h"
 local wolf = "|Hitem:100:0:0:0:0:0:43:1:60:0:0:0:1:111|h[Sword]|h"
 
+function tests.IconAndCheckboxContentCannotBeCoveredByTheirBackings(_self)
+    ---@type fun(frameType: string): table
+    local createFrame = CreateFrame
+    local parent = createFrame("Frame")
+    local icon = addon.BookWidgets.icon(parent, 0, 0, 32)
+    local backing
+    for _, region in ipairs({ parent:GetRegions() }) do
+        if region ~= icon then
+            backing = region
+        end
+    end
+    local layers = { BACKGROUND = 1, BORDER = 2, ARTWORK = 3, OVERLAY = 4, HIGHLIGHT = 5 }
+    local function order(region)
+        local layer, subLevel = region:GetDrawLayer()
+        return layers[layer] * 16 + subLevel
+    end
+    WoWUnit.IsTrue(backing ~= nil and order(icon) > order(backing))
+    local checkbox = addon.BookWidgets.checkbox({ api = _G, controls = {} }, parent, "Test", 0, 0, 120, function() end)
+    local inner, outer
+    for _, region in ipairs({ checkbox:GetRegions() }) do
+        if region:GetWidth() == 13 then
+            inner = region
+        elseif region:GetWidth() == 15 then
+            outer = region
+        end
+    end
+    WoWUnit.IsTrue(inner ~= nil and outer ~= nil and order(inner) > order(outer))
+    parent:Hide()
+end
+
 local function fixture()
     local writes = 0
     local store = addon.Schema.open(nil, function()

@@ -51,4 +51,18 @@ local automaticIcon = addon.Client.itemMetadata({
 }, { itemID = 2672, links = { "|Hitem:2672::::::::|h[Meat]|h" } })
 assert(automaticIcon.icon == 133970, "an uncached item name must not hide its automatically available icon")
 assert(automaticIcon.loading == true)
+local instantIcon = addon.Client.itemMetadata({
+    C_Item = {
+        GetItemInfo = function()
+            return nil
+        end,
+        GetItemIconByID = function()
+            return nil
+        end,
+        GetItemInfoInstant = function()
+            return 2672, "", "", "", 133970, 7
+        end,
+    },
+}, { itemID = 2672, links = { "|Hitem:2672::::::::|h[Meat]|h" } })
+assert(instantIcon.icon == 133970, "Missing cached item data hid an available instant icon")
 print("client_spec: passed")
