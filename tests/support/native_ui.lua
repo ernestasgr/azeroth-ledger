@@ -139,6 +139,50 @@ function Native.create(options)
         function control:SetAlpha(value)
             self.alpha = value
         end
+        function control.CreateAnimationGroup(region)
+            local group = { scripts = {}, animations = {}, plays = 0, playing = false }
+            region.animationGroups = region.animationGroups or {}
+            region.animationGroups[#region.animationGroups + 1] = group
+            function group.CreateAnimation(animationGroup, animationKind)
+                local animation = { kind = animationKind }
+                function animation:SetFromAlpha(value)
+                    self.fromAlpha = value
+                end
+                function animation:SetToAlpha(value)
+                    self.toAlpha = value
+                end
+                function animation:SetDuration(value)
+                    self.duration = value
+                end
+                function animation:SetSmoothing(value)
+                    self.smoothing = value
+                end
+                animationGroup.animations[#animationGroup.animations + 1] = animation
+                return animation
+            end
+            function group:SetScript(event, callback)
+                self.scripts[event] = callback
+            end
+            function group:Play()
+                self.playing = true
+                self.plays = self.plays + 1
+            end
+            function group:Stop()
+                if self.playing then
+                    self.playing = false
+                    if self.scripts.OnStop then
+                        self.scripts.OnStop(self)
+                    end
+                end
+            end
+            function group:Finish()
+                self.playing = false
+                if self.scripts.OnFinished then
+                    self.scripts.OnFinished(self)
+                end
+            end
+            return group
+        end
         function control:SetFrameLevel(value)
             self.level = value
         end

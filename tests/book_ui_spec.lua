@@ -77,6 +77,10 @@ assert(store:scan({
 }))
 local before = writes
 local frame = assert(addon.Collection.open(api, store, "Ada", "A"))
+local openingFade = assert(frame.animationGroups[1])
+assert(openingFade.playing and openingFade.animations[1].duration <= 0.5)
+openingFade:Finish()
+assert(frame.alpha == 1, "opening must finish fully opaque")
 local function find(text, kind)
     for index = #controls, 1, -1 do
         local control = controls[index]
@@ -205,6 +209,13 @@ click("Account")
 find("400")
 click("Character")
 local stats = find("CHECKED UNITS", "FontString").parent
+local detailFade = assert(stats.animationGroups[1])
+local detailPlays = detailFade.plays
+addon.Collection.refresh(store, "Ada", "A")
+frame.scripts.OnUpdate(frame, 0.1)
+assert(detailFade.plays == detailPlays, "background refresh must not replay the detail transition")
+click("Meat")
+assert(detailFade.plays == detailPlays, "reselecting the same item must not restart its transition")
 local scopedRecorded = false
 for _, control in ipairs(controls) do
     if control.parent == stats and control.text == "10+" then
@@ -259,7 +270,17 @@ frame.scripts.OnKeyDown(frame, "ENTER")
 find(expectedCharacter, "Button")
 frame.scripts.OnKeyDown(frame, "ESCAPE")
 assert(not frame:IsShown())
+for _, control in ipairs(controls) do
+    for _, group in ipairs(control.animationGroups or {}) do
+        assert(not group.playing, "closing during a transition must stop every animation")
+        assert(control.alpha == 1, "interrupted fades must restore opacity")
+    end
+end
 addon.Collection.open(api, store, "Ada", "A")
+assert(#frame.animationGroups == 1 and openingFade.playing, "reopening must reuse the opening animation")
+local openingPlays = openingFade.plays
+addon.Collection.open(api, store, "Ada", "A")
+assert(openingFade.plays == openingPlays, "opening an already visible book must not restart the fade")
 click("Journal")
 find("0 activities")
 find("No retained activity. Retention limits are in AddOns Settings.")
