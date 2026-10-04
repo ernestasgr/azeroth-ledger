@@ -4,6 +4,7 @@
   "diagnostics.globals": [
     "AzerothLedgerDB",
     "SLASH_AZEROTHLEDGER1",
+    "SLASH_AZEROTHLEDGERPERFORMANCE1",
     "SlashCmdList",
     "WoWUnit",
     "CreateFrame",

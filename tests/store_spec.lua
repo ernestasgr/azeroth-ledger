@@ -1,5 +1,6 @@
 local addon = {}
 assert(loadfile("AzerothLedger/Item.lua"))("AzerothLedger", addon)
+assert(loadfile("AzerothLedger/Work.lua"))("AzerothLedger", addon)
 assert(loadfile("AzerothLedger/Schema.lua"))("AzerothLedger", addon)
 
 local saved

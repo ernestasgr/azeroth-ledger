@@ -12,7 +12,7 @@ function frame:SetScript(script, handler)
     end
 end
 
-for _, source in ipairs({ "Item", "Schema" }) do
+for _, source in ipairs({ "Item", "Work", "Schema" }) do
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
 end
 
@@ -21,8 +21,15 @@ addon.Client = {
         return { frame = frame, issues = {}, build = "1.60.1.70009", interface = "16001", locale = "enUS" }
     end,
 }
-addon.Scan = { capture = function() end }
-addon.Collection = { refresh = function() end, open = function() end }
+addon.Scan = {
+    reader = function()
+        return { capture = function() end }
+    end,
+}
+addon.Collection = {
+    refresh = function() end,
+    open = function() end,
+}
 SlashCmdList = {}
 
 local key = assert(addon.Item.key(link, 4540))
