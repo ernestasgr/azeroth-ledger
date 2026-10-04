@@ -1,6 +1,6 @@
 -- Native frame port replay: checks visible text and input behavior, not private book state.
 local addon = {}
-for _, source in ipairs({ "Item", "Schema", "Client", "Collection", "Journal", "BookWidgets", "Book" }) do
+for _, source in ipairs({ "Item", "Work", "Schema", "Client", "Collection", "Journal", "BookWidgets", "Book" }) do
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
 end
 date = os.date

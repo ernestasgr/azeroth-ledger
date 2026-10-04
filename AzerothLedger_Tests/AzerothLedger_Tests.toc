@@ -10,3 +10,5 @@ Evidence.lua
 Collection.lua
 Journal.lua
 Presentation.lua
+PerformanceFixture.lua
+Performance.lua

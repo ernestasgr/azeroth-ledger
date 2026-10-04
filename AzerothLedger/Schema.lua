@@ -183,7 +183,7 @@ end
 ---@field realm string
 ---@field at integer
 ---@field confirmed boolean
----@field baseline table<string, {quantity: integer, gained: integer}>
+---@field baseline table<string, {quantity: integer, gained: integer, discovery?: boolean}>
 
 ---@class AzerothLedgerRewardState
 ---@field nextID integer
@@ -357,6 +357,9 @@ end
 ---@field marker fun(self: AzerothLedgerStore): string?
 ---@field environment fun(self: AzerothLedgerStore): AzerothLedgerEnvironment?
 ---@field list fun(self: AzerothLedgerStore): AzerothLedgerRecord[]
+---@field count fun(self: AzerothLedgerStore): integer
+---@field revision fun(self: AzerothLedgerStore): integer
+---@field cursor fun(self: AzerothLedgerStore): fun(): AzerothLedgerRecord?
 ---@field find fun(self: AzerothLedgerStore, key: string): AzerothLedgerRecord?
 ---@field area fun(self: AzerothLedgerStore, character: string, realm: string, area: string): AzerothLedgerAreaState?
 ---@field characters fun(self: AzerothLedgerStore): AzerothLedgerActor[]
@@ -384,7 +387,7 @@ end
 ---@field display fun(self: ALStore): table<string, boolean>
 ---@field setDisplay fun(self: ALStore, control: string, enabled: boolean): boolean
 ---@field takeDiscoveries fun(self: ALStore): AzerothLedgerRecord[]
----@field journal fun(self: ALStore): table[]
+---@field journal fun(self: ALStore, pause?: fun()): table[]
 ---@field unresolved fun(self: AzerothLedgerStore): AzerothLedgerEvidence[]
 ---@field evidenceSummary fun(self: AzerothLedgerStore): AzerothLedgerEvidenceState
 ---@field expireEvidence fun(self: AzerothLedgerStore, at: integer): boolean
@@ -944,6 +947,7 @@ local function validRewardState(rewards)
                 or item.quantity < 0
                 or not isInteger(item.gained)
                 or item.gained < 0
+                or (item.discovery ~= nil and type(item.discovery) ~= "boolean")
             then
                 return false
             end
@@ -1214,13 +1218,56 @@ function Schema.open(raw, save)
     if supported and raw.display ~= nil and not validDisplay(raw.display) then
         damagedCount = damagedCount + 1
     end
+    -- Runtime indexes are rebuilt from validated facts, never persisted or pruned.
+    local scopeRecords, actorIndex, recordKeys, keyIndex = {}, {}, {}, {}
+    local revision = 0
+    local function indexRecord(key, record)
+        if not keyIndex[key] then
+            recordKeys[#recordKeys + 1], keyIndex[key] = key, true
+        end
+        local previous = valid[key]
+        for _, observation in ipairs(previous and previous.observations or {}) do
+            local scope = scopeRecords[areaKey(observation.character, observation.realm, observation.area)]
+            if scope then
+                scope[key] = nil
+            end
+        end
+        for _, seen in ipairs(record.characters) do
+            actorIndex[areaKey(seen.name, seen.realm, "")] = { character = seen.name, realm = seen.realm }
+        end
+        for _, observation in ipairs(record.observations) do
+            local scopeKey = areaKey(observation.character, observation.realm, observation.area)
+            scopeRecords[scopeKey] = scopeRecords[scopeKey] or {}
+            scopeRecords[scopeKey][key] = observation.quantity > 0 and true or nil
+        end
+    end
+    for key, record in pairs(valid) do
+        indexRecord(key, record)
+    end
+
+    local function heldKeys(character, realm, area)
+        return scopeRecords[areaKey(character, realm, area)] or {}
+    end
+    local function priorQuantity(record, character, realm, area)
+        local quantity = 0
+        for _, observation in ipairs(record and record.observations or {}) do
+            if observation.character == character and observation.realm == realm and observation.area == area then
+                quantity = observation.quantity
+            end
+        end
+        return quantity
+    end
+
+    local journalHealthy = readable and validJournal(raw.journal)
+    local vendorHealthy = readable and (raw.vendor == nil or validVendorState(raw.vendor))
+    local exchangeHealthy = readable and (raw.exchange == nil or validExchangeState(raw.exchange))
     local discoveries = {}
     local function saveFields(fields)
         local nextValue = {
             schema = CURRENT_SCHEMA,
             marker = fields.marker or raw.marker,
             environment = fields.environment or raw.environment,
-            records = fields.records or raw.records,
+            records = raw.records,
             areas = fields.areas or raw.areas,
             loot = fields.loot or raw.loot,
             rewards = fields.rewards or raw.rewards,
@@ -1229,9 +1276,10 @@ function Schema.open(raw, save)
             evidence = fields.evidence or raw.evidence,
             retention = fields.retention or raw.retention,
             display = fields.display or raw.display,
-            journal = validJournal(raw.journal) and copyValue(raw.journal) or { nextSequence = 1, gains = {} },
+            journal = journalHealthy and raw.journal or { nextSequence = 1, gains = {} },
         }
-        local history = nextValue.journal
+        local history = { nextSequence = nextValue.journal.nextSequence, gains = nextValue.journal.gains }
+        nextValue.journal = history
         local function sequence(entry)
             entry.sequence = history.nextSequence
             history.nextSequence = history.nextSequence + 1
@@ -1265,16 +1313,21 @@ function Schema.open(raw, save)
             end
             return a.key < b.key
         end)
+        if #pending > 0 or fields.retention then
+            history.gains = copyArray(history.gains)
+        end
         for _, entry in ipairs(pending) do
             sequence(entry)
             history.gains[#history.gains + 1] = entry
         end
         local limits = validRetention(nextValue.retention) and nextValue.retention or retentionDefaults
-        trimHistory(history.gains, limits.gains)
+        if #pending > 0 or fields.retention then
+            trimHistory(history.gains, limits.gains)
+        end
         for _, category in ipairs({ "exchange", "vendor" }) do
             local state = nextValue[category]
             local validState = category == "exchange" and validExchangeState or validVendorState
-            if state and validState(state) then
+            if state and (fields[category] or fields.retention) and validState(state) then
                 state = copyValue(state)
                 nextValue[category] = state
                 for _, entry in ipairs(state.journal) do
@@ -1294,7 +1347,42 @@ function Schema.open(raw, save)
         table.sort(discovered, function(a, b)
             return a.key < b.key
         end)
-        save(nextValue)
+        -- Capture previously unheld items lazily before their first change during
+        -- an active action. Late item identification keeps the pre-action totals.
+        local previousRecords = {}
+        for key, record in pairs(fields.records or {}) do
+            local before = valid[key]
+            for _, session in ipairs(nextValue.loot and nextValue.loot.sessions or {}) do
+                if session.baselineGains[key] == nil then
+                    session.baselineGains[key] = before and before.totalGained or 0
+                    session.baselineQuantities[key] = priorQuantity(before, session.character, session.realm, "bags")
+                end
+            end
+            for _, preparation in ipairs(nextValue.rewards and nextValue.rewards.preparations or {}) do
+                if not preparation.baseline[key] then
+                    preparation.baseline[key] = {
+                        quantity = priorQuantity(before, preparation.character, preparation.realm, "bags")
+                            + priorQuantity(before, preparation.character, preparation.realm, "equipped"),
+                        gained = before and before.totalGained or 0,
+                        discovery = before == nil,
+                    }
+                end
+            end
+            previousRecords[key] = raw.records[key] or false
+            nextValue.records[key] = record
+        end
+        local savedOK, failure = pcall(save, nextValue)
+        if not savedOK then
+            for key, record in pairs(previousRecords) do
+                raw.records[key] = record or nil
+            end
+            error(failure)
+        end
+        for key, record in pairs(fields.records or {}) do
+            indexRecord(key, record)
+        end
+        revision = revision + 1
+        journalHealthy = true
         raw = nextValue
         if not validDisplay(nextValue.display) or nextValue.display.toasts then
             for _, record in ipairs(discovered) do
@@ -1344,12 +1432,15 @@ function Schema.open(raw, save)
         return true
     end
 
-    function store.journal(_self)
+    function store.journal(_self, pause)
         local result = {}
         if not readable then
             return result
         end
-        for _, entry in ipairs(validJournal(raw.journal) and raw.journal.gains or {}) do
+        for _, entry in ipairs(journalHealthy and raw.journal.gains or {}) do
+            if pause then
+                pause()
+            end
             local record = valid[entry.key]
             local contributions = {}
             for _, gain in ipairs(record and record.gains or {}) do
@@ -1365,8 +1456,11 @@ function Schema.open(raw, save)
         end
         for _, category in ipairs({ "exchange", "vendor" }) do
             local state = raw[category]
-            local validState = category == "exchange" and validExchangeState or validVendorState
-            for _, entry in ipairs(state and validState(state) and state.journal or {}) do
+            local healthy = category == "exchange" and exchangeHealthy or vendorHealthy
+            for _, entry in ipairs(state and healthy and state.journal or {}) do
+                if pause then
+                    pause()
+                end
                 if valid[entry.key] and isInteger(entry.sequence) and entry.sequence > 0 then
                     local row = copyValue(entry)
                     row.category = category == "exchange" and "transfer" or "vendor"
@@ -1374,9 +1468,14 @@ function Schema.open(raw, save)
                 end
             end
         end
-        table.sort(result, function(a, b)
+        local function newestFirst(a, b)
             return chronological(b, a)
-        end)
+        end
+        if pause then
+            addon.Work.sort(result, newestFirst, pause)
+        else
+            table.sort(result, newestFirst)
+        end
         return result
     end
     local candidates = {}
@@ -1416,8 +1515,8 @@ function Schema.open(raw, save)
         local engines = {
             loot = raw.loot and validLootState(raw.loot) and raw.loot or nil,
             rewards = raw.rewards and validRewardState(raw.rewards) and raw.rewards or nil,
-            vendor = raw.vendor and validVendorState(raw.vendor) and raw.vendor or nil,
-            exchange = raw.exchange and validExchangeState(raw.exchange) and raw.exchange or nil,
+            vendor = raw.vendor and vendorHealthy and raw.vendor or nil,
+            exchange = raw.exchange and exchangeHealthy and raw.exchange or nil,
         }
         for index = #candidates, 1, -1 do
             if at - candidates[index].at >= 60 then
@@ -1643,9 +1742,6 @@ function Schema.open(raw, save)
             return false
         end
         local records = {}
-        for key, value in pairs(raw.records) do
-            records[key] = value
-        end
         records[proof.key] = record
         saveFields({ records = records })
         valid[proof.key] = copyRecord(record)
@@ -1757,6 +1853,24 @@ function Schema.open(raw, save)
         return result
     end
 
+    function store.count(_self)
+        return #recordKeys
+    end
+    function store.revision(_self)
+        return revision
+    end
+    -- A stable-length cursor copies one record at a time. Consumers restart when
+    -- the revision changes; no query can edit permanent records through it.
+    function store.cursor(_self)
+        local index, count = 0, #recordKeys
+        return function()
+            index = index + 1
+            if index <= count then
+                return copyRecord(valid[recordKeys[index]])
+            end
+        end
+    end
+
     function store.find(_self, key)
         local record = valid[key]
         return record and copyRecord(record) or nil
@@ -1789,10 +1903,8 @@ function Schema.open(raw, save)
                     add(state.character, state.realm)
                 end
             end
-            for _, record in pairs(valid) do
-                for _, character in ipairs(record.characters) do
-                    add(character.name, character.realm)
-                end
+            for _, actor in pairs(actorIndex) do
+                add(actor.character, actor.realm)
             end
         end
         table.sort(result, function(left, right)
@@ -2018,7 +2130,7 @@ function Schema.open(raw, save)
 
     local function award(session, key, records, at)
         local receipt = session.receipts[key]
-        local record = records[key]
+        local record = records[key] or valid[key]
         if type(receipt) ~= "table" or not isInteger(receipt.quantity) or not isInteger(receipt.at) or not record then
             return
         end
@@ -2151,21 +2263,14 @@ function Schema.open(raw, save)
         end
         local baselineQuantities = {}
         local baselineGains = {}
-        -- Keep the full pre-loot baseline: unreadable slots may identify later.
-        for key, record in pairs(valid) do
+        -- Only currently held and identified loot items need eager baselines.
+        for key in pairs(heldKeys(context.character, context.realm, "bags")) do
+            local record = valid[key]
             baselineGains[key] = record.totalGained
-            for _, observation in ipairs(record.observations) do
-                if
-                    observation.character == context.character
-                    and observation.realm == context.realm
-                    and observation.area == "bags"
-                then
-                    baselineQuantities[key] = observation.quantity
-                end
-            end
+            baselineQuantities[key] = priorQuantity(record, context.character, context.realm, "bags")
         end
         for key in pairs(slots) do
-            baselineGains[key] = baselineGains[key] or 0
+            baselineGains[key] = baselineGains[key] or (valid[key] and valid[key].totalGained or 0)
         end
         local loot = type(raw.loot) == "table" and raw.loot or nil
         local previousID = loot and loot.nextID or nil
@@ -2276,7 +2381,7 @@ function Schema.open(raw, save)
                 else
                     session.slots[key] = slot
                 end
-                session.baselineGains[key] = session.baselineGains[key] or 0
+                session.baselineGains[key] = session.baselineGains[key] or (valid[key] and valid[key].totalGained or 0)
                 keys[key] = true
             end
         end
@@ -2362,9 +2467,6 @@ function Schema.open(raw, save)
             end
         end
         local records = {}
-        for key, record in pairs(raw.records) do
-            records[key] = record
-        end
         for key in pairs(keys) do
             if valid[key] then
                 local record = copyRecord(valid[key])
@@ -2504,9 +2606,6 @@ function Schema.open(raw, save)
             at = existing and existing.at or at,
         }
         local nextRecords = {}
-        for key, record in pairs(raw.records) do
-            nextRecords[key] = record
-        end
         award(session, receipt.key, nextRecords, at)
         saveFields({ records = nextRecords })
         if nextRecords[receipt.key] then
@@ -2555,7 +2654,7 @@ function Schema.open(raw, save)
         if raw.exchange == nil then
             return { nextID = 1, actions = {}, journal = {} }
         end
-        return validExchangeState(raw.exchange) and raw.exchange or nil
+        return exchangeHealthy and raw.exchange or nil
     end
 
     local function pruneExchange(state, at)
@@ -2802,7 +2901,7 @@ function Schema.open(raw, save)
                         action.status = "unresolved"
                     end
                 elseif delta > 0 then
-                    local record = records[action.key]
+                    local record = records[action.key] or valid[action.key]
                     local otherGains =
                         math.max(0, characterGained(record, action.character, action.realm) - action.baselineGained)
                     local reserved = 0
@@ -2922,7 +3021,7 @@ function Schema.open(raw, save)
         if raw.vendor == nil then
             return { nextID = 1, actions = {}, journal = {} }
         end
-        if validVendorState(raw.vendor) then
+        if vendorHealthy then
             return raw.vendor
         end
         return nil
@@ -3077,7 +3176,7 @@ function Schema.open(raw, save)
                 local group = grouped[action.key]
                 local current = group and group.quantity or 0
                 local delta = current - action.baseline
-                local record = records[action.key]
+                local record = records[action.key] or valid[action.key]
                 if action.kind == "purchase" then
                     if delta > 0 and record then
                         local otherGains = math.max(0, record.totalGained - action.baselineGained)
@@ -3200,9 +3299,6 @@ function Schema.open(raw, save)
         end
         match.receiptQuantity = math.min(match.quantity, match.receiptQuantity + receipt.quantity)
         local records = {}
-        for key, record in pairs(raw.records) do
-            records[key] = record
-        end
         local grouped = { [receipt.key] = { quantity = bagQuantity(valid[receipt.key], actor.character, actor.realm) } }
         settleVendor(state, "bags", at, actor.character, actor.realm, grouped, records)
         saveFields({ vendor = state, records = records })
@@ -3307,7 +3403,14 @@ function Schema.open(raw, save)
         local rewards = type(raw.rewards) == "table" and raw.rewards or nil
         local nextID = (rewards and isInteger(rewards.nextID) and rewards.nextID or 0) + 1
         local baseline = {}
-        for key, record in pairs(valid) do
+        local possessions = {}
+        for _, storageArea in ipairs({ "bags", "equipped" }) do
+            for key in pairs(heldKeys(actor.character, actor.realm, storageArea)) do
+                possessions[key] = true
+            end
+        end
+        for key in pairs(possessions) do
+            local record = valid[key]
             baseline[key] = {
                 quantity = bagQuantity(record, actor.character, actor.realm)
                     + areaQuantity(record, actor.character, actor.realm, "equipped"),
@@ -3396,6 +3499,10 @@ function Schema.open(raw, save)
         if not session then
             nextID = (isInteger(nextID) and nextID or 0) + 1
             local before = preparation and preparation.baseline[receipt.key] or nil
+            if preparation and not before and valid[receipt.key] then
+                before = { quantity = 0, gained = valid[receipt.key].totalGained }
+                preparation.baseline[receipt.key] = before
+            end
             session = {
                 id = nextID,
                 key = receipt.key,
@@ -3413,7 +3520,7 @@ function Schema.open(raw, save)
                     or (valid[receipt.key] and valid[receipt.key].totalGained or 0),
                 quantity = 0,
                 awarded = 0,
-                discovery = preparation and not before or not valid[receipt.key],
+                discovery = preparation and (not before or before.discovery == true) or not valid[receipt.key],
                 confirmed = receipt.method == "Crafted" or (preparation and preparation.confirmed) or false,
                 choiceGroup = receipt.choiceGroup,
                 specific = receipt.method == "Quest" and not receipt.preview or nil,
@@ -3481,7 +3588,7 @@ function Schema.open(raw, save)
     end
 
     local function awardReward(session, key, currentQuantity, records)
-        local record = records[key]
+        local record = records[key] or valid[key]
         if not record or not session.confirmed then
             return
         end
@@ -3678,9 +3785,6 @@ function Schema.open(raw, save)
                 and snapshot.complete
                 and rewardSessions(snapshot.seenAt)
             or {}
-        for key, record in pairs(raw.records) do
-            nextRecords[key] = record
-        end
         for key, group in pairs(grouped) do
             local session = snapshot.area == "bags" and snapshot.complete and activeSession(snapshot.seenAt) or nil
             if session and (session.character ~= snapshot.character or session.realm ~= snapshot.realm) then
@@ -3783,7 +3887,8 @@ function Schema.open(raw, save)
             end
         end
         if snapshot.complete then
-            for key, existing in pairs(valid) do
+            for key in pairs(heldKeys(snapshot.character, snapshot.realm, snapshot.area)) do
+                local existing = valid[key]
                 if not grouped[key] then
                     local previous
                     for _, observation in ipairs(existing.observations) do
@@ -3820,7 +3925,7 @@ function Schema.open(raw, save)
             local quantities = {}
             for _, reward in ipairs(activeRewards) do
                 if reward.questPreparationID then
-                    local record = nextRecords[reward.key]
+                    local record = nextRecords[reward.key] or valid[reward.key]
                     local equipped = grouped[reward.key]
                     quantities[reward.key] = {
                         quantity = bagQuantity(record, snapshot.character, snapshot.realm)
@@ -3840,6 +3945,9 @@ function Schema.open(raw, save)
             end
         end
         local vendor = vendorState()
+        if vendor and #vendor.actions == 0 then
+            vendor = nil
+        end
         if
             vendor
             and (snapshot.area == "bags" or snapshot.area == "equipped")
@@ -3858,6 +3966,9 @@ function Schema.open(raw, save)
             )
         end
         local exchange = exchangeState()
+        if exchange and #exchange.actions == 0 then
+            exchange = nil
+        end
         if snapshot.area == "bags" and snapshot.complete and type(oldScope) == "table" and oldScope.complete then
             settleExchange(exchange, snapshot, grouped, nextRecords)
         end

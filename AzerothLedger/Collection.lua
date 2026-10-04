@@ -427,12 +427,12 @@ end
 ---@param filter? AzerothLedgerCollectionFilter
 ---@param metadata? fun(record: AzerothLedgerRecord): AzerothLedgerItemMetadata
 -- Queries are projections of permanent facts; filters never edit the ledger.
-function Collection.query(store, character, realm, filter, metadata)
+local function query(store, character, realm, filter, metadata, pause)
     filter = filter or {}
-    local records = store:list()
-    local result = { rows = {}, discoveryCount = #records, loading = 0, places = {}, categories = {}, matchedCount = 0 }
+    local result =
+        { rows = {}, discoveryCount = store:count(), loading = 0, places = {}, categories = {}, matchedCount = 0 }
     local places = {}
-    for _, record in ipairs(records) do
+    for record in store:cursor() do
         local matches = false
         local discoveredAt
         for _, seen in ipairs(record.characters) do
@@ -482,7 +482,8 @@ function Collection.query(store, character, realm, filter, metadata)
                     ownership = status,
                     discoveredAt = (not filter.character and not filter.realm) and record.firstSeen or discoveredAt,
                     metadata = info,
-                    recorded = assert(store:breakdown(record.key, filter)).recorded,
+                    recorded = not (filter.character or filter.realm) and (record.firstSeenUnits + record.totalGained)
+                        or nil,
                     checkedUnits = scope and scope.checkedUnits or nil,
                     uncheckedAreas = scope and scope.uncheckedAreas or nil,
                 }
@@ -491,20 +492,40 @@ function Collection.query(store, character, realm, filter, metadata)
         if info.loading then
             result.loading = result.loading + 1
         end
+        if pause then
+            pause()
+        end
     end
     for _, place in pairs(places) do
         result.places[#result.places + 1] = place
     end
-    table.sort(result.places, function(a, b)
+    addon.Work.sort(result.places, function(a, b)
         return a.key < b.key
-    end)
-    table.sort(result.rows, function(a, b)
+    end, pause)
+    addon.Work.sort(result.rows, function(a, b)
         if filter.view == "Discoveries" and a.discoveredAt ~= b.discoveredAt then
             return a.discoveredAt > b.discoveredAt
         end
         return a.name < b.name or (a.name == b.name and a.key < b.key)
-    end)
+    end, pause)
+    result.byKey, result.positions = {}, {}
+    for index, row in ipairs(result.rows) do
+        result.byKey[row.key], result.positions[row.key] = row, index
+        if pause then
+            pause()
+        end
+    end
     return result
+end
+
+function Collection.query(store, character, realm, filter, metadata)
+    return query(store, character, realm, filter, metadata)
+end
+
+function Collection.startQuery(api, store, character, realm, filter, metadata)
+    return addon.Work.start(api, "Collection query", function(pause)
+        return query(store, character, realm, filter, metadata, pause)
+    end)
 end
 
 ---@class ALGallerySelection
@@ -512,17 +533,21 @@ end
 ---@field link string
 ---@field index integer
 
----@param result {rows: AzerothLedgerCollectionRow[]}
+---@param result {rows: AzerothLedgerCollectionRow[], byKey?: table<string, AzerothLedgerCollectionRow>}
 ---@param key? string
 ---@param link? string
 ---@return ALGallerySelection?
 -- A selection must belong to the filtered gallery and use an exact retained link.
 function Collection.gallerySelection(result, key, link)
     local selected = result.rows[1]
-    for _, row in ipairs(result.rows) do
-        if row.key == key then
-            selected = row
-            break
+    if result.byKey then
+        selected = result.byKey[key] or selected
+    else
+        for _, row in ipairs(result.rows) do
+            if row.key == key then
+                selected = row
+                break
+            end
         end
     end
     if not selected then

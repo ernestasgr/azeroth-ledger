@@ -40,8 +40,8 @@ end
 GetRealZoneText = function()
     return "Elwynn Forest"
 end
-GetInventoryItemLink = function()
-    return equipped and link or nil
+GetInventoryItemLink = function(_, slot)
+    return equipped and slot == 15 and link or nil
 end
 C_Container = {
     GetContainerNumSlots = function(bag)
@@ -82,6 +82,7 @@ SlashCmdList = {}
 
 for _, source in ipairs({
     "Item",
+    "Work",
     "Schema",
     "Client",
     "Scan",
@@ -112,7 +113,7 @@ event("BAG_UPDATE_DELAYED")
 clock = 1013
 inBags = false
 equipped = true
-event("PLAYER_EQUIPMENT_CHANGED")
+event("PLAYER_EQUIPMENT_CHANGED", 15)
 clock = 1014
 linkReady = true
 event("QUEST_LOOT_RECEIVED", 42, link, 1)
@@ -122,4 +123,5 @@ event("BAG_UPDATE_DELAYED")
 local record = addon.store:find(addon.Item.key(link, 11475))
 assert(record and record.totalGained == 1, "Wine-stained Cloak remained Seen with Total gained 0")
 assert(record.gains[1].method == "Quest")
+assert(record.firstSeenUnits == 0 and addon.store:breakdown(record.key).recorded == 1)
 print("quest_delayed_event_spec: passed")
