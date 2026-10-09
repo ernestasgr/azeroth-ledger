@@ -25,84 +25,15 @@ end
 
 local storageAreas = { "bags", "bank", "equipped" }
 
-local function latestObservation(record, character, realm, area)
-    local latest
-    for _, observation in ipairs(record.observations) do
-        if observation.character == character and observation.realm == realm and observation.area == area then
-            if not latest or observation.seenAt >= latest.seenAt then
-                latest = observation
-            end
-        end
-    end
-    return latest
-end
+local inspectRecord
 
-local function selectedCharacters(store, record, currentCharacter, currentRealm, filterCharacter, filterRealm)
-    local characters = {}
-    local selected = {}
-    local function add(character, realm)
-        if matchesFilter(filterCharacter, filterRealm, character, realm) then
-            local key = realm .. ":" .. character
-            if not selected[key] then
-                selected[key] = true
-                characters[#characters + 1] = { name = character, realm = realm }
-            end
-        end
-    end
-    add(currentCharacter, currentRealm)
-    for _, knownCharacter in ipairs(store:characters()) do
-        add(knownCharacter.character, knownCharacter.realm)
-    end
-    for _, seen in ipairs(record.characters) do
-        add(seen.name, seen.realm)
-    end
-    return characters
-end
-
-local function ownership(store, record, currentCharacter, currentRealm, filterCharacter, filterRealm)
-    local characters = selectedCharacters(store, record, currentCharacter, currentRealm, filterCharacter, filterRealm)
-    local present = false
-    local unknown = false
-    local earliestCheck
-    for _, character in ipairs(characters) do
-        local online = character.name == currentCharacter and character.realm == currentRealm
-        local characterCheck
-        for _, area in ipairs(storageAreas) do
-            local state = store:area(character.name, character.realm, area)
-            local observation = latestObservation(record, character.name, character.realm, area)
-            if state and state.complete then
-                if observation and observation.quantity > 0 then
-                    if online then
-                        present = true
-                    else
-                        unknown = true
-                    end
-                end
-                if characterCheck and characterCheck ~= state.seenAt then
-                    unknown = true
-                end
-                characterCheck = state.seenAt
-            elseif state and observation and observation.quantity > 0 and observation.seenAt == state.seenAt then
-                if online then
-                    present = true
-                else
-                    unknown = true
-                end
-            else
-                unknown = true
-            end
-        end
-        if characterCheck then
-            earliestCheck = math.min(earliestCheck or characterCheck, characterCheck)
-        end
-    end
-    if present then
+local function ownershipText(lastSeen)
+    if lastSeen.state == "present" then
         return "Present"
-    end
-    if unknown or #characters == 0 then
+    elseif lastSeen.state == "unknown" then
         return "Unknown"
     end
-    return "Historical only as of " .. stamp(earliestCheck)
+    return "Historical only as of " .. stamp(lastSeen.asOf)
 end
 
 ---@param store AzerothLedgerStore
@@ -171,33 +102,15 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                 .. record.totalGained
                 .. "; Recorded units "
                 .. (record.firstSeenUnits + record.totalGained)
-            lines[#lines + 1] = "  Ownership: "
-                .. ownership(store, record, character, realm, filterCharacter, filterRealm)
-            local lastCheck
-            for _, knownCharacter in ipairs(store:characters()) do
-                if matchesFilter(filterCharacter, filterRealm, knownCharacter.character, knownCharacter.realm) then
-                    for _, area in ipairs(storageAreas) do
-                        local state = store:area(knownCharacter.character, knownCharacter.realm, area)
-                        if state and (not lastCheck or state.seenAt >= lastCheck.seenAt) then
-                            local observation =
-                                latestObservation(record, knownCharacter.character, knownCharacter.realm, area)
-                            local quantity
-                            if state.complete then
-                                quantity = observation and observation.quantity or 0
-                            elseif observation and observation.seenAt == state.seenAt then
-                                quantity = observation.quantity
-                            end
-                            lastCheck = {
-                                seenAt = state.seenAt,
-                                quantity = quantity,
-                                character = knownCharacter.character,
-                                realm = knownCharacter.realm,
-                                area = area,
-                            }
-                        end
-                    end
-                end
-            end
+            local lastSeen = addon.LastSeen.project(
+                store,
+                record,
+                character,
+                realm,
+                { character = filterCharacter, realm = filterRealm }
+            )
+            lines[#lines + 1] = "  Ownership: " .. ownershipText(lastSeen)
+            local lastCheck = lastSeen.latestCheck
             if lastCheck then
                 lines[#lines + 1] = "  Latest area check "
                     .. (lastCheck.quantity or "Unknown")
@@ -208,7 +121,7 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                     .. " • "
                     .. lastCheck.area
                     .. " • "
-                    .. stamp(lastCheck.seenAt)
+                    .. stamp(lastCheck.at)
             end
             lines[#lines + 1] = "  First Seen "
                 .. stamp(record.firstSeen)
@@ -412,6 +325,7 @@ end
 ---@field category string
 ---@field loading? boolean
 ---@field ownership string
+---@field ownershipState 'present'|'unknown'|'historical'
 ---@field discoveredAt integer
 ---@field metadata AzerothLedgerItemMetadata
 ---@field recorded? integer
@@ -456,20 +370,21 @@ local function query(store, character, realm, filter, metadata, pause)
         local info = metadata and metadata(record) or { category = "Unknown", loading = true }
         local name = record.links[1]:match("%[([^%]]+)%]") or ("Item " .. record.itemID)
         local searchText = string.lower(name .. " " .. record.key .. " " .. table.concat(record.links, " "))
-        local status = ownership(store, record, character, realm, filter.character, filter.realm)
+        local lastSeen = addon.LastSeen.project(store, record, character, realm, filter)
+        local status = ownershipText(lastSeen)
         if
             matches
             and (filter.view ~= "Gallery" or info.gear == true or info.category == "Unknown")
             and placeMatches
             and (not filter.search or searchText:find(string.lower(filter.search), 1, true))
-            and (not filter.historical or status:find("Historical only", 1, true) == 1)
+            and (not filter.historical or lastSeen.state == "historical")
             and (not filter.foundOnce or (record.firstSeenUnits == 0 and record.totalGained == 1))
         then
             result.categories[info.category] = (result.categories[info.category] or 0) + 1
             result.matchedCount = result.matchedCount + 1
             if not filter.category or filter.category == info.category then
                 local scope = (filter.character or filter.realm)
-                    and Collection.inspect(store, record.key, character, realm, filter)
+                    and inspectRecord(store, record, character, realm, filter, lastSeen)
                 result.rows[#result.rows + 1] = {
                     key = record.key,
                     name = name,
@@ -477,6 +392,7 @@ local function query(store, character, realm, filter, metadata, pause)
                     category = info.category,
                     loading = info.loading,
                     ownership = status,
+                    ownershipState = lastSeen.state,
                     discoveredAt = (not filter.character and not filter.realm) and record.firstSeen or discoveredAt,
                     metadata = info,
                     recorded = not (filter.character or filter.realm) and (record.firstSeenUnits + record.totalGained)
@@ -565,6 +481,7 @@ end
 ---@field breakdown AzerothLedgerBreakdown
 ---@field links {link: string, count: integer}[]
 ---@field ownership string
+---@field ownershipState 'present'|'unknown'|'historical'
 ---@field evidence string
 ---@field firstSeen? integer
 ---@field lastSeen? integer
@@ -578,17 +495,14 @@ end
 ---@field checks {character: string, realm: string, area: string, quantity?: integer, at?: integer, online: boolean}[]
 
 ---@param store ALStore
----@param key string
+---@param record AzerothLedgerRecord
 ---@param character string
 ---@param realm string
----@param filter? AzerothLedgerCollectionFilter
+---@param filter AzerothLedgerCollectionFilter
+---@param lastSeen? ALLastSeen
 ---@return AzerothLedgerItemDetails?
-function Collection.inspect(store, key, character, realm, filter)
-    filter = filter or {}
-    local record = store:find(key)
-    if not record then
-        return nil
-    end
+inspectRecord = function(store, record, character, realm, filter, lastSeen)
+    lastSeen = lastSeen or addon.LastSeen.project(store, record, character, realm, filter)
     local strength = "Seen in storage"
     local firstGained, lastGained
     for _, gain in ipairs(record.gains) do
@@ -602,78 +516,44 @@ function Collection.inspect(store, key, character, realm, filter)
             end
         end
     end
-    local checks = {}
-    local firstSeen, lastSeen
-    local checkedUnits, firstChecked
-    local uncheckedAreas = 0
+    local firstSeen, lastSeenAt
     for _, seen in ipairs(record.characters) do
         if matchesFilter(filter.character, filter.realm, seen.name, seen.realm) then
             firstSeen = math.min(firstSeen or seen.firstSeen, seen.firstSeen)
-            lastSeen = math.max(lastSeen or seen.lastSeen, seen.lastSeen)
-            for _, observation in ipairs(record.observations) do
-                if
-                    observation.character == seen.name
-                    and observation.realm == seen.realm
-                    and observation.quantity > 0
-                then
-                    firstChecked = (firstChecked or 0) + observation.quantity
-                    break
-                end
-            end
-        end
-    end
-    for _, actor in ipairs(selectedCharacters(store, record, character, realm, filter.character, filter.realm)) do
-        for _, area in ipairs(storageAreas) do
-            local state = store:area(actor.name, actor.realm, area)
-            local observation = latestObservation(record, actor.name, actor.realm, area)
-            local quantity
-            if state and state.complete then
-                quantity = observation and observation.quantity or 0
-            elseif state and observation and observation.seenAt == state.seenAt then
-                quantity = observation.quantity
-            end
-            checks[#checks + 1] = {
-                character = actor.name,
-                realm = actor.realm,
-                area = area,
-                quantity = quantity,
-                at = state and state.seenAt,
-                online = actor.name == character and actor.realm == realm,
-            }
-        end
-    end
-    local checkedAt
-    for _, check in ipairs(checks) do
-        if check.at then
-            checkedAt = math.max(checkedAt or check.at, check.at)
-        end
-    end
-    for _, check in ipairs(checks) do
-        if check.at == checkedAt and check.quantity ~= nil then
-            checkedUnits = (checkedUnits or 0) + check.quantity
-        else
-            uncheckedAreas = uncheckedAreas + 1
+            lastSeenAt = math.max(lastSeenAt or seen.lastSeen, seen.lastSeen)
         end
     end
     return {
         record = record,
-        breakdown = assert(store:breakdown(key, filter)),
+        breakdown = assert(store:breakdown(record.key, filter)),
         links = addon.Item.linkGroups(record.links),
         firstSeen = firstSeen,
-        lastSeen = lastSeen,
+        lastSeen = lastSeenAt,
         firstGained = firstGained,
         lastGained = lastGained,
         scopeLabel = filter.character and (filter.character .. (filter.realm and ("-" .. filter.realm) or ""))
             or filter.realm
             or "Account",
-        checkedUnits = checkedUnits,
-        uncheckedAreas = uncheckedAreas,
-        checkedAt = checkedAt,
-        firstChecked = firstChecked,
+        checkedUnits = lastSeen.checkedUnits,
+        uncheckedAreas = lastSeen.uncheckedAreas,
+        checkedAt = lastSeen.checkedAt,
+        firstChecked = lastSeen.firstChecked,
         evidence = strength,
-        checks = checks,
-        ownership = ownership(store, record, character, realm, filter.character, filter.realm),
+        checks = lastSeen.checks,
+        ownership = ownershipText(lastSeen),
+        ownershipState = lastSeen.state,
     }
+end
+
+---@param store ALStore
+---@param key string
+---@param character string
+---@param realm string
+---@param filter? AzerothLedgerCollectionFilter
+---@return AzerothLedgerItemDetails?
+function Collection.inspect(store, key, character, realm, filter)
+    local record = store:find(key)
+    return record and inspectRecord(store, record, character, realm, filter or {}) or nil
 end
 
 ---@param store ALStore

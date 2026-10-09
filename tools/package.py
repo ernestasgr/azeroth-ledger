@@ -10,7 +10,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 ROOT = Path(__file__).resolve().parents[1]
 ADDON = ROOT / "AzerothLedger"
 TESTS = ROOT / "AzerothLedger_Tests"
-SOURCE_ORDER = ("Item.lua", "Work.lua", "Schema.lua", "Client.lua", "Scan.lua", "Loot.lua", "Reward.lua", "Vendor.lua", "Exchange.lua", "Collection.lua", "Presentation.lua", "Journal.lua", "BookWidgets.lua", "Book.lua", "Settings.lua", "Main.lua")
+SOURCE_ORDER = ("Item.lua", "Work.lua", "Schema.lua", "Client.lua", "Scan.lua", "Inventory.lua", "Loot.lua", "Reward.lua", "Vendor.lua", "Exchange.lua", "LastSeen.lua", "Collection.lua", "Presentation.lua", "Journal.lua", "BookWidgets.lua", "BookQuery.lua", "Book.lua", "Settings.lua", "Main.lua")
 
 
 def manifest_files(path: Path) -> list[str]:

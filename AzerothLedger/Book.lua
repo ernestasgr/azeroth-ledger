@@ -151,8 +151,8 @@ function details(book, key)
     Widgets.itemIcon(book.itemIcon, info.icon)
     book.itemLink = record.links[#record.links]
     book.ownership:SetText(model.ownership)
-    book.ownership:SetTextColor(unpack(model.ownership == "Present" and colors.green or colors.gold))
-    book.ownershipDot:SetColorTexture(unpack(model.ownership == "Present" and colors.green or colors.gold))
+    book.ownership:SetTextColor(unpack(model.ownershipState == "present" and colors.green or colors.gold))
+    book.ownershipDot:SetColorTexture(unpack(model.ownershipState == "present" and colors.green or colors.gold))
     book.recorded:SetText(
         book.detailsAccount and tostring(model.breakdown.recorded)
             or checkedQuantity(model.checkedUnits, model.uncheckedAreas)
@@ -346,67 +346,7 @@ local function renderBody(book, requestedKey)
     local journal = book.filter.view == "Journal"
     local gallery = book.filter.view == "Gallery"
     local size = pageSize(book)
-    local revision = book.store:revision()
-    if book.queryJob and not book.queryJob.done and book.queryStore == book.store then
-        revision = book.queryRevision
-    elseif book.metadataPending then
-        book.metadataRevision = (book.metadataRevision or 0) + 1
-        book.metadataPending = false
-    end
-    local fields = { tostring(revision), tostring(book.metadataRevision or 0), book.character, book.realm }
-    for _, name in ipairs({
-        "view",
-        "search",
-        "category",
-        "character",
-        "realm",
-        "historical",
-        "foundOnce",
-        "place",
-        "placeKind",
-    }) do
-        fields[#fields + 1] = tostring(book.filter[name])
-    end
-    local queryKey = table.concat(fields, "\031")
-    if book.queryKey ~= queryKey then
-        book.queryKey = queryKey
-        book.queryRevision, book.queryStore = revision, book.store
-        if journal then
-            book.queryJob = addon.Work.start(book.api, "Journal query", function(pause)
-                local rows = addon.Journal.query(book.store, book.filter.search, pause)
-                local bySequence, positions = {}, {}
-                for index, row in ipairs(rows) do
-                    row.record = book.store:find(row.key)
-                    row.metadata = addon.Client.itemMetadata(book.api, row.record)
-                    row.recorded = row.quantity
-                    bySequence[row.sequence], positions[row.sequence] = row, index
-                    pause()
-                end
-                return {
-                    rows = rows,
-                    categories = {},
-                    places = {},
-                    loading = 0,
-                    matchedCount = 0,
-                    discoveryCount = book.store:count(),
-                    bySequence = bySequence,
-                    positions = positions,
-                }
-            end)
-        else
-            book.queryJob = addon.Collection.startQuery(
-                book.api,
-                book.store,
-                book.character,
-                book.realm,
-                book.filter,
-                function(record)
-                    return addon.Client.itemMetadata(book.api, record)
-                end
-            )
-        end
-    end
-    local result = book.queryJob:step()
+    local result, pending = book.query:step(book.store, book.character, book.realm, book.filter)
     if not result then
         book.empty:SetText("Loading your Collection…")
         book.empty:Show()
@@ -534,7 +474,7 @@ local function renderBody(book, requestedKey)
         end
         selectItem(book, requestedKey or book.selected or (result.rows[1] and result.rows[1].key))
     end
-    book.dirty = not book.queryJob.done or book.queryRevision ~= book.store:revision() or book.metadataPending
+    book.dirty = pending
 end
 
 render = function(book, requestedKey)
@@ -758,6 +698,7 @@ local function create(api)
         categories = {},
         detailRows = {},
         filter = {},
+        query = addon.BookQuery.new(api),
         page = 1,
         scale = 1,
     }
@@ -1067,11 +1008,7 @@ local function create(api)
     end)
     frame:SetScript("OnEvent", function(_, event)
         if not event or event == "GET_ITEM_INFO_RECEIVED" or event == "ITEM_DATA_LOAD_RESULT" then
-            if book.queryJob and not book.queryJob.done then
-                book.metadataPending = true
-            else
-                book.metadataRevision = (book.metadataRevision or 0) + 1
-            end
+            book.query:metadataChanged()
         end
         book.dirty = true
         fit(book)
@@ -1112,9 +1049,6 @@ function Book.open(api, store, character, realm, filterCharacter, filterRealm)
             return nil
         end
         active = active or create(api)
-        if active.store ~= store then
-            active.queryKey = nil
-        end
         active.store, active.character, active.realm = store, character, realm
         active.filter.character, active.filter.realm = filterCharacter, filterRealm
         render(active)

@@ -9,10 +9,12 @@ for _, source in ipairs({
     "Reward",
     "Vendor",
     "Exchange",
+    "LastSeen",
     "Collection",
     "Presentation",
     "Journal",
     "BookWidgets",
+    "BookQuery",
     "Book",
     "Settings",
 }) do

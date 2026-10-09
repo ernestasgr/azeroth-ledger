@@ -1,5 +1,5 @@
 local addon = {}
-for _, name in ipairs({ "Item", "Work", "Schema", "Client", "Scan", "Collection" }) do
+for _, name in ipairs({ "Item", "Work", "Schema", "Client", "Scan", "LastSeen", "Collection" }) do
     assert(loadfile("AzerothLedger/" .. name .. ".lua"))("AzerothLedger", addon)
 end
 date = os.date
@@ -60,7 +60,7 @@ assert(restored:breakdown("20000:0").sources["Creature-0-0-0-0-10000-0"] == 2)
 assert(#restored:find("20000:0").links == 2)
 print("performance_spec: budgeted browsing and permanent facts passed")
 
-for _, name in ipairs({ "Journal", "BookWidgets", "Book" }) do
+for _, name in ipairs({ "Journal", "BookWidgets", "BookQuery", "Book" }) do
     assert(loadfile("AzerothLedger/" .. name .. ".lua"))("AzerothLedger", addon)
 end
 local native = assert(loadfile("tests/support/native_ui.lua"))().create()

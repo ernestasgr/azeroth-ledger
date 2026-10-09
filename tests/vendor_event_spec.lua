@@ -106,7 +106,9 @@ for _, source in ipairs({
     "Loot",
     "Reward",
     "Vendor",
+    "LastSeen",
     "Collection",
+    "Inventory",
     "Main",
 }) do
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
