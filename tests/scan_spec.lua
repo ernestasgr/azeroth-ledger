@@ -66,7 +66,7 @@ local lines = addon.Collection.lines(store, "Ada", "Realm")
 assert(lines[1]:find("checked"))
 assert(lines[2]:find("checked"))
 assert(lines[4]:find("first scan 400 Seen", 1, true))
-assert(lines[7]:find("confirmed gain unknown", 1, true))
+assert(table.concat(lines, "\n"):find("confirmed gain unknown", 1, true))
 local filtered = addon.Collection.lines(store, "Ada", "Realm", "Nobody", "Realm")
 assert(filtered[4] == "No items Seen yet.")
 

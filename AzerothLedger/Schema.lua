@@ -22,6 +22,7 @@ end
 ---@class AzerothLedgerAreaState
 ---@field seenAt integer
 ---@field complete boolean
+---@field lastCompleteAt? integer
 ---@field checkID? integer
 ---@field character? string
 ---@field realm? string
@@ -1981,7 +1982,13 @@ function Schema.open(raw, save)
         if type(state) ~= "table" or not isInteger(state.seenAt) or type(state.complete) ~= "boolean" then
             return nil
         end
-        return { seenAt = state.seenAt, complete = state.complete }
+        return {
+            seenAt = state.seenAt,
+            complete = state.complete,
+            lastCompleteAt = state.complete and state.seenAt
+                or (isInteger(state.lastCompleteAt) and state.lastCompleteAt <= state.seenAt and state.lastCompleteAt)
+                or nil,
+        }
     end
 
     function store.characters(_self)
@@ -4246,10 +4253,12 @@ function Schema.open(raw, save)
         for key, state in pairs(raw.areas) do
             nextAreas[key] = state
         end
+        local previousArea = store:area(snapshot.character, snapshot.realm, snapshot.area)
         nextAreas[scopeKey] = {
             seenAt = snapshot.seenAt,
             checkID = (type(oldScope) == "table" and oldScope.checkID or 0) + 1,
             complete = snapshot.complete,
+            lastCompleteAt = snapshot.complete and snapshot.seenAt or (previousArea and previousArea.lastCompleteAt),
             character = snapshot.character,
             realm = snapshot.realm,
         }

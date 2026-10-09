@@ -40,6 +40,12 @@ function Presentation.line(store, link, character, realm)
     if model.breakdown.sources.Unknown and model.breakdown.sources.Unknown > 0 then
         source = "Unknown"
     end
+    local observations = {}
+    for _, check in ipairs(model.checks) do
+        if check.observedQuantity ~= nil then
+            observations[#observations + 1] = addon.Collection.checkText(check)
+        end
+    end
     return "Azeroth Ledger: "
         .. table.concat(facts, ", ")
         .. " • gained "
@@ -48,6 +54,7 @@ function Presentation.line(store, link, character, realm)
         .. model.ownership
         .. " • source "
         .. source
+        .. (#observations > 0 and ("\n" .. table.concat(observations, "\n")) or "")
 end
 
 ---@param api table
