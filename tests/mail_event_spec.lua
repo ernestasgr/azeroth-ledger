@@ -124,10 +124,12 @@ local function mailbox(initial)
         "Schema",
         "Client",
         "Scan",
+        "Inventory",
         "Loot",
         "Reward",
         "Vendor",
         "Exchange",
+        "LastSeen",
         "Collection",
         "Journal",
         "Main",
@@ -551,4 +553,44 @@ state.bags = { { quantity = 1 } }
 state:event("MAIL_SUCCESS")
 state:event("BAG_UPDATE_DELAYED")
 assert(addon.store:find("4540:0").totalGained == 1, "disposed return must not reserve a later gain")
+-- Overlap protection lasts through a deferred scan, then releases for a fresh take.
+addon, state = mailbox()
+local timers = {}
+_G.C_Timer = {
+    After = function(_, callback)
+        timers[#timers + 1] = callback
+    end,
+}
+state.messages = {
+    { sender = "Cara-Realm", items = { { quantity = 1 } } },
+    { sender = "Dana-Realm", items = { { quantity = 1 } } },
+    { sender = "Eve-Realm", items = { { quantity = 1 } } },
+}
+state:event("MAIL_SHOW")
+_G.TakeInboxItem(1, 1)
+state.messages[1].items = {}
+state:event("MAIL_SUCCESS")
+_G.TakeInboxItem(2, 1)
+state.messages[2].items = {}
+state:event("MAIL_SUCCESS")
+state.bags = { { quantity = 2 } }
+state:event("BAG_UPDATE_DELAYED")
+assert(#timers == 1)
+_G.TakeInboxItem(3, 1)
+state.messages[3].items = {}
+state.bags = { { quantity = 3 } }
+state:event("MAIL_SUCCESS")
+timers[1]()
+assert(addon.store:find("4540:0").totalGained == 0, "queued scans must retain overlapping mail uncertainty")
+assert(#addon.store:exchangeUnresolved() == 3)
+state.messages = { { sender = "Faye-Realm", items = { { quantity = 1 } } } }
+state:event("MAIL_INBOX_UPDATE")
+_G.TakeInboxItem(1, 1)
+state.messages = {}
+state.bags = { { quantity = 4 } }
+state:event("MAIL_SUCCESS")
+state:event("BAG_UPDATE_DELAYED")
+timers[2]()
+assert(addon.store:find("4540:0").totalGained == 1, "completed flush must release a fresh independent take")
+_G.C_Timer = nil
 print("mail_event_spec: passed")

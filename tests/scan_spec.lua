@@ -3,6 +3,7 @@ assert(loadfile("AzerothLedger/Item.lua"))("AzerothLedger", addon)
 assert(loadfile("AzerothLedger/Work.lua"))("AzerothLedger", addon)
 assert(loadfile("AzerothLedger/Schema.lua"))("AzerothLedger", addon)
 assert(loadfile("AzerothLedger/Scan.lua"))("AzerothLedger", addon)
+assert(loadfile("AzerothLedger/LastSeen.lua"))("AzerothLedger", addon)
 assert(loadfile("AzerothLedger/Collection.lua"))("AzerothLedger", addon)
 date = os.date
 

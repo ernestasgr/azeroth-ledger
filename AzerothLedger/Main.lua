@@ -3,7 +3,6 @@ local addonName, addon = ...
 local REVISION = "0.11.5"
 local store
 local client = addon.Client.inspect(_G)
-local bankOpen = false
 local merchantOpen = false
 local lootCaptured = false
 local merchantName
@@ -23,9 +22,7 @@ local mailTake
 local mailTakeAmbiguous = false
 local mailAwaitingIDs
 local mailSendIDs
-local scanner = addon.Scan.reader(_G)
-local pendingBags, pendingEquipment = {}, {}
-local inventoryQueued = false
+local inventory
 
 local function updateMailProgress()
     if mailAwaitingIDs and store:mailProgress(mailAwaitingIDs) ~= "waiting" then
@@ -78,69 +75,20 @@ local function readMerchantName()
     return ok and type(name) == "string" and name ~= "" and name or nil
 end
 
-local function scan(area, checkedAt, affected)
-    local snapshot = scanner:capture(area, bankOpen, affected)
-    if snapshot then
-        if checkedAt then
-            snapshot.seenAt = checkedAt
-        end
-        store:scan(snapshot)
-        if area == "bags" and merchantOpen then
-            merchantSlots = addon.Vendor.slots(_G)
-        elseif area == "equipped" and merchantOpen then
-            merchantEquippedSlots = addon.Vendor.equippedSlots(_G)
-        end
-        addon.Collection.refresh(store, snapshot.character, snapshot.realm)
+inventory = addon.Inventory.new(_G, function(snapshot)
+    store:scan(snapshot)
+    if snapshot.area == "bags" and merchantOpen then
+        merchantSlots = addon.Vendor.slots(_G)
+    elseif snapshot.area == "equipped" and merchantOpen then
+        merchantEquippedSlots = addon.Vendor.equippedSlots(_G)
     end
-end
-
-local function flushInventoryBody()
-    inventoryQueued = false
-    local checkedAt = type(GetServerTime) == "function" and GetServerTime() or nil
-    local affected = next(pendingBags) and pendingBags or nil
-    scan("bags", checkedAt, affected)
-    scan("equipped", checkedAt, pendingEquipment)
-    local bankChanged = not affected or affected[-1]
-    for bag = 5, 11 do
-        bankChanged = bankChanged or (affected and affected[bag])
-    end
-    if bankOpen and bankChanged then
-        scan("bank", checkedAt, affected)
-    end
-    pendingBags, pendingEquipment = {}, {}
+    addon.Collection.refresh(store, snapshot.character, snapshot.realm)
+end, function()
     updateMailProgress()
     if not mailTake and not mailAwaitingIDs then
         mailTakeAmbiguous = false
     end
-end
-
-local function flushInventory()
-    addon.Work.measure(_G, "Inventory update", flushInventoryBody)
-end
-
-local function queueInventory()
-    if inventoryQueued then
-        return
-    end
-    inventoryQueued = true
-    if type(_G.C_Timer) == "table" and type(_G.C_Timer.After) == "function" then
-        _G.C_Timer.After(0, flushInventory)
-    else
-        flushInventory()
-    end
-end
-
-local function scanPossessions()
-    local checkedAt = type(GetServerTime) == "function" and GetServerTime() or nil
-    scan("bags", checkedAt)
-    scan("equipped", checkedAt)
-    return checkedAt
-end
-
-local function scanAll()
-    local checkedAt = scanPossessions()
-    scan("bank", checkedAt)
-end
+end)
 
 local function now()
     return type(GetServerTime) == "function" and GetServerTime() or nil
@@ -265,7 +213,7 @@ end
 local function exchangeConfirm(channel, direction, ids)
     local context = playerContext()
     if context and store:exchangeConfirm(channel, direction, context.at, context, ids) then
-        scan("bags")
+        inventory:check("bags")
     end
 end
 
@@ -430,14 +378,14 @@ local function rewardReceipt(receipt)
     end
     if store:rewardReceipt(receipt, context.at, context) then
         if receipt.method == "Quest" then
-            scanPossessions()
+            inventory:check("possessions")
         end
         addon.Collection.refresh(store, context.character, context.realm)
     end
 end
 
 local function questOffer()
-    scanPossessions()
+    inventory:check("possessions")
     local offer = addon.Reward.offer(_G)
     local context = playerContext()
     if not context then
@@ -525,7 +473,7 @@ SlashCmdList.AZEROTHLEDGER = function(message)
             print(label, "samples", timing.frames, "total", timing.total, "maximum", timing.maximum)
         end
     elseif message == "scan" then
-        scanAll()
+        inventory:check("all")
         print("Azeroth Ledger: readable storage checked")
     else
         local marker = message:match("^mark%s+(.+)$")
@@ -600,36 +548,25 @@ if client.frame then
             store:expireEvidence(eventAt)
         end
         if event == "PLAYER_LOGIN" then
-            scanAll()
+            inventory:check("all")
             printStatus()
-        elseif event == "BAG_UPDATE" then
-            local bag = ...
-            if type(bag) == "number" then
-                pendingBags[bag] = true
-            end
-        elseif event == "BAG_UPDATE_DELAYED" then
-            queueInventory()
-        elseif event == "PLAYER_EQUIPMENT_CHANGED" then
-            local slot = ...
-            if type(slot) == "number" then
-                pendingEquipment[slot] = true
-            end
-            queueInventory()
-        elseif event == "BANKFRAME_OPENED" then
-            bankOpen = true
-            scanAll()
-        elseif event == "BANKFRAME_CLOSED" then
-            bankOpen = false
-            scan("bank")
+        elseif
+            event == "BAG_UPDATE"
+            or event == "BAG_UPDATE_DELAYED"
+            or event == "PLAYER_EQUIPMENT_CHANGED"
+            or event == "BANKFRAME_OPENED"
+            or event == "BANKFRAME_CLOSED"
+        then
+            inventory:event(event, ...)
         elseif event == "MERCHANT_SHOW" then
             merchantOpen = true
             merchantName = readMerchantName()
-            scan("bags")
-            scan("equipped")
+            inventory:check("bags")
+            inventory:check("equipped")
             buybackItems = addon.Vendor.buybacks(_G)
         elseif event == "MERCHANT_CLOSED" then
-            scan("bags")
-            scan("equipped")
+            inventory:check("bags")
+            inventory:check("equipped")
             merchantOpen = false
             merchantName = nil
             merchantSlots = nil
@@ -642,7 +579,7 @@ if client.frame then
             mailTake = nil
             mailTakeAmbiguous = false
             mailSendIDs = nil
-            scan("bags")
+            inventory:check("bags")
             updateMailProgress()
             inboxItems = addon.Exchange.inbox(_G)
             outboxItems = addon.Exchange.outbox(_G)
@@ -680,7 +617,7 @@ if client.frame then
             if character and realm then
                 store:exchangeCancel("trade", { character = character, realm = realm })
             end
-            scan("bags")
+            inventory:check("bags")
             local getUnitName = rawget(_G, "GetUnitName")
             local ok, name = false, nil
             if type(getUnitName) == "function" then
@@ -728,14 +665,7 @@ if client.frame then
             lootMessage(...)
         elseif event == "GET_ITEM_INFO_RECEIVED" then
             local _, success = ...
-            if success then
-                for _, area in ipairs({ "bags", "equipped", "bank" }) do
-                    local unreadable = scanner:unreadable(area)
-                    if unreadable and (area ~= "bank" or bankOpen) then
-                        scan(area, nil, unreadable)
-                    end
-                end
-            end
+            inventory:event(event, success)
         elseif event == "QUEST_LOOT_RECEIVED" then
             rewardReceipt(addon.Reward.quest(_G, ...))
         elseif event == "QUEST_COMPLETE" then
@@ -744,7 +674,7 @@ if client.frame then
             local questID = ...
             local context = playerContext()
             if context and store:questTurnedIn(questID, context.at, context) then
-                scanPossessions()
+                inventory:check("possessions")
             end
         elseif event == "TRADE_SKILL_ITEM_CRAFTED_RESULT" then
             rewardReceipt(addon.Reward.craft(_G, ..., craftRecipeID))
