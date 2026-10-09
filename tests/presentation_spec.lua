@@ -1,4 +1,5 @@
 local addon = {}
+_G.date = os.date
 for _, source in ipairs({ "Item", "Work", "Schema", "LastSeen", "Collection", "Presentation", "Settings" }) do
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
 end

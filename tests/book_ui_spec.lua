@@ -331,4 +331,24 @@ frame.scripts.OnUpdate(frame, 0.1)
 find("0 activities")
 click("Collection")
 find("Bread", "Button")
+for _, area in ipairs({ "bags", "equipped", "bank" }) do
+    assert(store:scan({
+        character = "Ada",
+        realm = "A",
+        area = area,
+        complete = true,
+        seenAt = 4000,
+        items = area == "bank" and { { itemID = 4540, link = bread, quantity = 5 } } or {},
+    }))
+end
+assert(store:scan({ character = "Ada", realm = "A", area = "bank", complete = false, seenAt = 4100, items = {} }))
+addon.Collection.open(api, store, "Ada", "A", "Ada", "A")
+frame.scripts.OnUpdate(frame, 0.1)
+click("Bread")
+find("Unknown")
+find("Bank • Last observed")
+find("5")
+find(date("%d %b %Y  %H:%M", 4000))
+find("Current check")
+find(date("%d %b %Y  %H:%M", 4100))
 print("book_ui_spec: passed (native frame port replay; live client pending)")

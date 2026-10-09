@@ -55,7 +55,7 @@ function tests.LootDiscoveryWaitsForReceiptAndKeepsUnknownSource(_self)
     WoWUnit.AreEqual(1, #store:takeDiscoveries())
     WoWUnit.AreEqual(
         "Azeroth Ledger: Looted • gained 1 • ownership Present • source Unknown",
-        addon.Presentation.line(store, link, "Ada", "Realm")
+        addon.Presentation.line(store, link, "Ada", "Realm"):match("^[^\n]+")
     )
     store:lootReceipt({ key = key, quantity = 1 }, 1002, actor)
     WoWUnit.AreEqual(0, #store:takeDiscoveries())
@@ -84,7 +84,7 @@ function tests.RewardsDiscoverOnceWithZeroJournalRetention(_self)
         WoWUnit.AreEqual(0, #store:journal())
         WoWUnit.AreEqual(
             "Azeroth Ledger: Obtained (" .. method .. ") • gained 1 • ownership Present • source Proven reward",
-            addon.Presentation.line(store, link, "Ada", "Realm")
+            addon.Presentation.line(store, link, "Ada", "Realm"):match("^[^\n]+")
         )
     end
 end
@@ -213,13 +213,13 @@ function tests.TooltipUsesCommittedSeenAndObtainedFacts(_self)
     bags(1)
     WoWUnit.AreEqual(
         "Azeroth Ledger: Seen • gained 0 • ownership Present • source Unknown",
-        addon.Presentation.line(store, link, "Ada", "Realm")
+        addon.Presentation.line(store, link, "Ada", "Realm"):match("^[^\n]+")
     )
     purchase()
     bags(2)
     WoWUnit.AreEqual(
         "Azeroth Ledger: Seen, Obtained (Vendor) • gained 1 • ownership Present • source Unknown",
-        addon.Presentation.line(store, link, "Ada", "Realm")
+        addon.Presentation.line(store, link, "Ada", "Realm"):match("^[^\n]+")
     )
     WoWUnit.IsTrue(addon.Presentation.line(store, link, "Ben", "Realm"):find("ownership Unknown", 1, true) ~= nil)
     WoWUnit.AreEqual(nil, addon.Presentation.line(store, "item:4540", "Ada", "Realm"))

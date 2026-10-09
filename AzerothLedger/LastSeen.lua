@@ -18,10 +18,20 @@ local function observationFor(record, character, realm, area)
     return latest
 end
 
+---@class ALStorageCheck
+---@field character string
+---@field realm string
+---@field area string
+---@field quantity? integer
+---@field at? integer
+---@field online boolean
+---@field observedQuantity? integer
+---@field observedAt? integer
+
 ---@class ALLastSeen
 ---@field state 'present'|'unknown'|'historical'
 ---@field asOf? integer
----@field checks {character: string, realm: string, area: string, quantity?: integer, at?: integer, online: boolean}[]
+---@field checks ALStorageCheck[]
 ---@field checkedUnits? integer
 ---@field checkedAt? integer
 ---@field uncheckedAreas integer
@@ -97,7 +107,15 @@ function LastSeen.project(store, record, character, realm, scope)
                 quantity = quantity,
                 at = state and state.seenAt,
                 online = online,
+                observedQuantity = observation and observation.quantity,
+                observedAt = observation and observation.seenAt,
             }
+            -- A complete check also dates absence, even in storage where this
+            -- item has never been held. Unreadable attempts cannot renew it.
+            if state and state.lastCompleteAt and (not observation or state.lastCompleteAt >= observation.seenAt) then
+                check.observedQuantity = observation and observation.quantity or 0
+                check.observedAt = state.lastCompleteAt
+            end
             result.checks[#result.checks + 1] = check
             if check.at and (not result.checkedAt or check.at >= result.checkedAt) then
                 result.checkedAt = check.at
