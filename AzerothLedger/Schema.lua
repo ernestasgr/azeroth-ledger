@@ -120,6 +120,8 @@ end
 ---@field slots table<string, AzerothLedgerLootSessionSlot>
 ---@field credits table<string, integer>
 ---@field baselineQuantities table<string, integer>
+---@field baselinePossessions? table<string, integer>
+---@field baselineEquipmentUncertain? boolean
 ---@field baselineGains table<string, integer>
 ---@field receipts table<string, {quantity: integer, at: integer}>
 ---@field awarded table<string, integer>
@@ -599,6 +601,7 @@ local function validLootState(state)
             or type(session.slots) ~= "table"
             or type(session.receipts) ~= "table"
             or type(session.discoveries) ~= "table"
+            or (session.baselineEquipmentUncertain ~= nil and type(session.baselineEquipmentUncertain) ~= "boolean")
             or (session.closedAt ~= nil and not isInteger(session.closedAt))
             or (session.endedAt ~= nil and not isInteger(session.endedAt))
         then
@@ -609,6 +612,16 @@ local function validLootState(state)
                 return false
             end
             for key, quantity in pairs(session[name]) do
+                if type(key) ~= "string" or not isInteger(quantity) or quantity < 0 then
+                    return false
+                end
+            end
+        end
+        if session.baselinePossessions ~= nil then
+            if type(session.baselinePossessions) ~= "table" then
+                return false
+            end
+            for key, quantity in pairs(session.baselinePossessions) do
                 if type(key) ~= "string" or not isInteger(quantity) or quantity < 0 then
                     return false
                 end
@@ -1305,6 +1318,10 @@ function Schema.open(raw, save)
         return quantity
     end
 
+    local function possessionsQuantity(record, character, realm)
+        return priorQuantity(record, character, realm, "bags") + priorQuantity(record, character, realm, "equipped")
+    end
+
     local journalHealthy = readable and validJournal(raw.journal)
     local vendorHealthy = readable and (raw.vendor == nil or validVendorState(raw.vendor))
     local exchangeHealthy = readable and (raw.exchange == nil or validExchangeState(raw.exchange))
@@ -1400,16 +1417,18 @@ function Schema.open(raw, save)
         for key, record in pairs(fields.records or {}) do
             local before = valid[key]
             for _, session in ipairs(nextValue.loot and nextValue.loot.sessions or {}) do
+                if session.baselinePossessions and session.baselinePossessions[key] == nil then
+                    session.baselinePossessions[key] = possessionsQuantity(before, session.character, session.realm)
+                end
                 if session.baselineGains[key] == nil then
                     session.baselineGains[key] = before and before.totalGained or 0
-                    session.baselineQuantities[key] = priorQuantity(before, session.character, session.realm, "bags")
+                    session.baselineQuantities[key] = possessionsQuantity(before, session.character, session.realm)
                 end
             end
             for _, preparation in ipairs(nextValue.rewards and nextValue.rewards.preparations or {}) do
                 if not preparation.baseline[key] then
                     preparation.baseline[key] = {
-                        quantity = priorQuantity(before, preparation.character, preparation.realm, "bags")
-                            + priorQuantity(before, preparation.character, preparation.realm, "equipped"),
+                        quantity = possessionsQuantity(before, preparation.character, preparation.realm),
                         gained = before and before.totalGained or 0,
                         discovery = before == nil,
                     }
@@ -2207,6 +2226,9 @@ function Schema.open(raw, save)
     end
 
     local function award(session, key, records, at)
+        if session.baselineEquipmentUncertain then
+            return
+        end
         local receipt = session.receipts[key]
         local record = records[key] or valid[key]
         if type(receipt) ~= "table" or not isInteger(receipt.quantity) or not isInteger(receipt.at) or not record then
@@ -2340,12 +2362,20 @@ function Schema.open(raw, save)
             return false
         end
         local baselineQuantities = {}
+        local equipped = store:area(context.character, context.realm, "equipped")
+        local baselinePossessions = equipped and equipped.complete and equipped.seenAt == baseline.seenAt and {} or nil
         local baselineGains = {}
-        -- Only currently held and identified loot items need eager baselines.
-        for key in pairs(heldKeys(context.character, context.realm, "bags")) do
-            local record = valid[key]
-            baselineGains[key] = record.totalGained
-            baselineQuantities[key] = priorQuantity(record, context.character, context.realm, "bags")
+        -- Even an incomparable gear observation proves previously owned units.
+        -- Preserve them in the bag threshold without allowing gear-only credit.
+        for _, area in ipairs({ "bags", "equipped" }) do
+            for key in pairs(heldKeys(context.character, context.realm, area)) do
+                local record = valid[key]
+                baselineQuantities[key] = possessionsQuantity(record, context.character, context.realm)
+                baselineGains[key] = record.totalGained
+                if baselinePossessions then
+                    baselinePossessions[key] = baselineQuantities[key]
+                end
+            end
         end
         for key in pairs(slots) do
             baselineGains[key] = baselineGains[key] or (valid[key] and valid[key].totalGained or 0)
@@ -2381,6 +2411,8 @@ function Schema.open(raw, save)
             slots = slots,
             credits = {},
             baselineQuantities = baselineQuantities,
+            baselinePossessions = baselinePossessions,
+            baselineEquipmentUncertain = equipped and not baselinePossessions or nil,
             baselineGains = baselineGains,
             receipts = {},
             awarded = {},
@@ -2716,6 +2748,10 @@ function Schema.open(raw, save)
 
     local function bagQuantity(record, character, realm)
         return areaQuantity(record, character, realm, "bags")
+    end
+
+    local function checkedPossessions(record, character, realm, equipped)
+        return bagQuantity(record, character, realm) + (equipped and equipped.quantity or 0)
     end
 
     local function characterGained(record, character, realm)
@@ -3611,8 +3647,7 @@ function Schema.open(raw, save)
         for key in pairs(possessions) do
             local record = valid[key]
             baseline[key] = {
-                quantity = bagQuantity(record, actor.character, actor.realm)
-                    + areaQuantity(record, actor.character, actor.realm, "equipped"),
+                quantity = possessionsQuantity(record, actor.character, actor.realm),
                 gained = record.totalGained,
             }
         end
@@ -3987,13 +4022,28 @@ function Schema.open(raw, save)
                 and snapshot.complete
                 and rewardSessions(snapshot.seenAt)
             or {}
+        local session = (snapshot.area == "bags" or snapshot.area == "equipped") and activeSession(snapshot.seenAt)
+            or nil
+        if session and (session.character ~= snapshot.character or session.realm ~= snapshot.realm) then
+            session = nil
+        end
         for key, group in pairs(grouped) do
-            local session = snapshot.area == "bags" and snapshot.complete and activeSession(snapshot.seenAt) or nil
-            if session and (session.character ~= snapshot.character or session.realm ~= snapshot.realm) then
-                session = nil
+            if session and session.baselinePossessions and not valid[key] then
+                session.discoveries[key] = true
             end
-            if session and type(oldScope) == "table" and oldScope.complete and not unresolvedIdentity then
-                local baselineQuantity = isInteger(session.baselineQuantities[key]) and session.baselineQuantities[key]
+            if
+                session
+                and not session.baselineEquipmentUncertain
+                and snapshot.area == "bags"
+                and snapshot.complete
+                and type(oldScope) == "table"
+                and oldScope.complete
+                and not unresolvedIdentity
+            then
+                -- Bags alone prove a lower bound when they exceed all pre-loot
+                -- possessions, even if every previously equipped unit moved in.
+                local baselineQuantity = session.baselinePossessions and (session.baselinePossessions[key] or 0)
+                    or session.baselineQuantities[key]
                     or 0
                 local increase = group.quantity - baselineQuantity
                 if increase > 0 then
@@ -4071,7 +4121,7 @@ function Schema.open(raw, save)
                 previous.seenAt = snapshot.seenAt
             end
             nextRecords[key] = record
-            if session then
+            if session and snapshot.area == "bags" and snapshot.complete then
                 award(session, key, nextRecords, snapshot.seenAt)
             end
             if snapshot.area == "bags" and snapshot.complete and type(oldScope) == "table" and oldScope.complete then
@@ -4124,14 +4174,32 @@ function Schema.open(raw, save)
             and bagArea.complete
             and bagArea.seenAt == snapshot.seenAt
         then
+            -- The paired check follows the bag commit. Measure the whole
+            -- possession change so equipping cannot hide or invent a gain.
+            if session and session.baselinePossessions then
+                local keys = {}
+                for key in pairs(heldKeys(snapshot.character, snapshot.realm, "bags")) do
+                    keys[key] = true
+                end
+                for key in pairs(grouped) do
+                    keys[key] = true
+                end
+                for key in pairs(keys) do
+                    local record = nextRecords[key] or valid[key]
+                    local gear = grouped[key]
+                    local quantity = checkedPossessions(record, snapshot.character, snapshot.realm, gear)
+                    local increase = quantity - (session.baselinePossessions[key] or 0)
+                    session.credits[key] = math.max(session.credits[key] or 0, increase)
+                    award(session, key, nextRecords, snapshot.seenAt)
+                end
+            end
             local quantities = {}
             for _, reward in ipairs(activeRewards) do
                 if reward.questPreparationID then
                     local record = nextRecords[reward.key] or valid[reward.key]
                     local equipped = grouped[reward.key]
                     quantities[reward.key] = {
-                        quantity = bagQuantity(record, snapshot.character, snapshot.realm)
-                            + (equipped and equipped.quantity or 0),
+                        quantity = checkedPossessions(record, snapshot.character, snapshot.realm, equipped),
                     }
                 end
             end

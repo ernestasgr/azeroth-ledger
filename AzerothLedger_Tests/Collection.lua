@@ -6,6 +6,64 @@ local bear = "|Hitem:100:0:0:0:0:0:42:1:60:0:0:0:1:111|h[Sword]|h"
 local enchanted = "|Hitem:100:88:55:0:0:0:42:9:60:0:0:0:1:111|h[Sword]|h"
 local wolf = "|Hitem:100:0:0:0:0:0:43:1:60:0:0:0:1:111|h[Sword]|h"
 
+function tests.LootEquippedBeforeCheckingKeepsSourceSharesAndOneDiscovery(_self)
+    local saved
+    local store = addon.Schema.open(nil, function(value)
+        saved = value
+    end)
+    local key = addon.Item.key(bear, 100)
+    local actor = { character = "Ada", realm = "A", level = 12, place = "Durotar" }
+    local function scan(area, at, items)
+        WoWUnit.IsTrue(store:scan({
+            character = actor.character,
+            realm = actor.realm,
+            area = area,
+            seenAt = at,
+            complete = true,
+            items = items,
+        }))
+    end
+    scan("bags", 1000, {})
+    scan("equipped", 1000, {})
+    local first = { kind = "mob", guid = "Creature-0-1-1-1-1-001", name = "First mob" }
+    local second = { kind = "mob", guid = "Creature-0-1-1-1-2-002", name = "Second mob" }
+    WoWUnit.IsTrue(store:lootOpen({
+        character = actor.character,
+        realm = actor.realm,
+        level = actor.level,
+        place = actor.place,
+        at = 1001,
+        slots = {
+            { key = key, quantity = 1, source = first },
+            { key = key, quantity = 1, source = second },
+        },
+    }))
+    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 2 }, 1002, actor))
+    scan("bags", 1003, {})
+    scan("equipped", 1003, {
+        { itemID = 100, link = bear, quantity = 1 },
+        { itemID = 100, link = enchanted, quantity = 1 },
+    })
+    local breakdown = store:breakdown(key)
+    WoWUnit.AreEqual(0, breakdown.initial)
+    WoWUnit.AreEqual(2, breakdown.gained)
+    WoWUnit.AreEqual(2, breakdown.recorded)
+    WoWUnit.AreEqual(2, breakdown.methods.Looted)
+    WoWUnit.AreEqual(1, breakdown.sources["First mob"])
+    WoWUnit.AreEqual(1, breakdown.sources["Second mob"])
+    WoWUnit.AreEqual(1, #store:takeDiscoveries())
+    WoWUnit.AreEqual(2, #store:find(key).links)
+    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 2 }, 1004, actor))
+    scan("bags", 1005, { { itemID = 100, link = bear, quantity = 2 } })
+    scan("equipped", 1005, {})
+    WoWUnit.AreEqual(2, store:find(key).totalGained)
+    WoWUnit.AreEqual(0, #store:takeDiscoveries())
+    store = addon.Schema.open(saved, function() end)
+    WoWUnit.AreEqual("healthy", store:diagnostic().kind)
+    WoWUnit.AreEqual(2, store:find(key).totalGained)
+    WoWUnit.AreEqual(0, #store:takeDiscoveries())
+end
+
 function tests.ContainerSpawnsShareOneSourceTotalWithoutLosingTheirGUIDs(_self)
     local saved
     local store = addon.Schema.open(nil, function(value)
