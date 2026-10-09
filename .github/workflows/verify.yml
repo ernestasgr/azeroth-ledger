@@ -46,6 +46,7 @@ jobs:
           lua tests/scan_spec.lua
           lua tests/wowunit_replay_spec.lua
           lua tests/vendor_event_spec.lua
+          lua tests/mail_event_spec.lua
           lua tests/saved_variables_event_spec.lua
           lua tests/performance_spec.lua
           lua tests/architecture_spec.lua

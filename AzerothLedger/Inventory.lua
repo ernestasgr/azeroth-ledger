@@ -5,7 +5,8 @@ local Inventory = {}
 -- The consumer receives normalized snapshots; only the store persists them.
 ---@param api table
 ---@param publish fun(snapshot: AzerothLedgerSnapshot)
-function Inventory.new(api, publish)
+---@param afterFlush? fun()
+function Inventory.new(api, publish, afterFlush)
     local reader = addon.Scan.reader(api)
     local bankOpen, queued = false, false
     local pendingBags, pendingEquipment = {}, {}
@@ -54,6 +55,9 @@ function Inventory.new(api, publish)
             end
             if bankOpen and bankChanged then
                 capture("bank", at, affected)
+            end
+            if afterFlush then
+                afterFlush()
             end
         end)
     end

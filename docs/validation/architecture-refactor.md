@@ -65,3 +65,31 @@ records `enUS`. No WoW client was running during the local checks. Record a fres
   work, delayed quest rewards moved into gear, and unreadable items becoming
   readable.
 - Reload persistence and consistent list, details, and tooltip ownership text.
+
+## Main refresh: 9 October 2026
+
+Merged main at `e8bab8a` (mailbox fix #61) into the architecture branch.
+`Inventory` still owns scan coordination. Its optional completion callback runs
+once after each full queued flush, letting Main update mailbox progress and clear
+overlap protection at the same point as the mailbox fix. Immediate action
+baselines do not invoke the callback. `MAIL_SHOW` retains its explicit progress
+update after the bag baseline. The mailbox fixture now loads `Inventory` and
+`LastSeen` in production order.
+
+The architecture regression covers callback ordering and coalescing, including
+synchronous flushes. A production mailbox regression verifies that overlapping
+takes before a deferred flush remain unresolved and that a fresh take after the
+flush can count its uniquely proven gain.
+
+Local checks passed: Lua 5.1 syntax for 48 files, all 19 Lua behavior suites
+(including the 10,000-entry performance regression and WoWUnit replays), StyLua
+2.5.2, Luacheck 1.2.0, LuaLS 3.19.1, package/load order validation, and all three
+Python installer tests. Formatting was checked on an LF copy equivalent to the
+CI checkout.
+
+One account save opened as healthy schema 2 before installation. All 30
+TOC-listed addon and companion files were installed and separately hash-verified
+in Forever beta. The 15 protected SavedVariables and WoWUnit file hashes remained
+unchanged. Native-client checks, fresh build/locale, WoWUnit results, and Lua
+errors remain pending; this refresh was validated with host tests and installed
+file hashes.

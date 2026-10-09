@@ -191,18 +191,23 @@ local api = {
         end,
     },
 }
+local flushSizes = {}
 local inventory = addon.Inventory.new(api, function(snapshot)
     snapshots[#snapshots + 1] = snapshot
+end, function()
+    flushSizes[#flushSizes + 1] = #snapshots
 end)
 inventory:check("all")
+assert(#flushSizes == 0, "Immediate baselines must not complete a queued update")
 assert(snapshots[1].seenAt == snapshots[2].seenAt and snapshots[2].seenAt == snapshots[3].seenAt)
 assert(not snapshots[3].complete, "A closed bank must remain incomplete")
 snapshots, bagReads, gearReads = {}, {}, {}
 inventory:event("BAG_UPDATE", 0)
 inventory:event("BAG_UPDATE_DELAYED")
 inventory:event("PLAYER_EQUIPMENT_CHANGED", 16)
-assert(#timers == 1 and #snapshots == 0)
+assert(#timers == 1 and #snapshots == 0 and #flushSizes == 0)
 timers[1]()
+assert(#flushSizes == 1 and flushSizes[1] == 2, "Completion must follow both possession scans")
 assert(#snapshots == 2 and snapshots[1].seenAt == snapshots[2].seenAt)
 assert(bagReads[0] == 1 and bagReads[1] == nil and gearReads[16] == 1 and gearReads[15] == nil)
 
@@ -213,6 +218,7 @@ inventory:event("BAG_UPDATE_DELAYED")
 inventory:event("BANKFRAME_CLOSED")
 local beforeFlush = #snapshots
 timers[2]()
+assert(#flushSizes == 2 and flushSizes[2] == #snapshots)
 assert(#snapshots == beforeFlush + 2, "Queued work must not read a bank that has closed")
 assert(snapshots[beforeFlush].area == "bank" and not snapshots[beforeFlush].complete)
 
@@ -236,4 +242,5 @@ assert(snapshots[#snapshots].seenAt > immediateGear.seenAt)
 api.C_Timer = nil
 inventory:event("PLAYER_EQUIPMENT_CHANGED", 16)
 assert(snapshots[#snapshots - 1].seenAt == snapshots[#snapshots].seenAt)
+assert(#flushSizes == 4 and flushSizes[4] == #snapshots, "Synchronous flushes must also signal completion")
 print("architecture_spec: mixed bursts, bank access, retries, and immediate baselines passed")

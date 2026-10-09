@@ -1,6 +1,6 @@
 local addonName, addon = ...
 
-local REVISION = "0.11.4"
+local REVISION = "0.11.5"
 local store
 local client = addon.Client.inspect(_G)
 local merchantOpen = false
@@ -18,11 +18,17 @@ local tradeOpen = false
 local tradePrepared = false
 local tradePreparedIDs
 local tradePeer
-local mailTakeID
+local mailTake
 local mailTakeAmbiguous = false
-local mailAwaitingBag = false
+local mailAwaitingIDs
 local mailSendIDs
 local inventory
+
+local function updateMailProgress()
+    if mailAwaitingIDs and store:mailProgress(mailAwaitingIDs) ~= "waiting" then
+        mailAwaitingIDs = nil
+    end
+end
 
 local function initializeStore()
     if store then
@@ -77,6 +83,11 @@ inventory = addon.Inventory.new(_G, function(snapshot)
         merchantEquippedSlots = addon.Vendor.equippedSlots(_G)
     end
     addon.Collection.refresh(store, snapshot.character, snapshot.realm)
+end, function()
+    updateMailProgress()
+    if not mailTake and not mailAwaitingIDs then
+        mailTakeAmbiguous = false
+    end
 end)
 
 local function now()
@@ -217,32 +228,113 @@ local function hookExchange(method, callback)
     end
 end
 
-hookExchange("TakeInboxItem", function(index, attachment)
-    local intent = inboxItems and inboxItems[index .. ":" .. attachment]
-    if mailOpen and intent then
-        if mailTakeID or mailAwaitingBag then
-            mailTakeAmbiguous = true
-            local context = playerContext()
-            if context and mailTakeID then
-                store:exchangeMarkUnresolved(mailTakeID, context)
-            end
-            mailTakeID = nil
+local function abandonMailTake()
+    local context = playerContext()
+    if context and mailTake then
+        for _, intent in ipairs(mailTake.selected) do
+            store:exchangeMarkUnresolved(intent.id, context)
         end
-        if mailTakeAmbiguous then
-            local context = playerContext()
-            local id = exchangeIntent(intent)
-            if context and id then
-                store:exchangeMarkUnresolved(id, context)
-            end
-        else
-            mailTakeID = exchangeIntent(intent)
-        end
-        inboxItems[index .. ":" .. attachment] = nil
     end
+    mailTake = nil
+end
+
+local function abandonAwaitingMail()
+    local context = playerContext()
+    if context and mailAwaitingIDs then
+        for id in pairs(mailAwaitingIDs) do
+            store:exchangeMarkUnresolved(id, context)
+        end
+    end
+    mailAwaitingIDs = nil
+end
+
+local function takeMail(index, attachment)
+    if mailOpen and inboxItems then
+        updateMailProgress()
+        if mailTake and mailTake.progress and not mailAwaitingIDs then
+            abandonMailTake()
+        end
+        if mailTake or mailAwaitingIDs then
+            mailTakeAmbiguous = true
+            abandonMailTake()
+            abandonAwaitingMail()
+        end
+        local selected = {}
+        for slot = attachment or 1, attachment or 12 do
+            local intent = inboxItems[index .. ":" .. slot]
+            local id = intent and exchangeIntent(intent)
+            if id then
+                local captured = {}
+                for key, value in pairs(intent) do
+                    captured[key] = value
+                end
+                captured.id = id
+                selected[#selected + 1] = captured
+                if mailTakeAmbiguous then
+                    store:exchangeMarkUnresolved(id, playerContext())
+                end
+            end
+        end
+        if #selected > 0 and not mailTakeAmbiguous then
+            mailTake = { before = inboxItems, selected = selected, succeeded = false }
+        end
+    end
+end
+
+local function finishMailTake()
+    if not mailTake or not mailTake.succeeded or mailTakeAmbiguous then
+        return
+    end
+    local after = addon.Exchange.inbox(_G)
+    local ids = addon.Exchange.taken(mailTake.before, after, mailTake.selected)
+    if next(ids) then
+        exchangeConfirm("mail", "in", ids)
+        inboxItems = after
+        local remaining = {}
+        for _, intent in ipairs(mailTake.selected) do
+            if not ids[intent.id] then
+                remaining[#remaining + 1] = intent
+            end
+        end
+        mailTake.selected = remaining
+        mailTake.before = after
+        mailTake.progress = true
+        if #remaining == 0 then
+            mailTake = nil
+        end
+        if store:mailProgress(ids) == "waiting" then
+            mailAwaitingIDs = mailAwaitingIDs or {}
+            for id in pairs(ids) do
+                mailAwaitingIDs[id] = true
+            end
+        end
+    end
+end
+
+hookExchange("TakeInboxItem", takeMail)
+hookExchange("AutoLootMailItem", function(index)
+    takeMail(index)
 end)
+-- These actions also emit MAIL_SUCCESS; never let their success complete a take.
+for _, method in ipairs({ "TakeInboxMoney", "ReturnInboxItem", "DeleteInboxItem" }) do
+    if type(_G[method]) == "function" then
+        hookExchange(method, function()
+            if mailTake or mailAwaitingIDs then
+                mailTakeAmbiguous = true
+                abandonMailTake()
+                abandonAwaitingMail()
+            end
+        end)
+    end
+end
 hookExchange("SendMail", function(recipient)
     if not mailOpen then
         return
+    end
+    if mailTake or mailAwaitingIDs then
+        mailTakeAmbiguous = true
+        abandonMailTake()
+        abandonAwaitingMail()
     end
     local _, realm = identity()
     local peer = addon.Exchange.player(recipient, nil, realm)
@@ -427,6 +519,7 @@ if client.frame then
         "MAIL_INBOX_UPDATE",
         "MAIL_SEND_INFO_UPDATE",
         "MAIL_SEND_SUCCESS",
+        "MAIL_FAILED",
         "MAIL_SUCCESS",
         "TRADE_SHOW",
         "TRADE_ACCEPT_UPDATE",
@@ -457,12 +550,9 @@ if client.frame then
         if event == "PLAYER_LOGIN" then
             inventory:check("all")
             printStatus()
-        elseif event == "BAG_UPDATE_DELAYED" then
-            mailAwaitingBag = false
-            mailTakeAmbiguous = false
-            inventory:event(event)
         elseif
             event == "BAG_UPDATE"
+            or event == "BAG_UPDATE_DELAYED"
             or event == "PLAYER_EQUIPMENT_CHANGED"
             or event == "BANKFRAME_OPENED"
             or event == "BANKFRAME_CLOSED"
@@ -486,20 +576,21 @@ if client.frame then
             buybackItems = addon.Vendor.buybacks(_G)
         elseif event == "MAIL_SHOW" then
             mailOpen = true
-            mailTakeID = nil
+            mailTake = nil
             mailTakeAmbiguous = false
-            mailAwaitingBag = false
             mailSendIDs = nil
             inventory:check("bags")
+            updateMailProgress()
             inboxItems = addon.Exchange.inbox(_G)
             outboxItems = addon.Exchange.outbox(_G)
         elseif event == "MAIL_CLOSED" then
             mailOpen = false
             inboxItems = nil
             outboxItems = nil
-            mailTakeID = nil
+            abandonMailTake()
             mailSendIDs = nil
         elseif event == "MAIL_INBOX_UPDATE" then
+            finishMailTake()
             inboxItems = addon.Exchange.inbox(_G)
         elseif event == "MAIL_SEND_INFO_UPDATE" then
             outboxItems = addon.Exchange.outbox(_G)
@@ -509,11 +600,15 @@ if client.frame then
                 mailSendIDs = nil
             end
         elseif event == "MAIL_SUCCESS" then
-            if mailTakeID and not mailTakeAmbiguous then
-                exchangeConfirm("mail", "in", mailTakeID)
-                mailTakeID = nil
-                mailAwaitingBag = true
+            if mailTake and not mailTakeAmbiguous then
+                mailTake.succeeded = true
+                finishMailTake()
             end
+        elseif event == "MAIL_FAILED" then
+            abandonMailTake()
+            abandonAwaitingMail()
+            mailTakeAmbiguous = false
+            inboxItems = addon.Exchange.inbox(_G)
         elseif event == "TRADE_SHOW" then
             tradeOpen = true
             tradePrepared = false

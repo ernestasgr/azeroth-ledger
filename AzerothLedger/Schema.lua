@@ -22,6 +22,7 @@ end
 ---@class AzerothLedgerAreaState
 ---@field seenAt integer
 ---@field complete boolean
+---@field checkID? integer
 ---@field character? string
 ---@field realm? string
 
@@ -63,6 +64,7 @@ end
 ---@field place string
 ---@field placeKind? 'zone'|'dungeon'
 ---@field method 'Looted'|'Quest'|'Crafted'|'Vendor'|'Obtained'
+---@field mailKind? 'auction-purchase'
 ---@field refunded? integer
 ---@field source? AzerothLedgerLootSource|AzerothLedgerVendorSource|AzerothLedgerPlayerSource
 ---@field context? {kind: 'quest'|'recipe', id: integer, name?: string}
@@ -253,6 +255,7 @@ end
 ---@field quantity integer
 ---@field peerName? string
 ---@field peerRealm? string
+---@field mailKind? 'return'|'auction-purchase'|'unresolved'
 
 ---@class AzerothLedgerExchangeAction: AzerothLedgerExchangeIntent
 ---@field id integer
@@ -267,6 +270,10 @@ end
 ---@field discovery boolean
 ---@field confirmed boolean
 ---@field status 'pending'|'unresolved'|'settled'|'canceled'
+---@field transferred? integer
+---@field isTransfer? boolean
+---@field isReturn? boolean
+---@field baselineCheckID? integer
 
 ---@class AzerothLedgerExchangeActivity
 ---@field sequence? integer
@@ -380,6 +387,7 @@ end
 ---@field exchangeConfirm fun(self: ALStore, c: string, d: string, at: integer, a: ALActor, ids?: ALExIds): boolean
 ---@field exchangeCancel fun(self: AzerothLedgerStore, channel: 'mail'|'trade', actor: ALActor): boolean
 ---@field exchangeMarkUnresolved fun(self: AzerothLedgerStore, id: integer, actor: ALActor): boolean
+---@field mailProgress fun(self: AzerothLedgerStore, ids: table<integer, boolean>): 'waiting'|'measured'|'ended'
 ---@field exchangeActivity fun(self: AzerothLedgerStore): AzerothLedgerExchangeActivity[]
 ---@field exchangeUnresolved fun(self: AzerothLedgerStore): AzerothLedgerExchangeAction[]
 ---@field retention fun(self: ALStore): table<string, integer>
@@ -436,6 +444,10 @@ end
 
 local function isInteger(value)
     return type(value) == "number" and value ~= math.huge and value ~= -math.huge and value == math.floor(value)
+end
+
+local function validCheckID(value)
+    return value == nil or (isInteger(value) and value >= 1)
 end
 
 local function validRetention(value)
@@ -654,6 +666,7 @@ local function copyRecord(record)
             place = gain.place,
             placeKind = gain.placeKind,
             method = gain.method,
+            mailKind = gain.mailKind,
             refunded = gain.refunded,
             corrections = gain.corrections and copyArray(gain.corrections) or nil,
             source = gain.source and {
@@ -760,6 +773,7 @@ local function validRecord(key, record)
             or type(gain.place) ~= "string"
             or not validPlaceKind(gain.placeKind)
             or not gainMethods[gain.method]
+            or (gain.mailKind ~= nil and (gain.mailKind ~= "auction-purchase" or gain.method ~= "Obtained"))
             or not validRefunded(gain)
             or gainIDs[gain.id]
         then
@@ -1026,6 +1040,12 @@ local function validVendorState(vendor)
 end
 
 local exchangeStatuses = { pending = true, unresolved = true, settled = true, canceled = true }
+local mailKinds = { ["return"] = true, ["auction-purchase"] = true, unresolved = true }
+
+local function validMailKind(intent)
+    return intent.mailKind == nil
+        or (intent.channel == "mail" and intent.direction == "in" and mailKinds[intent.mailKind] == true)
+end
 
 local function validTransferred(action)
     local transferred = action.transferred
@@ -1071,7 +1091,10 @@ local function validExchangeState(exchange)
             or (action.peerName ~= nil and not isName(action.peerName))
             or (action.peerRealm ~= nil and not isName(action.peerRealm))
             or not validTransferred(action)
+            or not validCheckID(action.baselineCheckID)
             or (action.isTransfer ~= nil and type(action.isTransfer) ~= "boolean")
+            or (action.isReturn ~= nil and type(action.isReturn) ~= "boolean")
+            or not validMailKind(action)
         then
             return false
         end
@@ -1155,6 +1178,7 @@ function Schema.open(raw, save)
                 or type(state) ~= "table"
                 or not isInteger(state.seenAt)
                 or type(state.complete) ~= "boolean"
+                or not validCheckID(state.checkID)
                 or (state.character ~= nil and not isName(state.character))
                 or (state.realm ~= nil and not isName(state.realm))
             then
@@ -1812,6 +1836,9 @@ function Schema.open(raw, save)
                     end
                 else
                     local label = Schema.sourceText(source)
+                    if gain.mailKind == "auction-purchase" then
+                        label = "Auction purchase"
+                    end
                     if gain.context then
                         label = gain.context.name or (gain.context.kind .. " " .. gain.context.id)
                     end
@@ -2743,6 +2770,7 @@ function Schema.open(raw, save)
             or intent.quantity < 1
             or (intent.peerName ~= nil and not isName(intent.peerName))
             or (intent.peerRealm ~= nil and not isName(intent.peerRealm))
+            or not validMailKind(intent)
             or not isInteger(at)
             or type(actor) ~= "table"
             or not isName(actor.character)
@@ -2755,7 +2783,7 @@ function Schema.open(raw, save)
         end
         local scope = raw.areas[areaKey(actor.character, actor.realm, "bags")]
         local state = exchangeState()
-        if not state or type(scope) ~= "table" or not scope.complete then
+        if not state or type(scope) ~= "table" or not scope.complete or not validCheckID(scope.checkID) then
             return false
         end
         pruneExchange(state, at)
@@ -2770,6 +2798,7 @@ function Schema.open(raw, save)
             quantity = intent.quantity,
             peerName = intent.peerName,
             peerRealm = intent.peerRealm,
+            mailKind = intent.mailKind,
             at = at,
             character = actor.character,
             realm = actor.realm,
@@ -2778,6 +2807,7 @@ function Schema.open(raw, save)
             placeKind = actor.placeKind,
             baseline = bagQuantity(record, actor.character, actor.realm),
             baselineGained = characterGained(record, actor.character, actor.realm),
+            baselineCheckID = scope.checkID,
             discovery = record == nil,
             confirmed = false,
             status = "pending",
@@ -2876,7 +2906,7 @@ function Schema.open(raw, save)
         for _, action in ipairs(state.actions) do
             if
                 action.id == id
-                and action.status == "pending"
+                and (action.status == "pending" or action.status == "unresolved")
                 and action.character == actor.character
                 and action.realm == actor.realm
             then
@@ -2892,6 +2922,79 @@ function Schema.open(raw, save)
     function store.exchangeActivity(_self)
         local state = exchangeState()
         return state and copyArray(state.journal) or {}
+    end
+
+    -- Completion signals can arrive before possessions. Adapters keep these
+    -- actions separate until every selected unit has actually been measured.
+    function store.mailProgress(_self, ids)
+        local state = exchangeState()
+        if not state or type(ids) ~= "table" or not next(ids) then
+            return "ended"
+        end
+        local remaining, groups = {}, {}
+        for id in pairs(ids) do
+            remaining[id] = true
+        end
+        for _, action in ipairs(state.actions) do
+            if remaining[action.id] and action.confirmed and action.channel == "mail" and action.direction == "in" then
+                local scopeKey = areaKey(action.character, action.realm, "bags")
+                local groupKey = table.concat({
+                    scopeKey,
+                    action.key,
+                    action.baseline,
+                    action.baselineGained,
+                    tostring(action.baselineCheckID),
+                }, "\031")
+                local group = groups[groupKey]
+                    or {
+                        scopeKey = scopeKey,
+                        key = action.key,
+                        character = action.character,
+                        realm = action.realm,
+                        baseline = action.baseline,
+                        baselineGained = action.baselineGained,
+                        baselineCheckID = action.baselineCheckID,
+                        quantity = 0,
+                        at = action.at,
+                    }
+                groups[groupKey] = group
+                group.quantity = group.quantity + action.quantity
+                group.at = math.max(group.at, action.at)
+                remaining[action.id] = nil
+            end
+        end
+        if next(remaining) then
+            return "ended"
+        end
+        for _, group in pairs(groups) do
+            -- Earlier settled takes sharing this baseline already occupy part
+            -- of the increase; a later attachment cannot reuse those units.
+            for _, action in ipairs(state.actions) do
+                if
+                    not ids[action.id]
+                    and action.status == "settled"
+                    and action.direction == "in"
+                    and action.key == group.key
+                    and action.character == group.character
+                    and action.realm == group.realm
+                    and action.baseline == group.baseline
+                    and action.baselineGained == group.baselineGained
+                    and action.baselineCheckID == group.baselineCheckID
+                then
+                    group.quantity = group.quantity + action.quantity
+                end
+            end
+            local scope = raw.areas[group.scopeKey]
+            if
+                not scope
+                or not scope.complete
+                or scope.seenAt < group.at
+                or bagQuantity(valid[group.key], group.character, group.realm) < group.baseline + group.quantity
+            then
+                return "waiting"
+            end
+        end
+        return "measured"
     end
 
     function store.exchangeUnresolved(_self)
@@ -2937,6 +3040,7 @@ function Schema.open(raw, save)
                             and prior.character == action.character
                             and prior.realm == action.realm
                             and prior.baseline == action.baseline
+                            and prior.baselineCheckID == action.baselineCheckID
                         then
                             reserved = reserved + prior.quantity
                         end
@@ -2960,21 +3064,27 @@ function Schema.open(raw, save)
                         if
                             prior.id < action.id
                             and prior.status == "settled"
-                            and prior.isTransfer
+                            and (prior.isTransfer or prior.isReturn)
                             and prior.key == action.key
                             and prior.character == action.character
                             and prior.realm == action.realm
                             and prior.baseline == action.baseline
+                            and prior.baselineCheckID == action.baselineCheckID
                         then
                             reserved = reserved + prior.quantity
                         end
                     end
                     local quantity = math.min(action.quantity, delta - otherGains - reserved)
-                    if quantity > 0 and record then
+                    -- A removed mail attachment is a whole stack. A partial
+                    -- possessions update cannot identify its completed quantity.
+                    if action.channel == "mail" and quantity < action.quantity then
+                        action.status = "unresolved"
+                    elseif quantity > 0 and record then
+                        local playerExchange = action.mailKind == nil
                         local ownSender
                         local senderCandidates = 0
                         local senderKnown = false
-                        for _, character in ipairs(store:characters()) do
+                        for _, character in ipairs(playerExchange and store:characters() or {}) do
                             if
                                 character.character == action.peerName
                                 and (not action.peerRealm or character.realm == action.peerRealm)
@@ -3000,7 +3110,43 @@ function Schema.open(raw, save)
                                 end
                             end
                         end
-                        if not action.peerName then
+                        if action.mailKind == "return" then
+                            local returned, returnCandidates = nil, 0
+                            for _, outgoing in ipairs(state.actions) do
+                                if
+                                    outgoing.status == "settled"
+                                    and outgoing.direction == "out"
+                                    and outgoing.channel == "mail"
+                                    and outgoing.key == action.key
+                                    and outgoing.character == action.character
+                                    and outgoing.realm == action.realm
+                                    and outgoing.at <= action.at
+                                    and outgoing.quantity - (outgoing.transferred or 0) >= quantity
+                                    and (
+                                        (
+                                            action.peerName == outgoing.peerName
+                                            and (not action.peerRealm or action.peerRealm == outgoing.peerRealm)
+                                        )
+                                        or (
+                                            action.peerName == action.character
+                                            and (not action.peerRealm or action.peerRealm == action.realm)
+                                        )
+                                    )
+                                then
+                                    returned, returnCandidates = outgoing, returnCandidates + 1
+                                end
+                            end
+                            if returned and returnCandidates == 1 then
+                                returned.transferred = (returned.transferred or 0) + quantity
+                                action.isReturn = true
+                                action.quantity = quantity
+                                action.status = "settled"
+                            else
+                                action.status = "unresolved"
+                            end
+                        elseif action.mailKind == "unresolved" then
+                            action.status = "unresolved"
+                        elseif playerExchange and not action.peerName then
                             action.status = "unresolved"
                         elseif ownSender and senderCandidates == 1 then
                             ownSender.transferred = (ownSender.transferred or 0) + quantity
@@ -3033,10 +3179,12 @@ function Schema.open(raw, save)
                                 place = action.place,
                                 placeKind = action.placeKind,
                                 method = "Obtained",
-                                source = action.peerName
-                                        and action.peerRealm
-                                        and { kind = "player", name = action.peerName, realm = action.peerRealm }
-                                    or nil,
+                                mailKind = action.mailKind,
+                                source = playerExchange and action.peerName and action.peerRealm and {
+                                    kind = "player",
+                                    name = action.peerName,
+                                    realm = action.peerRealm,
+                                } or nil,
                             }
                             record.gains[#record.gains + 1] = gain
                             record.totalGained = record.totalGained + quantity
@@ -3752,6 +3900,9 @@ function Schema.open(raw, save)
             end
         end
         local priorScope = raw.areas[areaKey(snapshot.character, snapshot.realm, snapshot.area)]
+        if type(priorScope) == "table" and not validCheckID(priorScope.checkID) then
+            return false
+        end
         if type(priorScope) == "table" and isInteger(priorScope.seenAt) and snapshot.seenAt < priorScope.seenAt then
             return false
         end
@@ -4029,6 +4180,7 @@ function Schema.open(raw, save)
         end
         nextAreas[scopeKey] = {
             seenAt = snapshot.seenAt,
+            checkID = (type(oldScope) == "table" and oldScope.checkID or 0) + 1,
             complete = snapshot.complete,
             character = snapshot.character,
             realm = snapshot.realm,
