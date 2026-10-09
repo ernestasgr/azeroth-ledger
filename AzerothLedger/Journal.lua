@@ -6,6 +6,9 @@ local function actor(name, realm)
 end
 
 local function source(gain)
+    if gain.mailKind == "auction-purchase" then
+        return "Auction purchase"
+    end
     if gain.source then
         if gain.source.kind == "container" then
             return addon.Schema.sourceText(gain.source)
@@ -33,7 +36,9 @@ function Journal.query(store, search, pause)
             local first = row.contributions[1]
             row.quantity, row.refunded = 0, 0
             row.actors = actor(first.character, first.realm)
-            row.action = first.method == "Vendor" and "Purchase" or first.method
+            row.action = first.mailKind == "auction-purchase" and "Auction purchase"
+                or first.method == "Vendor" and "Purchase"
+                or first.method
             local evidence, seen = {}, {}
             for _, gain in ipairs(row.contributions) do
                 row.quantity = row.quantity + gain.quantity
