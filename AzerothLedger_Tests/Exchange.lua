@@ -140,7 +140,7 @@ function tests.ClientAdaptersReadAttachmentAndTradeQuantities(_self)
             return 1
         end,
         GetInboxHeaderInfo = function()
-            return nil, nil, "Cara-Realm"
+            return nil, nil, "Cara-Realm", nil, 0, 0, 30, 1, false, false, false, true
         end,
         GetInboxItemLink = function(_, slot)
             return slot == 1 and link or nil
@@ -275,4 +275,68 @@ function tests.SuccessConfirmsOnlySelectedAttachment(_self)
     WoWUnit.IsTrue(store:exchangeConfirm("mail", "in", 1002, actor("Ben", 1002), first))
     scan(store, "Ben", 1003, 2)
     WoWUnit.AreEqual(1, store:find(key).totalGained)
+end
+
+function tests.ReturnedOwnMailDoesNotAddGainsOrDiscoveries(_self)
+    local saved
+    local store = addon.Schema.open(nil, function(value)
+        saved = value
+    end)
+    scan(store, "Ada", 1100, 2)
+    intent(store, "Ada", 1101, "mail", "out", 2, "Cara")
+    confirm(store, "Ada", 1102, "mail", "out")
+    scan(store, "Ada", 1103, 0)
+    local returned = {
+        channel = "mail",
+        direction = "in",
+        key = key,
+        itemID = 159,
+        link = link,
+        quantity = 2,
+        peerName = "Cara",
+        peerRealm = "Realm",
+        mailKind = "return",
+    }
+    WoWUnit.IsTrue(store:exchangeIntent(returned, 1104, actor("Ada", 1104)))
+    confirm(store, "Ada", 1105, "mail", "in")
+    scan(store, "Ada", 1106, 2)
+    WoWUnit.AreEqual(0, store:find(key).totalGained)
+    WoWUnit.AreEqual(2, store:breakdown(key).recorded)
+    WoWUnit.AreEqual(0, #store:exchangeActivity())
+    WoWUnit.AreEqual(nil, store:find(key).evidencedDiscovery)
+    WoWUnit.AreEqual("healthy", addon.Schema.open(saved, function() end):diagnostic().kind)
+    -- The same outgoing units cannot prove a second return.
+    scan(store, "Ada", 1107, 0)
+    WoWUnit.IsTrue(store:exchangeIntent(returned, 1108, actor("Ada", 1108)))
+    confirm(store, "Ada", 1109, "mail", "in")
+    scan(store, "Ada", 1110, 2)
+    WoWUnit.AreEqual(0, store:find(key).totalGained)
+    WoWUnit.AreEqual(1, #store:exchangeUnresolved())
+end
+
+function tests.AuctionBuyerInvoiceCountsAndUnprovenReturnStaysUnresolved(_self)
+    local store = addon.Schema.open(nil, function() end)
+    scan(store, "Ben", 1200, 0)
+    local entry = {
+        channel = "mail",
+        direction = "in",
+        key = key,
+        itemID = 159,
+        link = link,
+        quantity = 1,
+        mailKind = "auction-purchase",
+    }
+    WoWUnit.IsTrue(store:exchangeIntent(entry, 1201, actor("Ben", 1201)))
+    confirm(store, "Ben", 1202, "mail", "in")
+    scan(store, "Ben", 1203, 1)
+    WoWUnit.AreEqual(1, store:find(key).totalGained)
+    WoWUnit.AreEqual("auction-purchase", store:find(key).gains[1].mailKind)
+    WoWUnit.AreEqual(nil, store:find(key).gains[1].source)
+    entry.mailKind = "return"
+    entry.peerName = "Cara"
+    WoWUnit.IsTrue(store:exchangeIntent(entry, 1204, actor("Ben", 1204)))
+    confirm(store, "Ben", 1205, "mail", "in")
+    scan(store, "Ben", 1206, 2)
+    WoWUnit.AreEqual(1, store:find(key).totalGained)
+    WoWUnit.AreEqual(1, #store:exchangeUnresolved())
 end
