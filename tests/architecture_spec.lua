@@ -113,7 +113,10 @@ print("architecture_spec: query invalidation during work and cached results pass
 -- historical filtering uses classification rather than display wording.
 local link = "|Hitem:4540::::::::|h[Tough Hunk of Bread]|h"
 local key = "4540:0"
-local ownershipStore = addon.Schema.open(nil, function() end)
+local ownershipSaved
+local ownershipStore = addon.Schema.open(nil, function(value)
+    ownershipSaved = value
+end)
 local function scan(character, area, at, complete, quantity)
     assert(ownershipStore:scan({
         character = character,
@@ -156,6 +159,81 @@ assert(offline.checkedUnits == 1 and offline.ownershipState == "unknown")
 local empty = addon.LastSeen.project(ownershipStore, ownershipStore:find(key), "Ada", "Realm", { realm = "Absent" })
 assert(empty.state == "unknown" and empty.checkedUnits == nil)
 print("architecture_spec: list, details, text, tooltip, and historical filter agree")
+
+-- A failed check must retain the last readable bank fact with its own date.
+scan("Ada", "bags", 4000, true, 0)
+scan("Ada", "equipped", 4000, true, 0)
+scan("Ada", "bank", 4000, true, 5)
+scan("Ada", "bank", 4001, false, 0)
+local closed = addon.Collection.inspect(ownershipStore, key, "Ada", "Realm", { character = "Ada" })
+assert(closed.ownershipState == "unknown")
+local bank = closed.checks[2]
+assert(bank.quantity == nil and bank.at == 4001)
+assert(bank.observedQuantity == 5 and bank.observedAt == 4000, "Closing the bank hid its dated five-unit observation")
+local datedBank = "Ada-Realm • Bank: last observed 5 at " .. date("%Y-%m-%d %H:%M", 4000)
+for _, text in ipairs({
+    table.concat(addon.Collection.lines(ownershipStore, "Ada", "Realm", "Ada"), "\n"),
+    table.concat(addon.Collection.details(ownershipStore, key, "Ada", "Realm", { character = "Ada" }), "\n"),
+    addon.Presentation.line(ownershipStore, link, "Ada", "Realm"),
+}) do
+    assert(text:find(datedBank, 1, true), "A reader hid the dated bank observation: " .. text)
+    assert(text:find("current ownership Unknown", 1, true))
+end
+print("architecture_spec: dated bank observation survives closure")
+
+scan("Ada", "bank", 4010, true, 2)
+local reopened = addon.Collection.inspect(ownershipStore, key, "Ada", "Realm", { character = "Ada" })
+assert(reopened.ownershipState == "present" and reopened.checks[2].observedQuantity == 2)
+assert(reopened.checks[2].observedAt == 4010)
+scan("Ada", "bank", 4020, true, 0)
+scan("Ada", "bank", 4021, true, 0)
+scan("Ada", "bank", 4022, false, 0)
+local absent = addon.Collection.inspect(ownershipStore, key, "Ada", "Realm", { character = "Ada" })
+assert(absent.ownershipState == "unknown" and absent.checks[2].quantity == nil)
+assert(
+    absent.checks[2].observedQuantity == 0 and absent.checks[2].observedAt == 4021,
+    "The latest complete zero check must survive an unreadable attempt"
+)
+local restoredOwnership = addon.Schema.open(ownershipSaved, function() end)
+local restoredAbsent = addon.Collection.inspect(restoredOwnership, key, "Ada", "Realm", { character = "Ada" })
+assert(restoredAbsent.checks[2].observedQuantity == 0 and restoredAbsent.checks[2].observedAt == 4021)
+assert(restoredAbsent.checkedUnits == nil, "A saved stale zero must not become current stock")
+scan("Ada", "bank", 4023, false, 3)
+local partial = addon.Collection.inspect(ownershipStore, key, "Ada", "Realm", { character = "Ada" })
+assert(partial.ownershipState == "present" and partial.checks[2].observedQuantity == 3)
+assert(partial.checks[2].observedAt == 4023)
+scan("Ada", "bank", 4024, false, 0)
+partial = addon.Collection.inspect(ownershipStore, key, "Ada", "Realm", { character = "Ada" })
+assert(partial.ownershipState == "unknown" and partial.checkedUnits == nil)
+assert(partial.checks[2].observedQuantity == 3 and partial.checks[2].observedAt == 4023)
+local offlineBank = addon.Collection.inspect(ownershipStore, key, "Ben", "Realm", { character = "Ada" })
+assert(offlineBank.ownershipState == "unknown" and not offlineBank.checks[2].online)
+assert(offlineBank.checks[2].observedQuantity == 3 and offlineBank.checks[2].observedAt == 4023)
+local scopedRows = addon.Collection.query(ownershipStore, "Ada", "Realm", { character = "Ada" }).rows
+assert(scopedRows[1].ownershipState == partial.ownershipState and scopedRows[1].checkedUnits == nil)
+for _, area in ipairs({ "bags", "bank", "equipped" }) do
+    scan("Ada", area, 4030, true, 0)
+end
+local completeAbsence = addon.Collection.inspect(ownershipStore, key, "Ada", "Realm", { character = "Ada" })
+assert(completeAbsence.ownershipState == "historical" and completeAbsence.checkedUnits == 0)
+for _, check in ipairs(completeAbsence.checks) do
+    assert(check.observedQuantity == 0 and check.observedAt == 4030)
+end
+-- Bank stock never seen on Ben still has a readable zero, preserved on closure.
+scan("Ben", "bank", 4040, true, 0)
+scan("Ben", "bank", 4041, false, 0)
+local neverHeld = addon.Collection.inspect(ownershipStore, key, "Ada", "Realm", { character = "Ben" })
+assert(neverHeld.checks[2].observedQuantity == 0 and neverHeld.checks[2].observedAt == 4040)
+assert(neverHeld.checks[2].quantity == nil and neverHeld.ownershipState == "unknown")
+scan("Cara", "bank", 4050, true, 0)
+scan("Cara", "bank", 4051, false, 0)
+local neverSeenText =
+    table.concat(addon.Collection.details(ownershipStore, key, "Ada", "Realm", { character = "Cara" }), "\n")
+assert(
+    neverSeenText:find("Cara-Realm • Bank: last observed 0 at " .. date("%Y-%m-%d %H:%M", 4050), 1, true),
+    "Text details hid an observed zero on a character who never held the item"
+)
+print("architecture_spec: changed stock, partial/offline checks, persisted zero, and complete absence passed")
 
 -- Drive the scan adapter without addon bootstrap. Use a clock that advances on
 -- every read to prove that comparable areas still share the coordinator's date.

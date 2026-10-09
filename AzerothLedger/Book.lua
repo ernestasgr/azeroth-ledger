@@ -260,7 +260,7 @@ function details(book, key)
     end
     breakdown("How it was recorded", model.breakdown.methods)
     breakdown("Recorded sources", model.breakdown.sources)
-    write("section", "Last checked")
+    write("section", "Last observed & current checks")
     local lastCharacter
     local areas = { bags = "Bags", bank = "Bank", equipped = "Equipped" }
     for _, check in ipairs(model.checks) do
@@ -269,7 +269,13 @@ function details(book, key)
             write("note", actor .. (not check.online and " • Offline; current ownership unknown" or ""))
             lastCharacter = actor
         end
-        write("pair", areas[check.area], check.quantity and tostring(check.quantity) or "Unknown")
+        write(
+            "pair",
+            areas[check.area] .. " • Last observed",
+            check.observedQuantity ~= nil and tostring(check.observedQuantity) or "Unknown"
+        )
+        write("date", "Observed", check.observedAt and stamp(check.observedAt) or "Never observed")
+        write("pair", "Current check", check.quantity ~= nil and tostring(check.quantity) or "Unknown")
         write("date", "Checked", check.at and stamp(check.at) or "Never checked")
     end
     write("section", "Strongest evidence")

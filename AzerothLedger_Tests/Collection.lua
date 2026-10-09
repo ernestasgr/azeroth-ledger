@@ -289,6 +289,56 @@ local function metadata(record)
     return { category = record.itemID == 100 and "Weapons" or "Materials" }
 end
 
+function tests.DatedBankStockSurvivesClosureAndOfflineScopeWithoutBecomingCurrent(_self)
+    local saved
+    local store = addon.Schema.open(nil, function(value)
+        saved = value
+    end)
+    local function scan(area, at, complete, quantity)
+        WoWUnit.IsTrue(store:scan({
+            character = "Ada",
+            realm = "A",
+            area = area,
+            seenAt = at,
+            complete = complete,
+            items = quantity > 0 and { { itemID = 2672, link = meat, quantity = quantity } } or {},
+        }))
+    end
+    scan("bags", 4000, true, 0)
+    scan("equipped", 4000, true, 0)
+    scan("bank", 4000, true, 5)
+    scan("bank", 4001, false, 0)
+    local filter = { character = "Ada", realm = "A" }
+    local detail = addon.Collection.inspect(store, "2672:0", "Ada", "A", filter)
+    WoWUnit.AreEqual("unknown", detail.ownershipState)
+    WoWUnit.AreEqual(nil, detail.checkedUnits)
+    WoWUnit.AreEqual(nil, detail.checks[2].quantity)
+    WoWUnit.AreEqual(4001, detail.checks[2].at)
+    WoWUnit.AreEqual(5, detail.checks[2].observedQuantity)
+    WoWUnit.AreEqual(4000, detail.checks[2].observedAt)
+    local text = table.concat(addon.Collection.details(store, "2672:0", "Ben", "A", filter), "\n")
+    WoWUnit.IsTrue(text:find("Ada-A • Bank: last observed 5 at " .. date("%Y-%m-%d %H:%M", 4000), 1, true) ~= nil)
+    WoWUnit.IsTrue(text:find("offline; current ownership Unknown", 1, true) ~= nil)
+    scan("bank", 4002, true, 2)
+    detail = addon.Collection.inspect(store, "2672:0", "Ada", "A", filter)
+    WoWUnit.AreEqual(2, detail.checks[2].observedQuantity)
+    WoWUnit.AreEqual(4002, detail.checks[2].observedAt)
+    scan("bank", 4003, true, 0)
+    scan("bank", 4004, true, 0)
+    scan("bank", 4005, false, 0)
+    store = addon.Schema.open(saved, function() end)
+    detail = addon.Collection.inspect(store, "2672:0", "Ada", "A", filter)
+    WoWUnit.AreEqual(0, detail.checks[2].observedQuantity)
+    WoWUnit.AreEqual(4004, detail.checks[2].observedAt)
+    WoWUnit.AreEqual("unknown", detail.ownershipState)
+    for _, area in ipairs({ "bags", "bank", "equipped" }) do
+        scan(area, 4006, true, 0)
+    end
+    detail = addon.Collection.inspect(store, "2672:0", "Ada", "A", filter)
+    WoWUnit.AreEqual("historical", detail.ownershipState)
+    WoWUnit.AreEqual(0, detail.checkedUnits)
+end
+
 function tests.GalleryKeepsVariantsAndSavedLinksWithinCharacterScopeWithoutWriting(_self)
     local store, _, writes = fixture()
     local before = writes()

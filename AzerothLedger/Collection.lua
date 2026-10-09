@@ -24,6 +24,28 @@ local function contextText(context)
 end
 
 local storageAreas = { "bags", "bank", "equipped" }
+local storageLabels = { bags = "Bags", bank = "Bank", equipped = "Equipped" }
+
+---@param check ALStorageCheck
+---@return string
+function Collection.checkText(check)
+    return check.character
+        .. "-"
+        .. check.realm
+        .. " • "
+        .. storageLabels[check.area]
+        .. ": "
+        .. (check.observedQuantity ~= nil and ("last observed " .. check.observedQuantity .. " at " .. stamp(
+            check.observedAt
+        )) or "never observed")
+        .. "; latest check "
+        .. (check.quantity or "Unknown")
+        .. (check.at and (" at " .. stamp(check.at)) or "; never checked")
+        .. (
+            not check.online and " (offline; current ownership Unknown)"
+            or (check.quantity == nil and "; current ownership Unknown" or "")
+        )
+end
 
 local inspectRecord
 
@@ -110,6 +132,9 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                 { character = filterCharacter, realm = filterRealm }
             )
             lines[#lines + 1] = "  Ownership: " .. ownershipText(lastSeen)
+            for _, check in ipairs(lastSeen.checks) do
+                lines[#lines + 1] = "  " .. Collection.checkText(check)
+            end
             local lastCheck = lastSeen.latestCheck
             if lastCheck then
                 lines[#lines + 1] = "  Latest area check "
@@ -492,7 +517,7 @@ end
 ---@field uncheckedAreas integer
 ---@field checkedAt? integer
 ---@field firstChecked? integer
----@field checks {character: string, realm: string, area: string, quantity?: integer, at?: integer, online: boolean}[]
+---@field checks ALStorageCheck[]
 
 ---@param store ALStore
 ---@param record AzerothLedgerRecord
@@ -599,8 +624,10 @@ function Collection.details(store, key, character, realm, filter)
         end
     end
     lines[#lines + 1] = "Ownership: " .. model.ownership
+    local describedActors = {}
     for _, seen in ipairs(record.characters) do
         if matchesFilter(filter.character, filter.realm, seen.name, seen.realm) then
+            describedActors[seen.name .. "-" .. seen.realm] = true
             lines[#lines + 1] = seen.name
                 .. "-"
                 .. seen.realm
@@ -610,14 +637,20 @@ function Collection.details(store, key, character, realm, filter)
                 .. stamp(seen.lastSeen)
             for _, check in ipairs(model.checks) do
                 if check.character == seen.name and check.realm == seen.realm then
-                    lines[#lines + 1] = "  "
-                        .. check.area
-                        .. ": "
-                        .. (check.quantity or "Unknown")
-                        .. (check.at and (" checked " .. stamp(check.at)) or "; never checked")
-                        .. (not check.online and " (offline; current ownership Unknown)" or "")
+                    lines[#lines + 1] = "  " .. Collection.checkText(check)
                 end
             end
+        end
+    end
+    local additionalActors = {}
+    for _, check in ipairs(model.checks) do
+        local actor = check.character .. "-" .. check.realm
+        if not describedActors[actor] then
+            if not additionalActors[actor] then
+                lines[#lines + 1] = actor .. (not check.online and " • Offline; current ownership unknown" or "")
+                additionalActors[actor] = true
+            end
+            lines[#lines + 1] = "  " .. Collection.checkText(check)
         end
     end
     return lines
