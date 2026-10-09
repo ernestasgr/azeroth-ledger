@@ -225,6 +225,14 @@ scan("Ben", "bank", 4041, false, 0)
 local neverHeld = addon.Collection.inspect(ownershipStore, key, "Ada", "Realm", { character = "Ben" })
 assert(neverHeld.checks[2].observedQuantity == 0 and neverHeld.checks[2].observedAt == 4040)
 assert(neverHeld.checks[2].quantity == nil and neverHeld.ownershipState == "unknown")
+scan("Cara", "bank", 4050, true, 0)
+scan("Cara", "bank", 4051, false, 0)
+local neverSeenText =
+    table.concat(addon.Collection.details(ownershipStore, key, "Ada", "Realm", { character = "Cara" }), "\n")
+assert(
+    neverSeenText:find("Cara-Realm • Bank: last observed 0 at " .. date("%Y-%m-%d %H:%M", 4050), 1, true),
+    "Text details hid an observed zero on a character who never held the item"
+)
 print("architecture_spec: changed stock, partial/offline checks, persisted zero, and complete absence passed")
 
 -- Drive the scan adapter without addon bootstrap. Use a clock that advances on

@@ -624,8 +624,10 @@ function Collection.details(store, key, character, realm, filter)
         end
     end
     lines[#lines + 1] = "Ownership: " .. model.ownership
+    local describedActors = {}
     for _, seen in ipairs(record.characters) do
         if matchesFilter(filter.character, filter.realm, seen.name, seen.realm) then
+            describedActors[seen.name .. "-" .. seen.realm] = true
             lines[#lines + 1] = seen.name
                 .. "-"
                 .. seen.realm
@@ -638,6 +640,17 @@ function Collection.details(store, key, character, realm, filter)
                     lines[#lines + 1] = "  " .. Collection.checkText(check)
                 end
             end
+        end
+    end
+    local additionalActors = {}
+    for _, check in ipairs(model.checks) do
+        local actor = check.character .. "-" .. check.realm
+        if not describedActors[actor] then
+            if not additionalActors[actor] then
+                lines[#lines + 1] = actor .. (not check.online and " • Offline; current ownership unknown" or "")
+                additionalActors[actor] = true
+            end
+            lines[#lines + 1] = "  " .. Collection.checkText(check)
         end
     end
     return lines
