@@ -39,7 +39,7 @@ end
 ---@field latestCheck? {character: string, realm: string, area: string, quantity?: integer, at: integer}
 
 ---@param store ALStore
----@param record AzerothLedgerRecord
+---@param record AzerothLedgerRecord|ALRecordDescription
 ---@param character string
 ---@param realm string
 ---@param scope? AzerothLedgerCollectionFilter

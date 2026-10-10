@@ -47,7 +47,7 @@ function Journal.query(store, filter, pause)
         return not filter.action or filter.action == action
     end
     for _, row in ipairs(store:journal(pause)) do
-        local record = store:find(row.key)
+        local record = store:describe(row.key)
         row.link = record and record.links[#record.links] or nil
         row.name = row.link and row.link:match("%[([^%]]+)%]") or "Unknown item"
         local scopeMatches = false

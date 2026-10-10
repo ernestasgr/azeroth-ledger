@@ -222,6 +222,8 @@ local function ownershipText(lastSeen)
     return "Historical only as of " .. stamp(lastSeen.asOf)
 end
 
+Collection.ownershipText = ownershipText
+
 ---@param store AzerothLedgerStore
 ---@param character string
 ---@param realm string
@@ -543,7 +545,12 @@ local function query(store, character, realm, filter, metadata, pause)
     local result =
         { rows = {}, discoveryCount = store:count(), loading = 0, places = {}, categories = {}, matchedCount = 0 }
     local places, sources, candidates = {}, {}, {}
-    for record in store:cursor() do
+    local cursor = store:cursor(pause)
+    while true do
+        local record = cursor()
+        if not record then
+            break
+        end
         local matches = false
         local discoveredAt
         for _, seen in ipairs(record.characters) do
@@ -587,6 +594,9 @@ local function query(store, character, realm, filter, metadata, pause)
                 if filter.place == gain.place and (not filter.placeKind or filter.placeKind == kind) then
                     placeMatches = true
                 end
+            end
+            if pause then
+                pause()
             end
         end
         local info = metadata and metadata(record) or { category = "Unknown", loading = true }
@@ -776,8 +786,9 @@ end
 ---@param realm string
 ---@param filter AzerothLedgerCollectionFilter
 ---@param lastSeen? ALLastSeen
+---@param pause? fun()
 ---@return AzerothLedgerItemDetails?
-inspectRecord = function(store, record, character, realm, filter, lastSeen)
+inspectRecord = function(store, record, character, realm, filter, lastSeen, pause)
     lastSeen = lastSeen or addon.LastSeen.project(store, record, character, realm, filter)
     local strength = "Seen in storage"
     local firstGained, lastGained
@@ -791,6 +802,9 @@ inspectRecord = function(store, record, character, realm, filter, lastSeen)
                 strength = "Confirmed " .. gain.method .. " gain; source Unknown"
             end
         end
+        if pause then
+            pause()
+        end
     end
     local firstSeen, lastSeenAt
     for _, seen in ipairs(record.characters) do
@@ -801,7 +815,7 @@ inspectRecord = function(store, record, character, realm, filter, lastSeen)
     end
     return {
         record = record,
-        breakdown = assert(store:breakdown(record.key, filter)),
+        breakdown = assert(store:breakdown(record.key, filter, pause)),
         links = addon.Item.linkGroups(record.links),
         firstSeen = firstSeen,
         lastSeen = lastSeenAt,
@@ -827,9 +841,9 @@ end
 ---@param realm string
 ---@param filter? AzerothLedgerCollectionFilter
 ---@return AzerothLedgerItemDetails?
-function Collection.inspect(store, key, character, realm, filter)
-    local record = store:find(key)
-    return record and inspectRecord(store, record, character, realm, filter or {}) or nil
+function Collection.inspect(store, key, character, realm, filter, pause)
+    local record = store:find(key, pause)
+    return record and inspectRecord(store, record, character, realm, filter or {}, nil, pause) or nil
 end
 
 ---@param store ALStore
