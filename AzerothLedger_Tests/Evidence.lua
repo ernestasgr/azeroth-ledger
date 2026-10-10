@@ -70,7 +70,7 @@ end
 function tests.CompletedLootDoesNotHideTheNextSource(_self)
     local store, scan, open = fixture()
     local first = { kind = "mob", guid = "Creature-0-1-2-3-4-5", name = "Boar" }
-    local second = { kind = "mob", guid = "Creature-0-1-2-3-4-6", name = "Wolf" }
+    local second = { kind = "mob", guid = "Creature-0-1-2-3-5-6", name = "Wolf" }
     WoWUnit.IsTrue(open(1010, first))
     WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1011, actor))
     scan(1012, 6)
@@ -109,7 +109,7 @@ function tests.UnsettledLootStillCompetesForTheNextSource(_self)
     local store, scan, open = fixture()
     WoWUnit.IsTrue(open(1010, { kind = "mob", guid = "Creature-0-1-2-3-4-5", name = "Boar" }))
     WoWUnit.IsTrue(store:lootClose(1011))
-    WoWUnit.IsTrue(open(1020, { kind = "mob", guid = "Creature-0-1-2-3-4-6", name = "Wolf" }))
+    WoWUnit.IsTrue(open(1020, { kind = "mob", guid = "Creature-0-1-2-3-5-6", name = "Wolf" }))
     WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1021, actor))
     scan(1022, 6)
     WoWUnit.AreEqual(1, store:breakdown(key).sources.Unknown)
@@ -428,7 +428,7 @@ function tests.LootAdapterPreservesEverySourcePair(_self)
     )
     WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 3 }, 1011, actor))
     scan(1012, 8)
-    WoWUnit.AreEqual(1, store:breakdown(key).sources["Creature-0-1-2-3-4-5"])
+    WoWUnit.AreEqual(1, store:breakdown(key).sources["Mob #4"])
     WoWUnit.AreEqual(2, store:breakdown(key).sources["Container #6"])
     api.UnitGUID = function()
         return "Creature-0-1-2-3-4-5"

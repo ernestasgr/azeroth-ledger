@@ -6,6 +6,244 @@ local bear = "|Hitem:100:0:0:0:0:0:42:1:60:0:0:0:1:111|h[Sword]|h"
 local enchanted = "|Hitem:100:88:55:0:0:0:42:9:60:0:0:0:1:111|h[Sword]|h"
 local wolf = "|Hitem:100:0:0:0:0:0:43:1:60:0:0:0:1:111|h[Sword]|h"
 
+function tests.RecordedSourceBrowsingGroupsMobSpawnsAndKeepsScopeAndEvidence(_self)
+    local saved
+    local seed = addon.Schema.open(nil, function(value)
+        saved = value
+    end)
+    WoWUnit.IsTrue(seed:scan({
+        character = "Ada",
+        realm = "A",
+        area = "bags",
+        complete = true,
+        seenAt = 1000,
+        items = { { itemID = 2672, link = meat, quantity = 2 } },
+    }))
+    local record = saved.records["2672:0"]
+    record.totalGained = 6
+    record.firstGained, record.lastGained = 1001, 1003
+    record.characters[2] = { name = "Ben", realm = "B", firstSeen = 1002, lastSeen = 1002, firstSeenUnits = 0 }
+    record.gains = {
+        {
+            id = "one",
+            at = 1001,
+            quantity = 2,
+            character = "Ada",
+            realm = "A",
+            level = 1,
+            place = "Forest",
+            method = "Looted",
+            source = { kind = "mob", guid = "Creature-0-1-2-3-4-001", name = "Boar" },
+        },
+        {
+            id = "two",
+            at = 1002,
+            quantity = 3,
+            character = "Ben",
+            realm = "B",
+            level = 1,
+            place = "Forest",
+            method = "Looted",
+            source = { kind = "mob", guid = "Creature-0-9-8-7-4-002" },
+        },
+        {
+            id = "three",
+            at = 1003,
+            quantity = 1,
+            character = "Ada",
+            realm = "A",
+            level = 1,
+            place = "Forest",
+            method = "Looted",
+            source = { kind = "mob", guid = "Creature-0-1-2-3-5-003", name = "Boar" },
+        },
+    }
+    local writes = 0
+    local store = addon.Schema.open(saved, function()
+        writes = writes + 1
+    end)
+    WoWUnit.AreEqual("healthy", store:diagnostic().kind)
+    local result = addon.Collection.query(store, "Ada", "A", { source = "mob:4" })
+    WoWUnit.AreEqual(1, #result.rows)
+    WoWUnit.AreEqual(5, result.rows[1].sourceQuantity)
+    WoWUnit.AreEqual("Boar (mob #4)", result.sources[1].label)
+    WoWUnit.AreEqual(5, store:breakdown("2672:0").sources["Boar (mob #4)"])
+    WoWUnit.AreEqual(1, store:breakdown("2672:0").sources["Boar (mob #5)"])
+    result = addon.Collection.query(store, "Ada", "A", { source = "mob:4", realm = "B" })
+    WoWUnit.AreEqual(1, #result.rows)
+    WoWUnit.AreEqual(3, result.rows[1].sourceQuantity)
+    WoWUnit.AreEqual("Mob #4", result.sources[1].label)
+    WoWUnit.AreEqual(0, #addon.Collection.query(store, "Ada", "A", { source = "mob:4", character = "Nobody" }).rows)
+    WoWUnit.AreEqual(1, #addon.Collection.query(store, "Ada", "A", { search = "Boar" }).rows)
+    WoWUnit.AreEqual("Creature-0-9-8-7-4-002", store:find("2672:0").gains[2].source.guid)
+    WoWUnit.AreEqual(0, writes)
+end
+
+function tests.SourceKindsUnknownsAndCorrectionsReconcileAfterJournalPruning(_self)
+    local saved
+    local seed = addon.Schema.open(nil, function(value)
+        saved = value
+    end)
+    WoWUnit.IsTrue(seed:scan({
+        character = "Ada",
+        realm = "A",
+        area = "bags",
+        complete = true,
+        seenAt = 1000,
+        items = { { itemID = 2672, link = meat, quantity = 2 } },
+    }))
+    local record = saved.records["2672:0"]
+    record.totalGained, record.firstGained, record.lastGained = 15, 1001, 1006
+    record.gains = {
+        {
+            id = "quest",
+            at = 1001,
+            quantity = 1,
+            character = "Ada",
+            realm = "A",
+            level = 1,
+            place = "Forest",
+            method = "Quest",
+            context = { kind = "quest", id = 10, name = "Same name" },
+        },
+        {
+            id = "recipe",
+            at = 1002,
+            quantity = 2,
+            character = "Ada",
+            realm = "A",
+            level = 1,
+            place = "Forest",
+            method = "Crafted",
+            context = { kind = "recipe", id = 10, name = "Same name" },
+        },
+        {
+            id = "player",
+            at = 1003,
+            quantity = 3,
+            character = "Ada",
+            realm = "A",
+            level = 1,
+            place = "Forest",
+            method = "Obtained",
+            channel = "trade",
+            source = { kind = "player", name = "Eve", realm = "B" },
+        },
+        {
+            id = "unknown",
+            at = 1004,
+            quantity = 4,
+            character = "Ada",
+            realm = "A",
+            level = 1,
+            place = "Forest",
+            method = "Obtained",
+        },
+        {
+            id = "spawn",
+            at = 1005,
+            quantity = 2,
+            character = "Ada",
+            realm = "A",
+            level = 1,
+            place = "Forest",
+            method = "Looted",
+            source = { kind = "mob", guid = "unparseable" },
+        },
+        {
+            id = "other-spawn",
+            at = 1006,
+            quantity = 3,
+            character = "Ada",
+            realm = "A",
+            level = 1,
+            place = "Forest",
+            method = "Looted",
+            source = { kind = "mob", guid = "another-unparseable" },
+        },
+    }
+    local store = addon.Schema.open(saved, function(value)
+        saved = value
+    end)
+    WoWUnit.AreEqual("healthy", store:diagnostic().kind)
+    for _, example in ipairs({
+        { "quest:10", 1 },
+        { "recipe:10", 2 },
+        { "player:Eve-B", 3 },
+        { "unknown", 4 },
+        { "mob:unparseable", 2 },
+        { "mob:another-unparseable", 3 },
+    }) do
+        local result = addon.Collection.query(store, "Ada", "A", { source = example[1] })
+        WoWUnit.AreEqual(1, #result.rows)
+        WoWUnit.AreEqual(example[2], result.rows[1].sourceQuantity)
+    end
+    local breakdown = store:breakdown("2672:0")
+    WoWUnit.AreEqual(1, breakdown.sources["Same name (quest #10)"])
+    WoWUnit.AreEqual(2, breakdown.sources["Same name (recipe #10)"])
+    WoWUnit.AreEqual(2, breakdown.sources["Initial stock"])
+    WoWUnit.AreEqual(4, breakdown.sources.Unknown)
+    local sum = 0
+    for _, quantity in pairs(breakdown.sources) do
+        sum = sum + quantity
+    end
+    WoWUnit.AreEqual(17, sum)
+    WoWUnit.IsTrue(store:setRetention("gains", 0))
+    WoWUnit.IsTrue(store:correctGain({
+        id = "source-proof",
+        key = "2672:0",
+        gainID = "unknown",
+        quantity = 2,
+        fromMethod = "Obtained",
+        method = "Quest",
+        context = { kind = "quest", id = 11 },
+    }))
+    WoWUnit.AreEqual(15, store:find("2672:0").totalGained)
+    WoWUnit.AreEqual(2, addon.Collection.query(store, "Ada", "A", { source = "unknown" }).rows[1].sourceQuantity)
+    WoWUnit.AreEqual(2, addon.Collection.query(store, "Ada", "A", { source = "quest:11" }).rows[1].sourceQuantity)
+    store = addon.Schema.open(saved, function() end)
+    WoWUnit.AreEqual(2, addon.Collection.query(store, "Ada", "A", { source = "quest:11" }).rows[1].sourceQuantity)
+    WoWUnit.AreEqual(0, #store:journal())
+end
+
+function tests.SourceNameSearchIncludesOtherItemsWithTheSameProvenIdentity(_self)
+    local saved
+    local seed = addon.Schema.open(nil, function(value)
+        saved = value
+    end)
+    local bread = "|Hitem:4540::::::::|h[Bread]|h"
+    WoWUnit.IsTrue(seed:scan({
+        character = "Ada",
+        realm = "A",
+        area = "bags",
+        complete = true,
+        seenAt = 1000,
+        items = { { itemID = 2672, link = meat, quantity = 1 }, { itemID = 4540, link = bread, quantity = 1 } },
+    }))
+    for index, key in ipairs({ "2672:0", "4540:0" }) do
+        local record = saved.records[key]
+        record.totalGained, record.firstGained, record.lastGained = index, 1001, 1001
+        record.gains = {
+            {
+                id = "quest-" .. index,
+                at = 1001,
+                quantity = index,
+                character = "Ada",
+                realm = "A",
+                level = 1,
+                place = "Forest",
+                method = "Quest",
+                context = { kind = "quest", id = 10, name = index == 1 and "Proven quest" or nil },
+            },
+        }
+    end
+    local store = addon.Schema.open(saved, function()
+        error("Search wrote source facts")
+    end)
+    WoWUnit.AreEqual("healthy", store:diagnostic().kind)
+    WoWUnit.AreEqual(2, #addon.Collection.query(store, "Ada", "A", { search = "Proven quest" }).rows)
+end
+
 function tests.LootEquippedBeforeCheckingKeepsSourceSharesAndOneDiscovery(_self)
     local saved
     local store = addon.Schema.open(nil, function(value)

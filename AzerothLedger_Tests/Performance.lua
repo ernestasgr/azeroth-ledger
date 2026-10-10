@@ -18,7 +18,7 @@ function tests.LargeLedgerKeepsLinksSourcesAndLifetimeCountsAfterPruning(_self)
     local restored = addon.Schema.open(raw, function() end)
     WoWUnit.AreEqual(0, #restored:journal())
     WoWUnit.AreEqual(3, restored:breakdown("20000:0").recorded)
-    WoWUnit.AreEqual(2, restored:breakdown("20000:0").sources["Creature-0-0-0-0-10000-0"])
+    WoWUnit.AreEqual(2, restored:breakdown("20000:0").sources["Mob #10000"])
     WoWUnit.AreEqual(2, #restored:find("20000:0").links)
 end
 

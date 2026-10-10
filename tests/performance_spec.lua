@@ -56,7 +56,7 @@ local restored = addon.Schema.open(saved, function(value)
 end)
 assert(restored:count() == 10000)
 assert(restored:breakdown("20000:0").recorded == 3)
-assert(restored:breakdown("20000:0").sources["Creature-0-0-0-0-10000-0"] == 2)
+assert(restored:breakdown("20000:0").sources["Mob #10000"] == 2)
 assert(#restored:find("20000:0").links == 2)
 print("performance_spec: budgeted browsing and permanent facts passed")
 

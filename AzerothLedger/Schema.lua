@@ -1179,13 +1179,14 @@ end
 
 local Schema = {}
 
--- The entry ID identifies the container type; the final field identifies a
+-- The entry ID identifies the creature/container type; the final field identifies a
 -- particular spawn. Keep the complete GUID in the gain as its original proof.
-local function containerID(source)
-    if not source or source.kind ~= "container" then
+local function entryID(source)
+    if not source or (source.kind ~= "container" and source.kind ~= "mob") then
         return nil
     end
-    local id = source.guid:match("^GameObject%-%d+%-%d+%-%d+%-%d+%-(%d+)%-%x+$")
+    local prefix = source.kind == "container" and "GameObject" or "Creature"
+    local id = source.guid:match("^" .. prefix .. "%-%d+%-%d+%-%d+%-%d+%-(%d+)%-%x+$")
     local entry = id and tonumber(id)
     return entry and entry > 0 and entry <= 4294967295 and tostring(entry) or nil
 end
@@ -1198,8 +1199,114 @@ function Schema.sourceText(source)
     elseif source.kind == "player" then
         return source.name .. "-" .. source.realm
     end
-    local id = containerID(source)
-    return source.name or (id and ("Container #" .. id)) or source.guid or ("Unnamed " .. source.kind)
+    local id = entryID(source)
+    local kind = source.kind == "container" and "Container" or "Mob"
+    return source.name or (id and (kind .. " #" .. id)) or ("Unnamed " .. source.kind)
+end
+
+-- Identity is independent of its display name. Unparseable GUIDs remain
+-- separate spawn evidence; vendor names explicitly carry no proven ID.
+---@param gain AzerothLedgerGain
+---@return string key
+---@return string neutral
+---@return string? name
+function Schema.sourceIdentity(gain)
+    local context = gain.context
+    if context then
+        local kind = context.kind == "quest" and "Quest" or "Recipe"
+        return context.kind .. ":" .. context.id, kind .. " #" .. context.id, context.name
+    elseif gain.mailKind == "auction-purchase" then
+        return "auction", "Auction purchase"
+    end
+    local source = gain.source
+    if not source then
+        return "unknown", "Unknown"
+    elseif source.kind == "player" then
+        local label = source.name .. "-" .. source.realm
+        return "player:" .. label, "Outside player: " .. label
+    elseif source.kind == "vendor" then
+        return "vendor:" .. source.name, source.name .. " (vendor; name only)"
+    end
+    local id = entryID(source)
+    local kind = source.kind == "container" and "Container" or "Mob"
+    return source.kind .. ":" .. (id or source.guid),
+        id and (kind .. " #" .. id) or ("Unnamed " .. source.kind .. " (spawn identity only)"),
+        source.name
+end
+
+---@class ALSourceGroup
+---@field key string
+---@field neutral string
+---@field quantity integer
+---@field names table<string, boolean>
+---@field label? string
+
+---@param groups table<string, ALSourceGroup>
+---@param gain AzerothLedgerGain
+---@param quantity integer
+function Schema.addSource(groups, gain, quantity)
+    if quantity <= 0 then
+        return
+    end
+    local key, neutral, name = Schema.sourceIdentity(gain)
+    local group = groups[key] or { key = key, neutral = neutral, quantity = 0, names = {} }
+    groups[key] = group
+    group.quantity = group.quantity + quantity
+    if name then
+        group.names[name] = true
+    end
+end
+
+---@param groups table<string, ALSourceGroup>
+---@param pause? fun()
+---@return ALSourceGroup[]
+function Schema.sourceGroups(groups, pause)
+    -- Source comparisons are small; checkpoint in bounded batches rather than
+    -- spending a coroutine resume on each comparison of a large source list.
+    local steps = 0
+    local checkpoint = pause
+            and function()
+                steps = steps + 1
+                if steps == 8 then
+                    steps = 0
+                    pause()
+                end
+            end
+        or nil
+    local rows, labels = {}, {}
+    for _, group in pairs(groups) do
+        local name = next(group.names)
+        group.label = name and not next(group.names, name) and name or group.neutral
+        labels[group.label] = (labels[group.label] or 0) + 1
+        rows[#rows + 1] = group
+        if checkpoint then
+            checkpoint()
+        end
+    end
+    addon.Work.sort(rows, function(left, right)
+        return left.key < right.key
+    end, checkpoint)
+    local used = { ["Initial stock"] = true }
+    for index, group in ipairs(rows) do
+        if labels[group.label] > 1 or group.label == "Initial stock" then
+            local identity = group.key:match("^(%a+:%d+)$")
+            group.label = group.label
+                .. " ("
+                .. (identity and identity:gsub(":", " #", 1) or ("recorded source " .. index))
+                .. ")"
+        end
+        while used[group.label] do
+            group.label = group.label .. " (recorded source " .. index .. ")"
+        end
+        used[group.label] = true
+        if checkpoint then
+            checkpoint()
+        end
+    end
+    addon.Work.sort(rows, function(left, right)
+        return left.label < right.label or (left.label == right.label and left.key < right.key)
+    end, checkpoint)
+    return rows
 end
 
 function Schema.retentionOptions()
@@ -2008,7 +2115,7 @@ function Schema.open(raw, save)
             methods = initial and { Seen = initial } or {},
             sources = initial and { ["Initial stock"] = initial } or {},
         }
-        local containers = {}
+        local groups = {}
         for _, gain in ipairs(record.gains) do
             if matches(gain.character, gain.realm) then
                 local quantity = gain.quantity - (gain.refunded or 0)
@@ -2016,41 +2123,11 @@ function Schema.open(raw, save)
                     result.gained = result.gained + quantity
                 end
                 result.methods[gain.method] = (result.methods[gain.method] or 0) + quantity
-                local source = gain.source
-                local id = containerID(source)
-                if id and not gain.context then
-                    local group = containers[id] or { quantity = 0, names = {} }
-                    containers[id] = group
-                    group.quantity = group.quantity + quantity
-                    if source.name then
-                        group.names[source.name] = true
-                    end
-                else
-                    local label = Schema.sourceText(source)
-                    if gain.mailKind == "auction-purchase" then
-                        label = "Auction purchase"
-                    end
-                    if gain.context then
-                        label = gain.context.name or (gain.context.kind .. " " .. gain.context.id)
-                    end
-                    result.sources[label] = (result.sources[label] or 0) + quantity
-                end
+                Schema.addSource(groups, gain, quantity)
             end
         end
-        local labels = {}
-        for id, group in pairs(containers) do
-            local name = next(group.names)
-            -- Conflicting recorded names stay neutral rather than picking one.
-            local label = name and not next(group.names, name) and name or ("Container #" .. id)
-            group.label = label
-            labels[label] = (labels[label] or 0) + 1
-        end
-        for id, group in pairs(containers) do
-            local label = group.label
-            if labels[label] > 1 or result.sources[label] ~= nil then
-                label = label .. " (container #" .. id .. ")"
-            end
-            result.sources[label] = group.quantity
+        for _, group in ipairs(Schema.sourceGroups(groups)) do
+            result.sources[group.label] = group.quantity
         end
         if initial then
             result.recorded = initial + result.gained
