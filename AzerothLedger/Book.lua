@@ -10,6 +10,7 @@ local DETAIL_HEIGHT = 320
 local render
 local showMenu
 local details
+local openHistory
 
 local function pageSize(book)
     return book.filter.view == "Gallery" and 6 or PAGE_SIZE
@@ -89,7 +90,9 @@ local function detailRow(book, index)
     row.line = Widgets.fill(row, colors.edge, 0, 26, 338, 1, "ARTWORK")
     row.section = Widgets.fill(row, colors.raised, 0, 12, 338, 32)
     row.link = Widgets.button(book, row, "", 0, 0, 338, 30, function(_, mouseButton)
-        if row.action then
+        if row.onClick then
+            row.onClick()
+        elseif row.action then
             book.showAllLinks = not book.showAllLinks
             details(book, book.selected)
         else
@@ -152,6 +155,7 @@ local function evidenceDetails(book, id)
         row.line:Hide()
         row.section:Hide()
         row.action = false
+        row.onClick = nil
         row.fullLink = nil
         row.link:Hide()
         if item.link and number == #lines then
@@ -231,7 +235,7 @@ function details(book, key)
     Widgets.select(book.selectedTotals, not book.detailsAccount)
     Widgets.select(book.accountTotals, book.detailsAccount)
     local index, y = 0, 0
-    local function write(kind, left, right)
+    local function write(kind, left, right, onClick)
         index = index + 1
         local row = detailRow(book, index)
         row:ClearAllPoints()
@@ -255,6 +259,7 @@ function details(book, key)
         row.section:SetShown(kind == "section")
         row.fullLink = kind == "link" and left or nil
         row.action = kind == "action"
+        row.onClick = onClick
         local height = math.max(24, row.left:GetStringHeight() + 10, row.right:GetStringHeight() + 10)
         if kind == "section" then
             row.left:ClearAllPoints()
@@ -291,10 +296,74 @@ function details(book, key)
                 write("date", "Confirmed", stamp(activity.at))
                 write("note", activity.actors)
                 write("note", activity.evidence)
+                if activity.details then
+                    for _, gain in ipairs(activity.details) do
+                        write("section", gain.method .. " ×" .. gain.quantity)
+                        write("note", gain.actor)
+                        write("date", "Time", stamp(gain.at))
+                        write("note", "Gain place: " .. gain.place)
+                        write("pair", "Character level", tostring(gain.level or "Unknown"))
+                        write("note", "Source: " .. gain.source)
+                    end
+                    if activity.action == "Purchase" or activity.refunded > 0 then
+                        write(
+                            "note",
+                            "Purchased "
+                                .. activity.quantity
+                                .. "; refunded "
+                                .. activity.refunded
+                                .. "; net gained "
+                                .. activity.netQuantity
+                                .. "."
+                        )
+                    end
+                else
+                    write("note", "Activity place: " .. activity.placeText)
+                    write("pair", "Character level", tostring(activity.level or "Unknown"))
+                    write("note", "Method: " .. activity.action)
+                    write("note", "Source: " .. activity.sourceText)
+                end
+                local function related(sequence, label)
+                    local retained = sequence and book.result.bySequence[sequence]
+                    if retained then
+                        write("action", label .. " • " .. stamp(retained.at), nil, function()
+                            book.selectedSequence = sequence
+                            book.page = math.ceil(book.result.positions[sequence] / PAGE_SIZE)
+                            render(book)
+                        end)
+                    else
+                        write("note", label .. " is outside this retained view.")
+                    end
+                end
+                if activity.kind == "refund" then
+                    if activity.linkedGainID then
+                        related(activity.purchaseSequence, "Linked purchase")
+                    else
+                        write("note", "Purchase relationship: Unknown (not recorded).")
+                    end
+                elseif activity.kind == "buyback" then
+                    if activity.linkedSaleID then
+                        related(activity.saleSequence, "Linked sale")
+                    else
+                        write("note", "Sale relationship: Unknown (not recorded).")
+                    end
+                end
+                for _, sequence in ipairs(activity.refundSequences or {}) do
+                    related(sequence, "Linked refund")
+                end
                 break
             end
         end
     end
+    if book.filter.view ~= "Journal" then
+        write("action", "View item history", nil, function()
+            openHistory(book, key)
+        end)
+    end
+    write(
+        "note",
+        "Journal shows retained activity only. Missing rows do not mean no lifetime gains; pruned rows are not rebuilt."
+    )
     write("section", "Discovery history")
     if not book.detailsAccount then
         write(
@@ -464,11 +533,15 @@ local function renderBody(book, requestedKey)
             )
     )
     book.discoveries:SetText(result.discoveryCount .. (result.discoveryCount == 1 and " discovery" or " discoveries"))
+    local journalContext = book.filter.historyKey and "Exact item / variant history • newest first"
+        or "Account-wide recent activity"
     book.context:SetText(
         evidence and "Unresolved evidence"
-            or journal and "Account-wide recent activity"
+            or journal and journalContext
             or (book.filter.category or (gallery and "Gear & pending items" or "All items"))
     )
+    book.backToCollection:SetShown(journal and book.historyReturn ~= nil)
+    book.placeNote:SetShown(not journal and not evidence)
     book.quantityHeading:SetShown(not gallery and not evidence)
     book.quantityHeading:SetText(
         journal and "UNITS" or ((book.filter.character or book.filter.realm) and "CHECKED" or "RECORDED")
@@ -502,7 +575,8 @@ local function renderBody(book, requestedKey)
         state = "Your collection starts here. Open your bags or bank to record items."
     end
     if journal then
-        state = "No retained activity. Retention limits are in AddOns Settings."
+        state = "No retained activity in this view. This does not mean no lifetime gains. "
+            .. "Retention limits are in AddOns Settings."
     end
     if evidence then
         state = result.total == 0 and "No unresolved evidence in this scope."
@@ -608,7 +682,23 @@ render = function(book, requestedKey)
     end)
 end
 
+openHistory = function(book, key)
+    local filter = {}
+    for field, value in pairs(book.filter) do
+        filter[field] = value
+    end
+    book.historyReturn = { filter = filter, page = book.page, key = key, detailsAccount = book.detailsAccount }
+    book.filter = { view = "Journal", historyKey = key }
+    book.search:SetText("")
+    book.page, book.selectedSequence = 1, nil
+    render(book)
+end
+
 local function change(book, field, value)
+    if field == "view" then
+        book.filter.historyKey = nil
+        book.historyReturn = nil
+    end
     book.filter[field] = value
     book.page = 1
     book.selectedSequence = nil
@@ -865,6 +955,17 @@ local function create(api)
     book.discoveries:SetJustifyH("RIGHT")
 
     local sidebar = Widgets.panel(api, frame, 20, 100, 178, 552)
+    book.backToCollection = Widgets.button(book, sidebar, "Back to Collection", 6, 466, 166, 32, function()
+        local previous = book.historyReturn
+        if previous then
+            book.filter, book.page, book.selected = previous.filter, previous.page, previous.key
+            book.detailsAccount = previous.detailsAccount
+            book.historyReturn, book.selectedSequence = nil, nil
+            book.search:SetText(book.filter.search or "")
+            book.page = previous.page
+            render(book, previous.key)
+        end
+    end)
     Widgets.text(api, sidebar, "CATEGORIES", 12, 16, 154, 10, colors.muted)
     local categories =
         { "All items", "Weapons", "Armour", "Recipes", "Materials", "Consumables", "Junk", "Other", "Unknown" }
@@ -896,7 +997,8 @@ local function create(api)
             change(book, "place", choice.place)
         end)
     end)
-    Widgets.text(api, sidebar, "Only places linked to\nrecorded gains appear here.", 12, 467, 154, 11, colors.muted)
+    book.placeNote =
+        Widgets.text(api, sidebar, "Only places linked to\nrecorded gains appear here.", 12, 467, 154, 11, colors.muted)
 
     Widgets.fill(frame, colors.edge, 218, 131, 440, 1, "ARTWORK")
     book.collectionTab = Widgets.tab(book, frame, "Collection", 218, 100, 106, function()

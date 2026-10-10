@@ -1,7 +1,18 @@
 local _, addon = ...
 local BookQuery = {}
 
-local fields = { "view", "search", "category", "character", "realm", "historical", "foundOnce", "place", "placeKind" }
+local fields = {
+    "view",
+    "search",
+    "category",
+    "character",
+    "realm",
+    "historical",
+    "foundOnce",
+    "place",
+    "placeKind",
+    "historyKey",
+}
 
 local function sameFilter(left, right)
     for _, field in ipairs(fields) do
@@ -37,7 +48,7 @@ function BookQuery.new(api)
             end)
         elseif currentFilter.view == "Journal" then
             job = addon.Work.start(api, "Journal query", function(pause)
-                local rows = addon.Journal.query(store, currentFilter.search, pause)
+                local rows = addon.Journal.query(store, currentFilter.search, pause, currentFilter.historyKey)
                 local bySequence, positions = {}, {}
                 for index, row in ipairs(rows) do
                     row.record = store:find(row.key)

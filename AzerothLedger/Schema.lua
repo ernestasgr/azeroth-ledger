@@ -66,6 +66,7 @@ end
 ---@field placeKind? 'zone'|'dungeon'
 ---@field method 'Looted'|'Quest'|'Crafted'|'Vendor'|'Obtained'
 ---@field mailKind? 'auction-purchase'
+---@field channel? 'mail'|'trade'
 ---@field refunded? integer
 ---@field source? AzerothLedgerLootSource|AzerothLedgerVendorSource|AzerothLedgerPlayerSource
 ---@field context? {kind: 'quest'|'recipe', id: integer, name?: string}
@@ -224,6 +225,11 @@ end
 ---@field vendorName? string
 
 ---@class AzerothLedgerVendorActivity
+---@field level? integer
+---@field place? string
+---@field placeKind? 'zone'|'dungeon'
+---@field linkedGainID? string
+---@field linkedSaleID? integer
 ---@field sequence? integer
 ---@field id integer
 ---@field kind 'sale'|'refund'|'buyback'
@@ -279,6 +285,9 @@ end
 ---@field baselineCheckID? integer
 
 ---@class AzerothLedgerExchangeActivity
+---@field level? integer
+---@field place? string
+---@field placeKind? 'zone'|'dungeon'
 ---@field sequence? integer
 ---@field id integer
 ---@field key string
@@ -704,6 +713,7 @@ local function copyRecord(record)
             placeKind = gain.placeKind,
             method = gain.method,
             mailKind = gain.mailKind,
+            channel = gain.channel,
             refunded = gain.refunded,
             corrections = gain.corrections and copyArray(gain.corrections) or nil,
             source = gain.source and {
@@ -811,6 +821,8 @@ local function validRecord(key, record)
             or not validPlaceKind(gain.placeKind)
             or not gainMethods[gain.method]
             or (gain.mailKind ~= nil and (gain.mailKind ~= "auction-purchase" or gain.method ~= "Obtained"))
+            or (gain.channel ~= nil and gain.channel ~= "mail" and gain.channel ~= "trade")
+            or (gain.channel ~= nil and gain.method ~= "Obtained")
             or not validRefunded(gain)
             or gainIDs[gain.id]
         then
@@ -1069,6 +1081,11 @@ local function validVendorState(vendor)
             or not isName(entry.character)
             or not isName(entry.realm)
             or (entry.vendorName ~= nil and not isName(entry.vendorName))
+            or (entry.level ~= nil and not isInteger(entry.level))
+            or (entry.place ~= nil and type(entry.place) ~= "string")
+            or not validPlaceKind(entry.placeKind)
+            or (entry.linkedGainID ~= nil and type(entry.linkedGainID) ~= "string")
+            or (entry.linkedSaleID ~= nil and (not isInteger(entry.linkedSaleID) or entry.linkedSaleID < 1))
         then
             return false
         end
@@ -1150,6 +1167,9 @@ local function validExchangeState(exchange)
             or not isName(activity.senderRealm)
             or not isName(activity.recipient)
             or not isName(activity.recipientRealm)
+            or (activity.level ~= nil and not isInteger(activity.level))
+            or (activity.place ~= nil and type(activity.place) ~= "string")
+            or not validPlaceKind(activity.placeKind)
         then
             return false
         end
@@ -1554,6 +1574,7 @@ function Schema.open(raw, save)
                 if valid[entry.key] and isInteger(entry.sequence) and entry.sequence > 0 then
                     local row = copyValue(entry)
                     row.category = category == "exchange" and "transfer" or "vendor"
+                    row.linkedAcquisitionID = row.linkedGainID and gainRoot(row.linkedGainID)
                     result[#result + 1] = row
                 end
             end
@@ -1942,6 +1963,9 @@ function Schema.open(raw, save)
             gain = share
         end
         gain.method = proof.method
+        if proof.method ~= "Obtained" then
+            gain.channel = nil
+        end
         gain.source = copyValue(proof.source)
         gain.context = copyValue(proof.context)
         gain.corrections = gain.corrections or {}
@@ -3352,6 +3376,9 @@ function Schema.open(raw, save)
                                 senderRealm = ownSender.realm,
                                 recipient = action.character,
                                 recipientRealm = action.realm,
+                                level = action.level,
+                                place = action.place,
+                                placeKind = action.placeKind,
                             }
                             action.quantity = quantity
                             action.status = "settled"
@@ -3370,6 +3397,7 @@ function Schema.open(raw, save)
                                 placeKind = action.placeKind,
                                 method = "Obtained",
                                 mailKind = action.mailKind,
+                                channel = action.channel,
                                 source = playerExchange and action.peerName and action.peerRealm and {
                                     kind = "player",
                                     name = action.peerName,
@@ -3428,6 +3456,11 @@ function Schema.open(raw, save)
                 character = action.character,
                 realm = action.realm,
                 vendorName = action.vendorName,
+                level = action.level,
+                place = action.place,
+                placeKind = action.placeKind,
+                linkedGainID = action.linkedGainID,
+                linkedSaleID = action.linkedSaleID,
             }
         end
     end
