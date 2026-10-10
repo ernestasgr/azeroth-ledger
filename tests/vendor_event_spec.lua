@@ -129,7 +129,7 @@ assert(#AzerothLedgerDB.vendor.actions == 1, "merchant pickup must record item-s
 event("BAG_UPDATE_DELAYED")
 assert(addon.store:find(key).totalGained == 1, "merchant purchase without loot chat must count")
 local purchaseLines = table.concat(addon.Collection.lines(addon.store, "Ada", "Realm"), "\n")
-assert(purchaseLines:find("Source total: Dermot Johns (vendor; name only) 1", 1, true), "vendor name must be a source")
+assert(purchaseLines:find("From Vendor: Dermot Johns 1", 1, true), "vendor name must be a source")
 assert(purchaseLines:find("vendor Dermot Johns", 1, true), "purchase detail must name the vendor")
 
 C_Container.ContainerRefundItemPurchase(0, 1)

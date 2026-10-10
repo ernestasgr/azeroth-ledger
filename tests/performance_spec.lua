@@ -267,11 +267,11 @@ assert(repeatedStore:setBook({ version = 1, filter = { view = "Journal" } }))
 local repeatedFrame = addon.Collection.open(native.api, repeatedStore, "Fixture", "Test")
 for _ = 1, 20000 do
     repeatedFrame.scripts.OnUpdate(repeatedFrame)
-    if visible("5002 activities") and not visible("Loading item details…") then
+    if visible("5002 entries") and not visible("Loading item details…") then
         break
     end
 end
-assert(visible("5002 activities") and not visible("Loading item details…"))
+assert(visible("5002 entries") and not visible("Loading item details…"))
 local detailFrames = addon.Work.timings["Item details"].frames
 local priorMetadata = metadataReads
 repeatedFrame.scripts.OnKeyDown(repeatedFrame, "ENTER")
@@ -284,11 +284,11 @@ assert(not visible("Loading your Journal…"), "Metadata refresh should keep the
 assert(visible("2 / 715"), "Journal metadata refresh must preserve the current page")
 for _ = 1, 20000 do
     repeatedFrame.scripts.OnUpdate(repeatedFrame)
-    if visible("5002 activities") then
+    if visible("5002 entries") then
         break
     end
 end
-assert(visible("5002 activities") and visible("2 / 715"))
+assert(visible("5002 entries") and visible("2 / 715"))
 local fewRaw = repeated.repeatedFixture(2000, 5000, 3)
 local few = addon.Schema.open(fewRaw, function(value)
     fewRaw = value

@@ -20,7 +20,7 @@ end
 
 local function method(gain)
     if gain.method == "Obtained" and not gain.mailKind then
-        return ({ mail = "Mail", trade = "Trade" })[gain.channel] or "Obtained (channel unknown)"
+        return ({ mail = "Mail", trade = "Trade" })[gain.channel] or "Obtained (way unknown)"
     end
     return gain.mailKind == "auction-purchase" and "Auction purchase"
         or gain.method == "Vendor" and "Purchase"
@@ -84,7 +84,7 @@ function Journal.query(store, filter, pause)
             row.refundSequences = {}
             purchases[row.key .. ":" .. row.id] = row
             if #evidence > 1 then
-                row.action = "Acquisition"
+                row.action = "Gained"
             end
             row.evidence = "Matched item gain; " .. table.concat(evidence, "; ")
         elseif row.category == "transfer" then

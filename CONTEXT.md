@@ -1,53 +1,39 @@
 # Azeroth Ledger
 
-Azeroth Ledger keeps a Collection of items seen on your characters and a Journal of recent item activity.
+Azeroth Ledger keeps a Collection of items found on your characters and a Journal of recent item activity.
 
-## Language
+## Glossary
 
-**Collection**:
-One entry for each item or built-in gear variant seen across the characters and realms this addon has recorded on your WoW account. Character and realm filters narrow the list. This is the addon's list, not the game's Collections window.
+**Collection**: Your Ledger's list of items found in your bags, bank, or equipped gear on characters you have checked. It is separate from WoW's Collections window.
 
-**Journal**:
-A recent log of items gained, moves between your own characters, and vendor sales, refunds, or buybacks. Each entry keeps its quantity. Removing old entries does not change lifetime counts.
+**Journal**: A list of recent item gains, moves between your characters, and vendor sales, refunds, or buybacks. Older entries may disappear, but your Collection totals remain.
 
-**Gear variant**:
-A built-in version of gear, such as a sword "of the Bear" or one with another built-in bonus. Enchants, gems, durability, and the character holding it do not make a new variant. Keep every full item link seen.
+**Item version**: A version of an item with a built-in bonus, such as a sword "of the Bear." Enchants, gems, durability, and the character carrying it do not make a new version.
 
-**Discovered**:
-An item or gear variant added to the account's Collection for the first time. Each character also has a first-seen date. Finding an item in an initial bag or bank scan counts as a discovery, but does not show a new-item toast or tell us when it was gained.
+**Seen**: The addon found the item in a character's bags, bank, or equipped gear. This alone does not say when or how you got it.
 
-**Seen**:
-Found in a character's bags, bank, or equipped gear without knowing how or when it was gained. Keep the first and latest times seen separate from the first and latest confirmed gain dates. A later gain does not change the earlier Seen record.
+**Looted**: The addon matched loot you picked up to the item appearing in your character's possessions. Nearby creatures and another player's loot do not count.
 
-**Looted**:
-Personally looted by your character, with a matching item gain. Another player's loot or a nearby mob is not enough evidence.
+**Obtained**: The addon confirmed that your character got the item another way, such as from a quest reward, crafting, a vendor, mail, or trade. It may know that you got it without knowing exactly how.
 
-**Obtained**:
-Confirmed as gained through another means, such as a quest reward, craft, purchase, mail, or trade. The exact means can remain unknown when the item gain is clear.
+**Total found**: Items found on the first check plus later confirmed gains. It does not tell you how many you have now.
 
-**Total gained**:
-The number of units confirmed gained from outside your recorded characters, minus confirmed refunds. Items already present in an initial scan add zero. Moving an item between your bags, bank, equipped gear, or alts adds zero. Gaining it again after disposal counts, except when buying back the same sold item.
+**Total gained**: The number of items confirmed gained from outside the characters you have checked, minus confirmed refunds. Items already present at the first check and moves between your own characters do not add to this total.
 
-**Transfer**:
-A known move between your own characters. Show it in the Journal with sender and recipient when known, without adding to Total gained or the discovery count.
+**Transfer**: An item moved between your own characters. It appears in the Journal but does not count as a new gain.
 
-**Vendor sale, refund, and buyback**:
-Selling an item leaves Total gained unchanged. A completed refund removes the uniquely linked purchase from Total gained. Buying back a sold item restores it without a new gain. Keep all three actions in the Journal.
+**Vendor sale, refund, and buyback**: Selling an item does not change Total gained. A confirmed refund subtracts the purchase from Total gained. Buying back a sold item does not count as a new gain.
 
-**Last seen**:
-Where, when, and how many of an item the addon last checked on a character. A partial check can show that an item is present; proving it absent requires complete checks of relevant bags, bank, and gear. A closed bank or an offline character can leave current ownership unknown.
+**Last seen**: The last time and place the addon found the item while checking a character's bags, bank, or equipped gear. It does not mean you still have the item.
 
-**Historical only**:
-An item seen before but absent from complete checks of the selected characters' relevant bags, bank, and equipped gear. This means absent as of those check dates. If needed storage could not be checked, the result is Unknown.
+**Present**: The item was found on at least one character in the selected view.
 
-**Source**:
-A mob, boss, chest, or other container tied to the specific looted item by evidence. A nearby mob or a loot message alone is not enough. Record a quest, vendor, or player separately when known; leave the source unknown when the game does not prove it.
+**Unknown**: The addon could not check all the storage it needs, so it cannot tell whether the item is still there.
 
-**Vendor source**:
-The merchant's name observed during the purchase. If the merchant's identity was not captured, the gain remains a Vendor gain with an unnamed source. A later refund reduces that purchase's source total.
+**Historical only**: The item was found before, but not on complete checks of the selected characters' relevant bags, bank, and gear. This describes the last check dates, not where the item is now.
 
-**Found once**:
-Exactly one confirmed unit gained from outside your recorded characters, with none seen beforehand. An item known only from an initial scan does not qualify.
+**Source**: Who or what you got the item from, when the game provided enough information to tell. Otherwise the source is Unknown.
 
-**Zone or dungeon group**:
-Items linked to a confirmed gain in that zone or dungeon, or to a known dungeon source. It is not a list of every possible drop. Scanning a bag there does not establish where its items came from.
+**Found once**: One confirmed item gained, with no earlier sighting of that item version on the characters you have checked.
+
+**Zone or dungeon items**: Items with a confirmed gain there or a known source there. This is not a list of every item that can drop in that place.

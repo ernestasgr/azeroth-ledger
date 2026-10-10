@@ -54,7 +54,7 @@ function tests.LootDiscoveryWaitsForReceiptAndKeepsUnknownSource(_self)
     WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1002, actor))
     WoWUnit.AreEqual(1, #store:takeDiscoveries())
     WoWUnit.AreEqual(
-        "Azeroth Ledger: Looted • gained 1 • ownership Present • source Unknown",
+        "Azeroth Ledger: Looted • total gained 1 • status Present • source Unknown",
         addon.Presentation.line(store, link, "Ada", "Realm"):match("^[^\n]+")
     )
     store:lootReceipt({ key = key, quantity = 1 }, 1002, actor)
@@ -83,7 +83,7 @@ function tests.RewardsDiscoverOnceWithZeroJournalRetention(_self)
         WoWUnit.AreEqual(1, #store:takeDiscoveries())
         WoWUnit.AreEqual(0, #store:journal())
         WoWUnit.AreEqual(
-            "Azeroth Ledger: Obtained (" .. method .. ") • gained 1 • ownership Present • source Proven reward",
+            "Azeroth Ledger: Obtained (" .. method .. ") • total gained 1 • status Present • source Proven reward",
             addon.Presentation.line(store, link, "Ada", "Realm"):match("^[^\n]+")
         )
     end
@@ -212,16 +212,16 @@ function tests.TooltipUsesCommittedSeenAndObtainedFacts(_self)
     WoWUnit.AreEqual(nil, addon.Presentation.line(store, link, "Ada", "Realm"))
     bags(1)
     WoWUnit.AreEqual(
-        "Azeroth Ledger: Seen • gained 0 • ownership Present • source Unknown",
+        "Azeroth Ledger: Seen • total gained 0 • status Present • source Unknown",
         addon.Presentation.line(store, link, "Ada", "Realm"):match("^[^\n]+")
     )
     purchase()
     bags(2)
     WoWUnit.AreEqual(
-        "Azeroth Ledger: Seen, Obtained (Vendor) • gained 1 • ownership Present • source Unknown",
+        "Azeroth Ledger: Seen, Obtained (Vendor) • total gained 1 • status Present • source Unknown",
         addon.Presentation.line(store, link, "Ada", "Realm"):match("^[^\n]+")
     )
-    WoWUnit.IsTrue(addon.Presentation.line(store, link, "Ben", "Realm"):find("ownership Unknown", 1, true) ~= nil)
+    WoWUnit.IsTrue(addon.Presentation.line(store, link, "Ben", "Realm"):find("status Unknown", 1, true) ~= nil)
     WoWUnit.AreEqual(nil, addon.Presentation.line(store, "item:4540", "Ada", "Realm"))
 end
 

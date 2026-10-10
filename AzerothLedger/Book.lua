@@ -69,6 +69,7 @@ local function save(book)
             y = book.y or 0,
             filter = book.filter,
             guided = book.guided,
+            developerMode = book.developerMode,
         })
     end
 end
@@ -162,10 +163,10 @@ local function evidenceDetails(book, id)
         item.status,
         item.reason,
         item.nextStep,
-        "Viewing evidence never confirms a gain or changes totals.",
+        "Looking here will not confirm a gain or change your totals.",
     }
     if item.location then
-        lines[#lines + 1] = "Observed location: " .. item.location
+        lines[#lines + 1] = "Where seen: " .. item.location
     end
     if item.link then
         lines[#lines + 1] = item.link
@@ -220,6 +221,7 @@ function details(book, key)
         end
     end
     local model, pending = book.query:inspect(book.store, key, book.character, book.realm, scope)
+    local developerMode = book.developerMode == true
     book.detailPending = pending
     book.detailEmpty:SetText(pending and "Loading item details…" or "Select an item to explore\nits history.")
     if pending then
@@ -255,7 +257,7 @@ function details(book, key)
     book.itemCategory:SetText(info.category .. "  •  " .. model.scopeLabel)
     Widgets.itemIcon(book.itemIcon, info.icon)
     book.itemLink = record.links[#record.links]
-    book.ownership:SetText(model.ownership)
+    book.ownership:SetText("Status: " .. model.ownership)
     book.ownership:SetTextColor(unpack(model.ownershipState == "present" and colors.green or colors.gold))
     book.ownershipDot:SetColorTexture(unpack(model.ownershipState == "present" and colors.green or colors.gold))
     book.recorded:SetText(
@@ -264,8 +266,8 @@ function details(book, key)
     )
     book.gained:SetText(tostring(model.breakdown.gained))
     book.initial:SetText(tostring((book.detailsAccount and model.breakdown.initial or model.firstChecked) or "Unknown"))
-    book.recordedLabel:SetText(book.detailsAccount and "RECORDED" or "CHECKED UNITS")
-    book.initialLabel:SetText(book.detailsAccount and "INITIALLY SEEN" or "FIRST CHECK")
+    book.recordedLabel:SetText(book.detailsAccount and "TOTAL FOUND" or "LATEST CHECK")
+    book.initialLabel:SetText(book.detailsAccount and "ALREADY HAD" or "FIRST CHECK")
     book.selectedTotals:SetText(book.filter.realm and not book.filter.character and "Realm" or "Character")
     Widgets.select(book.selectedTotals, not book.detailsAccount)
     Widgets.select(book.accountTotals, book.detailsAccount)
@@ -328,15 +330,20 @@ function details(book, key)
         for _, activity in ipairs(book.result.rows) do
             if activity.sequence == book.selectedSequence then
                 write("section", activity.action .. " ×" .. activity.quantity)
-                write("date", "Confirmed", stamp(activity.at))
+                write("date", "When", stamp(activity.at))
                 write("note", activity.actors)
-                write("note", activity.evidence)
+                if developerMode then
+                    write("note", "Recording details: " .. activity.evidence)
+                end
+                if activity.kind == "transfer" then
+                    write("note", "Moved between your characters. This does not count as a new gain.")
+                end
                 if activity.details then
                     for _, gain in ipairs(activity.details) do
                         write("section", gain.method .. " ×" .. gain.quantity)
                         write("note", gain.actor)
                         write("date", "Time", stamp(gain.at))
-                        write("note", "Gain place: " .. gain.place)
+                        write("note", "Place: " .. gain.place)
                         write("pair", "Character level", tostring(gain.level or "Unknown"))
                         write("note", "Source: " .. gain.source)
                     end
@@ -353,10 +360,10 @@ function details(book, key)
                         )
                     end
                 else
-                    write("note", "Activity place: " .. activity.placeText)
+                    write("note", "Place: " .. activity.placeText)
                     write("pair", "Character level", tostring(activity.level or "Unknown"))
-                    write("note", "Method: " .. activity.action)
-                    write("note", "Source: " .. activity.sourceText)
+                    write("note", "Action: " .. activity.action)
+                    write("note", "From: " .. activity.sourceText)
                 end
                 local function related(sequence, label)
                     local retained = sequence and book.result.bySequence[sequence]
@@ -367,20 +374,20 @@ function details(book, key)
                             render(book)
                         end)
                     else
-                        write("note", label .. " is outside this retained view.")
+                        write("note", label .. " is not in the recent Journal entries.")
                     end
                 end
                 if activity.kind == "refund" then
                     if activity.linkedGainID then
                         related(activity.purchaseSequence, "Linked purchase")
                     else
-                        write("note", "Purchase relationship: Unknown (not recorded).")
+                        write("note", "The matching purchase is not in the Journal.")
                     end
                 elseif activity.kind == "buyback" then
                     if activity.linkedSaleID then
                         related(activity.saleSequence, "Linked sale")
                     else
-                        write("note", "Sale relationship: Unknown (not recorded).")
+                        write("note", "The matching sale is not in the Journal.")
                     end
                 end
                 for _, sequence in ipairs(activity.refundSequences or {}) do
@@ -395,23 +402,21 @@ function details(book, key)
             openHistory(book, key)
         end)
     end
-    write(
-        "note",
-        "Journal shows retained activity only. Missing rows do not mean no lifetime gains; pruned rows are not rebuilt."
-    )
-    write("section", "Discovery history")
+    write("note", "The Journal keeps recent activity. Older entries may disappear, but your Collection totals remain.")
+    write("section", "Item history")
     if not book.detailsAccount then
         write(
             "note",
             "Latest check "
                 .. stamp(model.checkedAt)
-                .. ". + means other storage is older or unchecked. First check and gains are separate facts."
+                .. ". + means bags, bank, or gear have an older or missing check. "
+                .. "A first sighting does not tell when you got it."
         )
     end
-    write("date", "First Seen", stamp(model.firstSeen))
-    write("date", "Latest Seen", stamp(model.lastSeen))
-    write("date", "First known gain", stamp(model.firstGained))
-    write("date", "Latest known gain", stamp(model.lastGained))
+    write("date", "First seen", stamp(model.firstSeen))
+    write("date", "Last seen", stamp(model.lastSeen))
+    write("date", "First confirmed gain", stamp(model.firstGained))
+    write("date", "Last confirmed gain", stamp(model.lastGained))
     local function breakdown(title, totals)
         write("section", title)
         local labels = {}
@@ -422,46 +427,41 @@ function details(book, key)
         end
         table.sort(labels)
         if #labels == 0 then
-            write("note", book.detailsAccount and "No recorded units." or "No confirmed gains in this scope.")
+            write("note", book.detailsAccount and "No items counted yet." or "No confirmed gains in this view.")
         end
         for _, name in ipairs(labels) do
-            write("pair", name == "Seen" and "Initial stock (Seen)" or name, tostring(totals[name]))
+            write("pair", name == "Seen" and "Already had at first check" or name, tostring(totals[name]))
         end
     end
-    breakdown("How it was recorded", model.breakdown.methods)
-    breakdown("Recorded sources", model.breakdown.sources)
-    write("section", "Last observed & current checks")
+    breakdown("How you got it", model.breakdown.methods)
+    breakdown("Where it came from", model.breakdown.sources)
+    write("section", "Last checks")
     local lastCharacter
     local areas = { bags = "Bags", bank = "Bank", equipped = "Equipped" }
     for _, check in ipairs(model.checks) do
         local actor = check.character .. "-" .. check.realm
         if actor ~= lastCharacter then
-            write("note", actor .. (not check.online and " • Offline; current ownership unknown" or ""))
+            write("note", actor .. (not check.online and " • Offline; status Unknown" or ""))
             lastCharacter = actor
         end
         write(
             "pair",
-            areas[check.area] .. " • Last observed",
+            areas[check.area] .. " • Last found",
             check.observedQuantity ~= nil and tostring(check.observedQuantity) or "Unknown"
         )
-        write("date", "Observed", check.observedAt and stamp(check.observedAt) or "Never observed")
-        write("pair", "Current check", check.quantity ~= nil and tostring(check.quantity) or "Unknown")
-        write("date", "Checked", check.at and stamp(check.at) or "Never checked")
+        write("date", "Last seen", check.observedAt and stamp(check.observedAt) or "Not seen yet")
+        write("pair", "Latest check", check.quantity ~= nil and tostring(check.quantity) or "Unknown")
+        write("date", "Checked", check.at and stamp(check.at) or "Not checked yet")
     end
-    write("section", "Strongest evidence")
-    write("note", model.evidence)
-    write("section", "Item links & variant")
-    write("note", "Variant " .. record.key)
-    write(
-        "note",
-        #model.links
-            .. (#model.links == 1 and " item version" or " item versions")
-            .. " • "
-            .. #record.links
-            .. " recorded links (account)"
-    )
+    if developerMode then
+        write("section", "Developer details")
+        write("note", "Internal item key: " .. record.key)
+        write("note", "Evidence summary: " .. model.evidence)
+        write("note", #model.links .. " item versions • " .. #record.links .. " saved links")
+    end
+    write("section", "Item versions")
     if #model.links > 1 then
-        write("note", "Hover links to compare enchants and gems.")
+        write("note", "Hover over versions to compare bonuses, enchants, and gems.")
     end
     if book.showAllLinks then
         for _, link in ipairs(record.links) do
@@ -475,7 +475,7 @@ function details(book, key)
     if #record.links > #model.links then
         write(
             "action",
-            book.showAllLinks and "Show distinct versions" or ("Show all " .. #record.links .. " recorded links")
+            book.showAllLinks and "Show item versions only" or ("Show all " .. #record.links .. " saved links")
         )
     end
     book.detailBody:SetHeight(math.max(y, 1))
@@ -503,19 +503,21 @@ end
 local function warning(book)
     local diagnostic = book.store:diagnostic()
     local evidence = book.store:evidenceStatus()
-    if diagnostic.kind ~= "healthy" then
-        return "Saved data: " .. diagnostic.kind .. "; readable history shown"
+    if diagnostic.kind == "unsupported" then
+        return "Saved item history is from another Ledger version; it is read-only."
+    elseif diagnostic.kind == "damaged" then
+        return "Some saved item history is damaged; readable entries are shown."
     end
     if evidence.discarded > 0 then
         return "Warning: "
             .. evidence.discarded
-            .. " unresolved records discarded • "
+            .. " item changes need review; details discarded • "
             .. date("%d %b %Y", evidence.firstDiscarded)
             .. " – "
             .. date("%d %b %Y", evidence.lastDiscarded)
     end
     local count = evidence.count
-    return count > 0 and (count .. " unresolved records • no guessed gains") or ""
+    return count > 0 and (count .. " item changes need review • no gains guessed") or ""
 end
 
 local function renderBody(book, requestedKey)
@@ -550,7 +552,7 @@ local function renderBody(book, requestedKey)
     end
     book.scope:SetText(book.filter.character or "All characters")
     book.realmFilter:SetText(book.filter.realm or "All realms")
-    book.place:SetText(book.filter.place or "All recorded places")
+    book.place:SetText(book.filter.place or "All places")
     book.ownershipFilter:SetText(choiceLabel("ownership", book.filter.ownership))
     book.qualityFilter:SetText(choiceLabel("quality", book.filter.quality))
     book.methodFilter:SetText(choiceLabel("method", book.filter.method))
@@ -568,7 +570,7 @@ local function renderBody(book, requestedKey)
     end
     if not result then
         book.empty:SetText(
-            evidence and "Loading unresolved evidence…"
+            evidence and "Loading item changes to review…"
                 or journal and "Loading your Journal…"
                 or "Loading your Collection…"
         )
@@ -603,16 +605,19 @@ local function renderBody(book, requestedKey)
     book.count:SetText(
         #result.rows
             .. (
-                evidence and " evidence records"
-                or journal and " activities"
+                evidence and (#result.rows == 1 and " item to review" or " items to review")
+                or journal and (#result.rows == 1 and " entry" or " entries")
                 or (#result.rows == 1 and " item" or " items")
             )
     )
     book.discoveries:SetText(result.discoveryCount .. (result.discoveryCount == 1 and " discovery" or " discoveries"))
-    local journalContext = book.filter.historyKey and "Exact item / variant history • newest first"
-        or ((book.filter.character or book.filter.realm) and "Scoped recent activity" or "Account-wide recent activity")
+    local journalContext = book.filter.historyKey and "This item's history • newest first"
+        or (
+            (book.filter.character or book.filter.realm) and "Recent activity for this view"
+            or "Recent activity for all characters"
+        )
     book.context:SetText(
-        evidence and "Unresolved evidence"
+        evidence and "Item changes to review"
             or journal and journalContext
             or (book.filter.category or (gallery and "Gear & pending items" or "All items"))
     )
@@ -621,7 +626,7 @@ local function renderBody(book, requestedKey)
     book.quantityHeading:SetText(
         journal and "UNITS"
             or book.filter.source and "GAINED"
-            or ((book.filter.character or book.filter.realm) and "CHECKED" or "RECORDED")
+            or ((book.filter.character or book.filter.realm) and "CHECKED" or "TRACKED")
     )
     local state = #result.rows == 0 and "No matching items. Try another search or clear your filters." or ""
     if gallery then
@@ -635,26 +640,26 @@ local function renderBody(book, requestedKey)
             .. "Retention limits are in AddOns Settings."
     end
     if evidence then
-        state = result.total == 0 and "No unresolved evidence in this scope."
-            or "No matching evidence. Try another item search or character/realm filter."
+        state = result.total == 0 and "No item changes need review in this view."
+            or "No matching item changes. Try another search or character/realm filter."
         if result.discarded > 0 then
-            state = state .. " Discarded details cannot be searched."
+            state = state .. " Older details are no longer available."
         end
     end
     book.empty:SetText(state)
     book.empty:SetShown(#result.rows == 0)
     local loadingText = result.loading > 0 and (result.loading .. " items awaiting item data") or ""
-    local sourceLabel = "All recorded sources"
+    local sourceLabel = "All sources"
     for _, source in ipairs(result.sources or {}) do
         if source.key == book.filter.source then
             sourceLabel = source.label
         end
     end
     book.sourceFilter:SetText(
-        book.filter.source and sourceLabel == "All recorded sources" and "Source has no gains in scope" or sourceLabel
+        book.filter.source and sourceLabel == "All sources" and "No gains from this source here" or sourceLabel
     )
     if not journal and not evidence and book.filter.source then
-        loadingText = "Recorded source history; not a possible-drop list."
+        loadingText = "Shows items gained from this source, not everything it can drop."
             .. (loadingText ~= "" and ("\n" .. loadingText) or "")
     end
     if journal and book.filter.dateFrom then
@@ -668,8 +673,8 @@ local function renderBody(book, requestedKey)
     if evidence then
         local discardedRange = stamp(result.firstDiscarded) .. " – " .. stamp(result.lastDiscarded)
         book.loading:SetText(
-            result.discarded > 0 and ("Account-wide: " .. result.discarded .. " discarded • " .. discardedRange)
-                or "No discarded evidence details."
+            result.discarded > 0 and (result.discarded .. " older item changes without details • " .. discardedRange)
+                or "No older item changes without details."
         )
     end
     Widgets.select(
@@ -705,8 +710,8 @@ local function renderBody(book, requestedKey)
                 evidence and (item.status .. " • " .. item.character .. "-" .. item.realm)
                     or journal and (stamp(item.at) .. " • " .. item.actors)
                     or (
-                        book.filter.view == "Discoveries" and ("First Seen " .. stamp(item.discoveredAt))
-                        or (gallery and (item.loading and "Awaiting item data" or item.record.key))
+                        book.filter.view == "Discoveries" and ("First seen " .. stamp(item.discoveredAt))
+                        or (gallery and (item.loading and "Loading item details…" or item.ownership))
                         or item.category
                     )
             )
@@ -1079,12 +1084,12 @@ local function create(api)
         book.categories[index] = control
     end
     Widgets.fill(sidebar, colors.edge, 12, 326, 154, 1, "ARTWORK")
-    Widgets.text(api, sidebar, "RECORDED HISTORY", 12, 337, 154, 10, colors.muted)
-    book.sourceFilter = Widgets.dropdown(book, sidebar, "All recorded sources", 6, 354, 166, function(self)
+    Widgets.text(api, sidebar, "ITEM HISTORY", 12, 337, 154, 10, colors.muted)
+    book.sourceFilter = Widgets.dropdown(book, sidebar, "All sources", 6, 354, 166, function(self)
         if book.queryPending or not book.result then
             return
         end
-        local choices = { { label = "All recorded sources" } }
+        local choices = { { label = "All sources" } }
         for _, source in ipairs(book.result.sources or {}) do
             choices[#choices + 1] = { label = source.label .. " • " .. source.quantity, source = source.key }
         end
@@ -1092,11 +1097,11 @@ local function create(api)
             change(book, "source", choice.source)
         end)
     end)
-    book.place = Widgets.dropdown(book, sidebar, "All recorded places", 6, 398, 166, function(self)
+    book.place = Widgets.dropdown(book, sidebar, "All places", 6, 398, 166, function(self)
         if book.queryPending or not book.result then
             return
         end
-        local choices = { { label = "All recorded places" } }
+        local choices = { { label = "All places" } }
         local kinds = { zone = "Zone", dungeon = "Dungeon", place = "Place" }
         for _, place in ipairs(book.result.places) do
             choices[#choices + 1] =
@@ -1211,7 +1216,7 @@ local function create(api)
     book.count = Widgets.text(api, frame, "", 218, 274, 160, 12)
     book.context = Widgets.text(api, frame, "", 390, 274, 268, 11, colors.muted)
     book.context:SetJustifyH("RIGHT")
-    book.quantityHeading = Widgets.text(api, frame, "RECORDED", 598, 295, 60, 9, colors.muted)
+    book.quantityHeading = Widgets.text(api, frame, "TRACKED", 598, 295, 60, 9, colors.muted)
     book.quantityHeading:SetJustifyH("RIGHT")
     book.empty = Widgets.text(api, frame, "", 248, 408, 380, 14, colors.muted)
     for index = 1, PAGE_SIZE do
@@ -1284,10 +1289,10 @@ local function create(api)
         local caption = Widgets.text(api, book.detailHeader, label, x + 10, 151, 96, 9, colors.muted)
         return Widgets.text(api, book.detailHeader, "", x + 10, 168, 96, 18), caption
     end
-    book.recorded, book.recordedLabel = statistic("RECORDED", 16)
+    book.recorded, book.recordedLabel = statistic("TOTAL FOUND", 16)
     book.gained = statistic("TOTAL GAINED", 142)
     book.gained:SetTextColor(unpack(colors.gold))
-    book.initial, book.initialLabel = statistic("INITIALLY SEEN", 268)
+    book.initial, book.initialLabel = statistic("ALREADY HAD", 268)
     book.detailScroll = api.CreateFrame("ScrollFrame", nil, detailPanel, "UIPanelScrollFrameTemplate")
     book.detailScroll:SetPoint("TOPLEFT", 16, -208)
     book.detailScroll:SetSize(344, DETAIL_HEIGHT)
@@ -1329,7 +1334,7 @@ local function create(api)
     book.previewPanel:Hide()
     book.loading = Widgets.text(api, frame, "", 218, 656, 440, 10, colors.muted)
     book.loading:SetHeight(22)
-    Widgets.button(book, frame, "Inspect evidence", 20, 680, 150, 18, function()
+    Widgets.button(book, frame, "Review item changes", 20, 680, 150, 18, function()
         change(book, "view", "Evidence")
     end)
     book.warning = Widgets.button(book, frame, "", 180, 680, 490, 18, function()
@@ -1412,16 +1417,14 @@ local function create(api)
     Widgets.button(book, header, "Close", 1020, 24, 60, 30, function()
         frame:Hide()
     end)
-    local helpText = "Only locally recorded characters are covered. "
-        .. "Visit your alts to record them, and open banks to check their contents. "
-        .. "Starting stock has no known acquisition history.\n\n"
-        .. "Recorded: lifetime recorded units, including starting stock and confirmed gains. "
-        .. "It is not current ownership. "
-        .. "Checked units: quantities from the selected character's storage checks; "
-        .. "+ means other storage is older or unchecked.\n\n"
-        .. "Found once: exactly one confirmed unit gained, with none seen beforehand.\n\n"
-        .. "Historical only: absent from complete checks of relevant bags, bank and gear, as of those dates. "
-        .. "Unknown: required storage could not be checked."
+    local helpText = "The Ledger tracks characters after you log in on them. "
+        .. "Open each character's bank to check its contents.\n\n"
+        .. "Total found counts items found on the first check and confirmed gains later. "
+        .. "It is not how many you have now.\n\n"
+        .. "A + means some bags, bank, or gear have an older or missing check.\n\n"
+        .. "Found once: one confirmed item gained, with no earlier sighting of that version.\n\n"
+        .. "Historical only: not found when all relevant bags, bank, and gear were checked. "
+        .. "Unknown means a needed check could not be completed."
     book.help = Widgets.panel(api, frame, 218, 146, 440, 500, colors.raised)
     book.help:SetFrameLevel(frame:GetFrameLevel() + 30)
     book.help:EnableMouse(true)
@@ -1479,6 +1482,7 @@ function Book.open(api, store, character, realm, filterCharacter, filterRealm)
             local preferences = store:book()
             active.filter, active.scale = preferences.filter, preferences.scale
             active.x, active.y, active.guided = preferences.x, preferences.y, preferences.guided
+            active.developerMode = preferences.developerMode
             active.selected, active.selectedSequence, active.selectedEvidence = nil, nil, nil
             active.historyReturn, active.focus, active.page = nil, nil, 1
             active.search:SetText(active.filter.search or "")
@@ -1564,6 +1568,22 @@ function Book.reset(store, kind)
         fit(active)
         render(active)
     end
+end
+
+function Book.setDeveloperMode(store, enabled)
+    if type(enabled) ~= "boolean" then
+        return false
+    end
+    local preferences = store:book()
+    preferences.developerMode = enabled
+    if not store:setBook(preferences) then
+        return false
+    end
+    if active and active.store == store then
+        active.developerMode = enabled
+        active.dirty = true
+    end
+    return true
 end
 
 function Book.refresh(store, character, realm)

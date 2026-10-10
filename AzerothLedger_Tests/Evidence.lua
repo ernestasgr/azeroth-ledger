@@ -52,18 +52,18 @@ function tests.BookEvidenceShowsActiveAndEndedMatchesWithoutGains(_self)
     local revision = store:revision()
     local result = addon.Collection.evidenceQuery(store, { search = "Meat", character = "Ada", realm = "Realm" })
     WoWUnit.AreEqual(1, #result.rows)
-    WoWUnit.AreEqual("Active", result.rows[1].status)
+    WoWUnit.AreEqual("Still checking", result.rows[1].status)
     WoWUnit.AreEqual(revision, store:revision())
     WoWUnit.IsTrue(store:expireEvidence(1070))
     result = addon.Collection.evidenceQuery(store, {})
     WoWUnit.AreEqual(1, #result.rows)
-    WoWUnit.AreEqual("Expired", result.rows[1].status)
+    WoWUnit.AreEqual("Timed out", result.rows[1].status)
     WoWUnit.AreEqual(0, store:find(key).totalGained)
     WoWUnit.AreEqual(0, #addon.Collection.evidenceQuery(store, { search = "Sword" }).rows)
     WoWUnit.IsTrue(open(1080))
     local restored = addon.Schema.open(saved(), function() end)
     result = addon.Collection.evidenceQuery(restored, {})
-    WoWUnit.AreEqual("Reload ended", result.rows[1].status)
+    WoWUnit.AreEqual("Login interrupted", result.rows[1].status)
     WoWUnit.AreEqual(0, restored:find(key).totalGained)
 end
 
@@ -232,7 +232,7 @@ function tests.CandidateOverflowRetainsDetailsAndWarnsAtAccountLimit(_self)
     WoWUnit.AreEqual(1012, summary.lastDiscarded)
     local warning = false
     for _, lineText in ipairs(addon.Collection.lines(store, "Ada", "Realm")) do
-        if lineText:find("WARNING", 1, true) and lineText:find("discarded", 1, true) then
+        if lineText:find("WARNING", 1, true) and lineText:find("details unavailable", 1, true) then
             warning = true
         end
     end
