@@ -46,6 +46,7 @@ function BookQuery.new(api)
     local session = {}
     local currentStore, currentCharacter, currentRealm, currentFilter
     local revision, job, metadataPending
+    local lastResult, lastResultStore, lastResultCharacter, lastResultRealm, lastResultFilter, lastResultRevision
 
     local function start(store, character, realm, filter)
         currentStore, currentCharacter, currentRealm = store, character, realm
@@ -91,6 +92,19 @@ function BookQuery.new(api)
         end
     end
 
+    local function canKeepLastResult(store, character, realm, filter)
+        return lastResult ~= nil
+            and lastResultStore == store
+            and lastResultCharacter == character
+            and lastResultRealm == realm
+            and lastResultRevision == store:revision()
+            and sameFilter(lastResultFilter, filter)
+    end
+
+    function session.lastCompleteResult(_self, store, character, realm, filter)
+        return canKeepLastResult(store, character, realm, filter) and lastResult or nil
+    end
+
     ---@param store ALStore
     ---@param character string
     ---@param realm string
@@ -114,10 +128,13 @@ function BookQuery.new(api)
         end
         if revision ~= store:revision() or metadataPending then
             -- Finish a running job before replacing it, so event bursts cannot
-            -- perpetually restart the same first frame. Never publish stale rows.
+            -- perpetually restart the same first frame. A same-revision metadata
+            -- refresh can keep the last complete rows visible while rebuilding.
             start(store, character, realm, filter)
             return nil, true
         end
+        lastResult, lastResultStore, lastResultCharacter, lastResultRealm, lastResultFilter, lastResultRevision =
+            result, store, character, realm, copyFilter(filter), store:revision()
         return result, false
     end
 

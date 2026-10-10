@@ -582,4 +582,72 @@ do
         assert(#addon.store:takeDiscoveries() == 0, "Reload queued an old discovery")
     end
 end
+
+-- A second same-item slot may become readable after the item-count update and
+-- loot close; its exact source proof must still settle the measured receipt.
+local lateStore = addon.Schema.open(nil, function() end)
+local lateActor = { character = "Mindria", realm = "Classic Beta PvE" }
+local lateContext = {
+    character = lateActor.character,
+    realm = lateActor.realm,
+    at = 7000,
+    level = 1,
+    place = "Teldrassil",
+}
+assert(lateStore:scan({
+    character = lateActor.character,
+    realm = lateActor.realm,
+    area = "bags",
+    complete = true,
+    seenAt = 7000,
+    items = {},
+}))
+assert(lateStore:scan({
+    character = lateActor.character,
+    realm = lateActor.realm,
+    area = "equipped",
+    complete = true,
+    seenAt = 7000,
+    items = {},
+}))
+rawset(_G, "GetNumLootItems", function()
+    return 2
+end)
+rawset(_G, "GetLootSlotInfo", function()
+    return nil, "Loot item", 1
+end)
+rawset(_G, "GetLootSourceInfo", function()
+    return "Creature-0-6783-1-118-1984-000040D7BC", 1
+end)
+local lateSlotReadable = false
+rawset(_G, "GetLootSlotLink", function(slot)
+    if slot == 1 or lateSlotReadable then
+        return eggLink
+    end
+end)
+local firstLateSlots = assert(addon.Loot.open(_G))
+assert(#firstLateSlots == 1, "The first snapshot should contain only the readable loot slot")
+lateContext.slots = firstLateSlots
+assert(lateStore:lootOpen(lateContext))
+assert(lateStore:lootReceipt({ key = "6889:0", quantity = 2 }, 7001, lateActor))
+assert(lateStore:scan({
+    character = lateActor.character,
+    realm = lateActor.realm,
+    area = "bags",
+    complete = true,
+    seenAt = 7002,
+    items = { { itemID = 6889, link = eggLink, quantity = 2 } },
+}))
+assert(lateStore:lootClose(7002))
+lateSlotReadable = true
+local lateSlots = assert(addon.Loot.open(_G))
+assert(#lateSlots == 2, "The later snapshot should expose both same-item loot slots")
+assert(lateStore:lootSourceProof(lateSlots, 7003, lateActor))
+local lateRecord = assert(lateStore:find("6889:0"))
+local lateBreakdown = lateStore:breakdown("6889:0")
+assert(lateRecord.firstSeenUnits == 0, "The late second slot must not leave a loot unit as initial stock")
+assert(lateRecord.totalGained == 2, "The late second slot must settle the second measured loot unit")
+assert(lateBreakdown.methods.Looted == 2, "Both units must remain Looted after late slot proof")
+assert(lateBreakdown.sources["Young Thistle Boar"] == 2, "Both units must keep their proven mob source")
+print("loot_event_spec: late duplicate slot proof settles both gains")
 print("loot_event_spec: passed")

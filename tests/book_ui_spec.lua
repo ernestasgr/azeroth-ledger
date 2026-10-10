@@ -631,3 +631,65 @@ find("All recorded sources", "Button")
 find("RECORDED")
 assert(sourceWrites == 0)
 print("book_ui_spec: source navigation, source search, contribution quantity and clearing passed")
+
+-- Hovering a historical item can complete an uncached item-info request. Keep
+-- the already-rendered Collection visible while that metadata refresh runs.
+assert(sourceStore:scan({
+    character = "Ada",
+    realm = "A",
+    area = "bags",
+    complete = true,
+    seenAt = 2000,
+    items = {},
+}))
+assert(sourceStore:scan({
+    character = "Ada",
+    realm = "A",
+    area = "equipped",
+    complete = true,
+    seenAt = 2000,
+    items = {},
+}))
+assert(sourceStore:scan({
+    character = "Ada",
+    realm = "A",
+    area = "bank",
+    complete = true,
+    seenAt = 2000,
+    items = {},
+}))
+local historicalFrame = assert(addon.Book.open(api, sourceStore, "Ada", "A"))
+for _ = 1, 20 do
+    historicalFrame.scripts.OnUpdate(historicalFrame, 0.1)
+end
+local historicalRow
+for _, control in ipairs(controls) do
+    if control.kind == "Button" and control.key == "2672:0" and control:IsVisible() then
+        historicalRow = control
+        break
+    end
+end
+assert(historicalRow, "A sold item should remain in Collection history")
+local profileTime = 0
+rawset(api, "debugprofilestop", function()
+    profileTime = profileTime + 1
+    return profileTime
+end)
+api.GameTooltip = {
+    SetOwner = function() end,
+    SetHyperlink = function()
+        ready = false
+        historicalFrame.scripts.OnEvent(historicalFrame, "GET_ITEM_INFO_RECEIVED", 2672, true)
+    end,
+    Show = function() end,
+    Hide = function() end,
+}
+historicalRow.scripts.OnEnter(historicalRow)
+historicalFrame.scripts.OnUpdate(historicalFrame, 0.1)
+for _, control in ipairs(controls) do
+    assert(
+        control.text ~= "Loading your Collection…" or not control:IsVisible(),
+        "Hovering a sold item must not blank the Collection while item metadata refreshes"
+    )
+end
+print("book_ui_spec: historical-item hover keeps the Collection visible")
