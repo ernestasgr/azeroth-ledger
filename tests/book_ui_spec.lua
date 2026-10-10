@@ -351,4 +351,107 @@ find("5")
 find(date("%d %b %Y  %H:%M", 4000))
 find("Current check")
 find(date("%d %b %Y  %H:%M", 4100))
+click("Inspect evidence")
+find("Unresolved evidence")
+find("No unresolved evidence in this scope.")
+assert(store:lootOpen({
+    character = "Ada",
+    realm = "A",
+    level = 12,
+    place = "Forest",
+    at = 4110,
+    slots = { { key = "4540:0", quantity = 1 } },
+}))
+addon.Book.refresh(store)
+frame.scripts.OnUpdate(frame, 0.1)
+click("Loot • Bread")
+find("Active")
+find("Ada-A")
+local evidenceWrites = writes
+frame.scripts.OnKeyDown(frame, "DOWN")
+assert(writes == evidenceWrites)
+assert(store:expireEvidence(4170))
+addon.Book.refresh(store)
+frame.scripts.OnUpdate(frame, 0.1)
+find("Expired")
+find("This evidence cannot restart matching. Future checks do not confirm this old gain.")
+search:SetText("nothing matches")
+frame.scripts.OnUpdate(frame, 0.1)
+find("No matching evidence. Try another item search or character/realm filter.")
+search:SetText("")
+frame.scripts.OnUpdate(frame, 0.1)
+for index = 1, 10 do
+    assert(
+        store:vendorAction(
+            { kind = "purchase", key = "4540:0", itemID = 4540, link = bread, quantity = 1 },
+            4170 + index,
+            { character = "Ada", realm = "A", level = 12, place = "Forest" }
+        )
+    )
+end
+addon.Book.refresh(store)
+frame.scripts.OnUpdate(frame, 0.1)
+find("1 / 2")
+frame.scripts.OnKeyDown(frame, "PAGEDOWN")
+find("2 / 2")
+click("Previous")
+find("1 / 2")
+click("Collection")
+find("Bread", "Button")
 print("book_ui_spec: passed (native frame port replay; live client pending)")
+
+local queued = {
+    schema = 2,
+    records = {},
+    areas = {},
+    evidence = { nextID = 2001, discarded = 5, firstDiscarded = 100, lastDiscarded = 200, unresolved = {} },
+}
+for index = 1, 2000 do
+    queued.evidence.unresolved[index] = {
+        id = index,
+        kind = "identity",
+        reason = "unreadable",
+        at = 1000 + index,
+        character = "EvidenceOnly",
+        realm = "EvidenceRealm",
+        detail = { itemID = 999, quantity = 1, area = "bank" },
+    }
+end
+local queueWrites = 0
+local queueStore = addon.Schema.open(queued, function()
+    queueWrites = queueWrites + 1
+end)
+local profileTime = 0
+api.debugprofilestop = function()
+    profileTime = profileTime + 0.2
+    return profileTime
+end
+addon.Book.open(api, queueStore, "Ada", "A")
+click("Inspect evidence")
+frame.scripts.OnKeyDown(frame, "DOWN")
+for _ = 1, 10000 do
+    frame.scripts.OnUpdate(frame, 0.1)
+end
+find("2000 evidence records")
+find("1 / 286")
+find("Account-wide: 5 discarded • " .. date("%d %b %Y  %H:%M", 100) .. " – " .. date("%d %b %Y  %H:%M", 200))
+local loading =
+    find("Account-wide: 5 discarded • " .. date("%d %b %Y  %H:%M", 100) .. " – " .. date("%d %b %Y  %H:%M", 200))
+local warningControl = find(
+    "Warning: 5 unresolved records discarded • " .. date("%d %b %Y", 100) .. " – " .. date("%d %b %Y", 200),
+    "Button"
+)
+assert(loading.points[1].y > warningControl.points[1].y, "Discarded details and warning must occupy separate lines")
+frame.scripts.OnKeyDown(frame, "PAGEDOWN")
+for _ = 1, 10000 do
+    frame.scripts.OnUpdate(frame, 0.1)
+end
+find("2 / 286")
+click("All characters")
+click("EvidenceOnly-EvidenceRealm")
+for _ = 1, 10000 do
+    frame.scripts.OnUpdate(frame, 0.1)
+end
+find("2000 evidence records")
+assert(queueWrites == 0)
+print("book_ui_spec: large evidence queue, loading keyboard access and overflow layout passed")

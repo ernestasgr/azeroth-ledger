@@ -103,6 +103,72 @@ local function detailRow(book, index)
     return row
 end
 
+local function evidenceDetails(book, id)
+    local previous, oldScroll = book.selectedEvidence, book.detailScroll:GetVerticalScroll()
+    book.selectedEvidence = id
+    book.detailHeader:Hide()
+    book.previewPanel:Hide()
+    local index = book.result.positions[id]
+    local item = index and book.result.rows[index]
+    book.detailEmpty:SetShown(not item)
+    book.detailScroll:SetShown(item ~= nil)
+    book.detailScroll:ClearAllPoints()
+    book.detailScroll:SetPoint("TOPLEFT", 16, -16)
+    book.detailScroll:SetHeight(520)
+    for _, row in ipairs(book.detailRows) do
+        row:Hide()
+    end
+    if not item then
+        return
+    end
+    local lines = {
+        item.name,
+        item.action .. (item.quantity and (" ×" .. item.quantity) or " • quantity unknown"),
+        item.character .. "-" .. item.realm,
+        stamp(item.at),
+        item.status,
+        item.reason,
+        item.nextStep,
+        "Viewing evidence never confirms a gain or changes totals.",
+    }
+    if item.location then
+        lines[#lines + 1] = "Observed location: " .. item.location
+    end
+    if item.link then
+        lines[#lines + 1] = item.link
+    end
+    local y = 0
+    for number, text in ipairs(lines) do
+        local row = detailRow(book, number)
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", 0, -y)
+        row.left:ClearAllPoints()
+        row.left:SetPoint("TOPLEFT", 0, -4)
+        row.left:SetWidth(338)
+        row.left:SetTextColor(unpack(number == 1 and colors.gold or colors.text))
+        row.left:SetText(text)
+        row.left:Show()
+        row.right:Hide()
+        row.line:Hide()
+        row.section:Hide()
+        row.action = false
+        row.fullLink = nil
+        row.link:Hide()
+        if item.link and number == #lines then
+            row.fullLink = item.link
+            row.link:SetText(item.link)
+            row.link:Show()
+            row.left:Hide()
+        end
+        local height = math.max(34, row.left:GetStringHeight() + 16)
+        row:SetHeight(height)
+        row:Show()
+        y = y + height
+    end
+    book.detailBody:SetHeight(math.max(1, y))
+    book.detailScroll:SetVerticalScroll(previous == id and math.min(oldScroll, math.max(0, y - 520)) or 0)
+end
+
 function details(book, key)
     local previous = book.selected
     local oldScroll = book.detailScroll:GetVerticalScroll()
@@ -315,19 +381,24 @@ function details(book, key)
 end
 
 local function selectItem(book, key)
-    details(book, key)
+    if book.filter.view == "Evidence" then
+        evidenceDetails(book, key)
+    else
+        details(book, key)
+    end
     for _, row in ipairs(visibleRows(book)) do
         Widgets.select(
             row,
-            book.filter.view == "Journal" and row.sequence == book.selectedSequence
-                or book.filter.view ~= "Journal" and row.key == key
+            book.filter.view == "Evidence" and row.evidenceID == book.selectedEvidence
+                or book.filter.view == "Journal" and row.sequence == book.selectedSequence
+                or (book.filter.view ~= "Journal" and book.filter.view ~= "Evidence") and row.key == key
         )
     end
 end
 
 local function warning(book)
     local diagnostic = book.store:diagnostic()
-    local evidence = book.store:evidenceSummary()
+    local evidence = book.store:evidenceStatus()
     if diagnostic.kind ~= "healthy" then
         return "Saved data: " .. diagnostic.kind .. "; readable history shown"
     end
@@ -339,7 +410,7 @@ local function warning(book)
             .. " – "
             .. date("%d %b %Y", evidence.lastDiscarded)
     end
-    local count = #book.store:unresolved()
+    local count = evidence.count
     return count > 0 and (count .. " unresolved records • no guessed gains") or ""
 end
 
@@ -350,11 +421,13 @@ local function renderBody(book, requestedKey)
         book.lastDetailScope = scopeKey
     end
     local journal = book.filter.view == "Journal"
+    local evidence = book.filter.view == "Evidence"
     local gallery = book.filter.view == "Gallery"
     local size = pageSize(book)
     local result, pending = book.query:step(book.store, book.character, book.realm, book.filter)
+    book.queryPending = pending
     if not result then
-        book.empty:SetText("Loading your Collection…")
+        book.empty:SetText(evidence and "Loading unresolved evidence…" or "Loading your Collection…")
         book.empty:Show()
         book.loading:SetText("Loading items…")
         book.count:SetText("Loading…")
@@ -382,13 +455,21 @@ local function renderBody(book, requestedKey)
     book.result = result
     local pages = math.max(1, math.ceil(#result.rows / size))
     book.page = math.max(1, math.min(book.page, pages))
-    book.count:SetText(#result.rows .. (journal and " activities" or (#result.rows == 1 and " item" or " items")))
+    book.count:SetText(
+        #result.rows
+            .. (
+                evidence and " evidence records"
+                or journal and " activities"
+                or (#result.rows == 1 and " item" or " items")
+            )
+    )
     book.discoveries:SetText(result.discoveryCount .. (result.discoveryCount == 1 and " discovery" or " discoveries"))
     book.context:SetText(
-        journal and "Account-wide recent activity"
+        evidence and "Unresolved evidence"
+            or journal and "Account-wide recent activity"
             or (book.filter.category or (gallery and "Gear & pending items" or "All items"))
     )
-    book.quantityHeading:SetShown(not gallery)
+    book.quantityHeading:SetShown(not gallery and not evidence)
     book.quantityHeading:SetText(
         journal and "UNITS" or ((book.filter.character or book.filter.realm) and "CHECKED" or "RECORDED")
     )
@@ -400,10 +481,18 @@ local function renderBody(book, requestedKey)
         book.clearFilters,
         book.place,
     }) do
-        control:SetShown(not journal)
+        control:SetShown(
+            not journal
+                and (
+                    not evidence
+                    or control == book.scope
+                    or control == book.realmFilter
+                    or control == book.clearFilters
+                )
+        )
     end
     for _, control in ipairs(book.categories) do
-        Widgets.enable(control, not journal)
+        Widgets.enable(control, not journal and not evidence)
     end
     local state = #result.rows == 0 and "No matching items. Try another search or clear your filters." or ""
     if gallery then
@@ -415,16 +504,35 @@ local function renderBody(book, requestedKey)
     if journal then
         state = "No retained activity. Retention limits are in AddOns Settings."
     end
+    if evidence then
+        state = result.total == 0 and "No unresolved evidence in this scope."
+            or "No matching evidence. Try another item search or character/realm filter."
+        if result.discarded > 0 then
+            state = state .. " Discarded details cannot be searched."
+        end
+    end
     book.empty:SetText(state)
     book.empty:SetShown(#result.rows == 0)
     book.loading:SetText(result.loading > 0 and (result.loading .. " items awaiting item data") or "")
-    book.warning:SetText(warning(book))
+    local warningText = warning(book)
+    book.warning:SetText(warningText)
+    book.warning:SetShown(warningText ~= "")
+    if evidence then
+        local discardedRange = stamp(result.firstDiscarded) .. " – " .. stamp(result.lastDiscarded)
+        book.loading:SetText(
+            result.discarded > 0 and ("Account-wide: " .. result.discarded .. " discarded • " .. discardedRange)
+                or "No discarded evidence details."
+        )
+    end
     book.scope:SetText(book.filter.character or "All characters")
     book.realmFilter:SetText(book.filter.realm or "All realms")
     book.place:SetText(book.filter.place or "All recorded places")
     book.historical.mark:SetShown(book.filter.historical == true)
     book.foundOnce.mark:SetShown(book.filter.foundOnce == true)
-    Widgets.select(book.collectionTab, not journal and not gallery and book.filter.view ~= "Discoveries")
+    Widgets.select(
+        book.collectionTab,
+        not evidence and not journal and not gallery and book.filter.view ~= "Discoveries"
+    )
     Widgets.select(book.discoveryTab, book.filter.view == "Discoveries")
     Widgets.select(book.journalTab, journal)
     Widgets.select(book.galleryTab, gallery)
@@ -440,16 +548,19 @@ local function renderBody(book, requestedKey)
     for index, row in ipairs(visibleRows(book)) do
         local item = result.rows[(book.page - 1) * size + index]
         row.key = item and item.key or nil
+        row.evidenceID = evidence and item and item.id or nil
         row.sequence = journal and item and item.sequence or nil
-        row.fullLink = item and item.record.links[#item.record.links] or nil
+        row.fullLink = item and (evidence and item.link or (not evidence and item.record.links[#item.record.links]))
+            or nil
         row:SetShown(item ~= nil)
         if item then
-            row:SetText(journal and (item.action .. " • " .. item.name) or item.name)
-            row.nameColor = Widgets.quality(book.api, item.metadata.quality)
+            row:SetText((journal or evidence) and (item.action .. " • " .. item.name) or item.name)
+            row.nameColor = evidence and colors.text or Widgets.quality(book.api, item.metadata.quality)
             row:GetFontString():SetTextColor(unpack(row.nameColor))
-            Widgets.itemIcon(row.icon, item.metadata.icon)
+            Widgets.itemIcon(row.icon, not evidence and item.metadata.icon or nil)
             row.subtitle:SetText(
-                journal and (stamp(item.at) .. " • " .. item.actors)
+                evidence and (item.status .. " • " .. item.character .. "-" .. item.realm)
+                    or journal and (stamp(item.at) .. " • " .. item.actors)
                     or (
                         book.filter.view == "Discoveries" and ("First Seen " .. stamp(item.discoveredAt))
                         or (gallery and (item.loading and "Awaiting item data" or item.record.key))
@@ -457,7 +568,9 @@ local function renderBody(book, requestedKey)
                     )
             )
             row.quantity:SetText(
-                item.recorded and tostring(item.recorded) or checkedQuantity(item.checkedUnits, item.uncheckedAreas)
+                evidence and ""
+                    or item.recorded and tostring(item.recorded)
+                    or checkedQuantity(item.checkedUnits, item.uncheckedAreas)
             )
         end
     end
@@ -467,7 +580,13 @@ local function renderBody(book, requestedKey)
     if book.selected and not book.store:find(book.selected) then
         book.selected = nil
     end
-    if journal then
+    if evidence then
+        local selected = requestedKey or book.selectedEvidence
+        if not result.positions[selected] then
+            selected = result.rows[(book.page - 1) * size + 1] and result.rows[(book.page - 1) * size + 1].id
+        end
+        selectItem(book, selected)
+    elseif journal then
         book.detailsAccount = true
         selectItem(book, requestedKey)
     else
@@ -500,18 +619,19 @@ end
 local function turnPage(book, delta)
     book.page = book.page + delta
     book.selectedSequence = nil
+    book.selectedEvidence = nil
     render(book)
 end
 
 local function itemButton(book, x, y, width, height)
     local row
     row = Widgets.button(book, book.frame, "", x, y, width, height, function(_, mouseButton)
-        if row.key then
+        if row.evidenceID or row.key then
             if mouseButton == "RightButton" then
                 Widgets.openLink(book.api, row.fullLink, mouseButton)
             else
                 book.selectedSequence = row.sequence
-                selectItem(book, row.key)
+                selectItem(book, row.evidenceID or row.key)
             end
         end
     end)
@@ -576,9 +696,12 @@ showMenu = function(book, anchor, choices, selectChoice)
 end
 
 local function scopeMenu(book, anchor, kind)
+    if book.queryPending then
+        return
+    end
     local choices = { { label = kind == "character" and "All characters" or "All realms" } }
     local seen = {}
-    for _, actor in ipairs(book.store:characters()) do
+    for _, actor in ipairs(book.filter.view == "Evidence" and book.result.actors or book.store:characters()) do
         if kind == "character" or not seen[actor.realm] then
             if kind ~= "character" or not book.filter.realm or actor.realm == book.filter.realm then
                 choices[#choices + 1] = {
@@ -673,20 +796,25 @@ local function keyboard(book, key)
         return
     end
     if key == "UP" or key == "DOWN" then
+        if book.queryPending or not book.result then
+            return
+        end
         if book.menu:IsShown() then
             book.menuIndex = math.max(1, math.min(#book.menuChoices, book.menuIndex + (key == "UP" and -1 or 1)))
             book.menuPage = math.ceil(book.menuIndex / MENU_SIZE)
             renderMenu(book)
             return
         end
-        local selected = book.filter.view == "Journal" and book.selectedSequence or book.selected
+        local selected = book.filter.view == "Evidence" and book.selectedEvidence
+            or book.filter.view == "Journal" and book.selectedSequence
+            or book.selected
         local index = book.result.positions and book.result.positions[selected] or 1
         index = math.max(1, math.min(#book.result.rows, index + (key == "UP" and -1 or 1)))
         local row = book.result.rows[index]
         if row then
             book.selectedSequence = row.sequence
             book.page = math.ceil(index / pageSize(book))
-            render(book, row.key)
+            render(book, book.filter.view == "Evidence" and row.id or row.key)
         end
         return
     end
@@ -754,6 +882,9 @@ local function create(api)
     Widgets.fill(sidebar, colors.edge, 12, 366, 154, 1, "ARTWORK")
     Widgets.text(api, sidebar, "RECORDED PLACES", 12, 389, 154, 10, colors.muted)
     book.place = Widgets.dropdown(book, sidebar, "All recorded places", 6, 418, 166, function(self)
+        if book.queryPending or not book.result then
+            return
+        end
         local choices = { { label = "All recorded places" } }
         local kinds = { zone = "Zone", dungeon = "Dungeon", place = "Place" }
         for _, place in ipairs(book.result.places) do
@@ -965,7 +1096,14 @@ local function create(api)
     book.previewMessage = Widgets.text(api, book.previewPanel, "", 0, 40, 368, 10, colors.muted)
     book.previewPanel:Hide()
     book.loading = Widgets.text(api, frame, "", 218, 660, 440, 10, colors.muted)
-    book.warning = Widgets.text(api, frame, "", 20, 681, 700, 10, colors.gold)
+    Widgets.button(book, frame, "Inspect evidence", 20, 680, 150, 18, function()
+        change(book, "view", "Evidence")
+    end)
+    book.warning = Widgets.button(book, frame, "", 180, 680, 490, 18, function()
+        change(book, "view", "Evidence")
+    end)
+    book.warning.nameColor = colors.gold
+    book.warning:GetFontString():SetFont(api.STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10, "")
     Widgets.text(api, frame, "Ctrl+F search  •  Esc close", 680, 669, 210, 10, colors.muted)
     book.shrink = Widgets.button(book, frame, "−", 1004, 662, 32, 24, function()
         book.scale = math.max(0.6, book.frame:GetScale() - 0.1)
