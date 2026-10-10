@@ -1,22 +1,52 @@
 local _, addon = ...
 
 local Widgets = {}
-Widgets.colors = {
-    canvas = { 0.065, 0.07, 0.075, 1 },
-    panel = { 0.105, 0.11, 0.115, 1 },
-    raised = { 0.15, 0.15, 0.145, 1 },
-    edge = { 0.28, 0.26, 0.22, 1 },
-    text = { 0.94, 0.91, 0.85, 1 },
-    muted = { 0.67, 0.66, 0.62, 1 },
-    gold = { 0.87, 0.72, 0.46, 1 },
-    selected = { 0.25, 0.215, 0.15, 1 },
-    green = { 0.49, 0.75, 0.54, 1 },
-}
+Widgets.colors = {}
+for _, definition in ipairs(addon.Schema.colorOptions()) do
+    Widgets.colors[definition.key] = definition.default
+end
 local colors = Widgets.colors
+local bindings = setmetatable({}, { __mode = "k" })
+Widgets.preferences = {}
+
+-- Keep palette tables stable: controls refer to roles, including their current
+-- selection state, rather than snapshots of RGB values.
+function Widgets.tint(region, color, texture)
+    bindings[region] = { color = color, texture = texture }
+    local opacity = 1
+    if texture and (color == colors.canvas or color == colors.panel or color == colors.raised) then
+        opacity = Widgets.preferences.backgroundOpacity or 1
+    end
+    if texture then
+        region:SetColorTexture(color[1], color[2], color[3], color[4] * opacity)
+    else
+        region:SetTextColor(unpack(color))
+    end
+end
+
+function Widgets.applyPreferences(preferences)
+    Widgets.preferences = preferences
+    for key, color in pairs(colors) do
+        local value = preferences[key]
+        if value then
+            for index = 1, 4 do
+                color[index] = value[index]
+            end
+        end
+    end
+    for region, binding in pairs(bindings) do
+        Widgets.tint(region, binding.color, binding.texture)
+    end
+end
 
 -- Native, finite animations do no Lua work on idle frames. Reuse each group,
 -- and restore opacity on interruption so rapid input never leaves dim content.
 function Widgets.fade(book, region, duration, from)
+    if Widgets.preferences.reducedMotion then
+        Widgets.stopMotion(book)
+        region:SetAlpha(1)
+        return
+    end
     if not book.frame:IsShown() or not region:IsShown() then
         return
     end
@@ -51,7 +81,7 @@ function Widgets.fill(parent, color, x, y, width, height, layer, subLevel)
     local texture = parent:CreateTexture(nil, layer or "BACKGROUND", nil, subLevel or 0)
     texture:SetPoint("TOPLEFT", x, -y)
     texture:SetSize(width, height)
-    texture:SetColorTexture(unpack(color))
+    Widgets.tint(texture, color, true)
     return texture
 end
 
@@ -63,7 +93,7 @@ function Widgets.text(api, parent, value, x, y, width, size, color)
     font:SetJustifyH("LEFT")
     font:SetJustifyV("TOP")
     font:SetWordWrap(true)
-    font:SetTextColor(unpack(color or colors.text))
+    Widgets.tint(font, color or colors.text)
     font:SetShadowColor(0, 0, 0, 0.4)
     font:SetShadowOffset(0, -1)
     font:SetText(value)
@@ -75,7 +105,8 @@ function Widgets.panel(api, parent, x, y, width, height, color)
     frame:SetPoint("TOPLEFT", x, -y)
     frame:SetSize(width, height)
     frame.background = Widgets.fill(frame, color or colors.panel, 0, 0, width, height)
-    Widgets.fill(frame, { 0.87, 0.72, 0.46, 0.14 }, 0, 0, width, 1, "ARTWORK")
+    local line = Widgets.fill(frame, colors.gold, 0, 0, width, 1, "ARTWORK")
+    line:SetAlpha(0.14)
     return frame
 end
 
@@ -87,7 +118,8 @@ function Widgets.button(book, parent, value, x, y, width, height, callback, bord
     control.book = book
     control.baseColor = bordered and colors.raised or colors.panel
     control.background = Widgets.fill(control, control.baseColor, 0, 0, width, height)
-    local highlight = Widgets.fill(control, { 1, 0.87, 0.6, 0.065 }, 0, 0, width, height, "HIGHLIGHT")
+    local highlight = Widgets.fill(control, colors.gold, 0, 0, width, height, "HIGHLIGHT")
+    highlight:SetAlpha(0.065)
     control:SetHighlightTexture(highlight)
     control.accent = Widgets.fill(control, colors.gold, 0, 0, 2, height, "ARTWORK")
     control.accent:Hide()
@@ -110,8 +142,8 @@ function Widgets.tab(book, parent, value, x, y, width, callback)
 end
 
 function Widgets.select(control, selected)
-    control.background:SetColorTexture(unpack(selected and colors.selected or control.baseColor))
-    control:GetFontString():SetTextColor(unpack(control.nameColor or (selected and colors.gold or colors.text)))
+    Widgets.tint(control.background, selected and colors.selected or control.baseColor, true)
+    Widgets.tint(control:GetFontString(), control.nameColor or (selected and colors.gold or colors.text))
     control.accent:SetShown(selected)
     if selected and not control.selected then
         Widgets.fade(control.book, control.accent, 0.25, 0.35)
@@ -168,6 +200,9 @@ function Widgets.itemIcon(texture, icon)
 end
 
 function Widgets.quality(api, quality)
+    if Widgets.preferences.qualityColors == false then
+        return colors.text
+    end
     local itemColors = api.ITEM_QUALITY_COLORS
     local color = itemColors and itemColors[quality or 1]
     return color and { color.r, color.g, color.b, 1 } or colors.text

@@ -82,13 +82,17 @@ function tests.SettingsUsePersistedStoreValuesAndExplicitZero(_self)
     local setters, options = {}, {}
     local api = {
         Settings = {
-            VarType = { Number = "number", Boolean = "boolean" },
+            VarType = { Number = "number", Boolean = "boolean", String = "string" },
             CreateCheckbox = function() end,
+            CreateColorSwatch = function() end,
+            RegisterVerticalLayoutSubcategory = function()
+                return {}, { AddInitializer = function() end }
+            end,
             RegisterVerticalLayoutCategory = function(name)
                 return { name = name }
             end,
             RegisterProxySetting = function(_, variable, kind, _, default, get, set)
-                WoWUnit.IsTrue(kind == "number" or kind == "boolean")
+                WoWUnit.IsTrue(kind == "number" or kind == "boolean" or kind == "string")
                 WoWUnit.AreEqual(default, get())
                 setters[variable] = set
                 return variable
@@ -98,7 +102,13 @@ function tests.SettingsUsePersistedStoreValuesAndExplicitZero(_self)
             end,
             CreateSlider = function(_, setting, limits, help)
                 options[setting] = limits
-                WoWUnit.IsTrue(help:find("0", 1, true) ~= nil)
+                if
+                    setting == "AzerothLedger_gains"
+                    or setting == "AzerothLedger_transfers"
+                    or setting == "AzerothLedger_vendor"
+                then
+                    WoWUnit.IsTrue(help:find("0", 1, true) ~= nil)
+                end
             end,
             RegisterAddOnCategory = function(category)
                 WoWUnit.AreEqual("Azeroth Ledger", category.name)
