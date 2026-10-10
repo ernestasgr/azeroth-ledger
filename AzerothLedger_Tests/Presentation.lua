@@ -283,7 +283,11 @@ function tests.NativeCheckboxesReadAndWritePersistedControls(_self)
     local controls = {}
     local api = {
         Settings = {
-            VarType = { Number = "number", Boolean = "boolean" },
+            VarType = { Number = "number", Boolean = "boolean", String = "string" },
+            CreateColorSwatch = function() end,
+            RegisterVerticalLayoutSubcategory = function()
+                return {}, { AddInitializer = function() end }
+            end,
             RegisterVerticalLayoutCategory = function()
                 return {}
             end,

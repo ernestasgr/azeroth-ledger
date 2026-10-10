@@ -133,7 +133,11 @@ native.api.GetRealmName = function()
     return "A"
 end
 native.api.Settings = {
-    VarType = { Boolean = "boolean", Number = "number" },
+    VarType = { Boolean = "boolean", Number = "number", String = "string" },
+    CreateColorSwatch = function() end,
+    RegisterVerticalLayoutSubcategory = function()
+        return {}, { AddInitializer = function() end }
+    end,
     RegisterVerticalLayoutCategory = function()
         return category, { AddInitializer = function() end }
     end,
