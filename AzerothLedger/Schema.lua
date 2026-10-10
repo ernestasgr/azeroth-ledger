@@ -1,6 +1,103 @@
 local _, addon = ...
 
-local displayDefaults = { tooltips = true, toasts = true }
+local displayOptions = {
+    { key = "tooltips", name = "Show Collection facts in item tooltips", default = true, section = "Tooltips" },
+    { key = "tooltipDetails", name = "Show dated storage checks in tooltips", default = true, section = "Tooltips" },
+    { key = "toasts", name = "Show first-discovery notifications", default = true, section = "Notifications" },
+    { key = "toastCombat", name = "Show notifications during combat", default = true, section = "Notifications" },
+    { key = "toastSound", name = "Play a discovery sound", default = false, section = "Notifications" },
+    {
+        key = "toastDuration",
+        name = "Notification duration (seconds)",
+        default = 5,
+        minimum = 2,
+        maximum = 15,
+        step = 1,
+        section = "Notifications",
+    },
+    {
+        key = "toastScale",
+        name = "Notification size",
+        default = 1,
+        minimum = 0.7,
+        maximum = 1.5,
+        step = 0.05,
+        section = "Notifications",
+    },
+    {
+        key = "toastX",
+        name = "Notification horizontal offset",
+        default = 0,
+        minimum = -800,
+        maximum = 800,
+        step = 10,
+        section = "Notifications",
+    },
+    {
+        key = "toastY",
+        name = "Notification distance from top",
+        default = 150,
+        minimum = 0,
+        maximum = 800,
+        step = 10,
+        section = "Notifications",
+    },
+    { key = "lockWindow", name = "Lock window position", default = false, section = "Appearance" },
+    { key = "reducedMotion", name = "Reduce motion", default = false, section = "Appearance" },
+    { key = "qualityColors", name = "Use item-quality colors for item names", default = true, section = "Appearance" },
+    {
+        key = "backgroundOpacity",
+        name = "Background opacity",
+        default = 1,
+        minimum = 0.3,
+        maximum = 1,
+        step = 0.05,
+        section = "Appearance",
+    },
+}
+local colorOptions = {
+    { key = "canvas", name = "Window background", default = { 0.065, 0.07, 0.075, 1 } },
+    { key = "panel", name = "Panel background", default = { 0.105, 0.11, 0.115, 1 } },
+    { key = "raised", name = "Control background", default = { 0.15, 0.15, 0.145, 1 } },
+    { key = "edge", name = "Borders and dividers", default = { 0.28, 0.26, 0.22, 1 } },
+    { key = "text", name = "Main text", default = { 0.94, 0.91, 0.85, 1 } },
+    { key = "muted", name = "Secondary text", default = { 0.67, 0.66, 0.62, 1 } },
+    { key = "gold", name = "Accent and headings", default = { 0.87, 0.72, 0.46, 1 } },
+    { key = "selected", name = "Selected row", default = { 0.25, 0.215, 0.15, 1 } },
+    { key = "green", name = "Present status", default = { 0.49, 0.75, 0.54, 1 } },
+}
+local displayDefaults, displayDefinitions = {}, {}
+for _, definition in ipairs(displayOptions) do
+    displayDefaults[definition.key], displayDefinitions[definition.key] = definition.default, definition
+end
+for _, definition in ipairs(colorOptions) do
+    displayDefaults[definition.key], displayDefinitions[definition.key] = definition.default, definition
+end
+local function validDisplayField(key, value)
+    local definition = displayDefinitions[key]
+    if not definition then
+        return false
+    end
+    if type(definition.default) == "boolean" then
+        return type(value) == "boolean"
+    elseif type(definition.default) == "number" then
+        return type(value) == "number" and value >= definition.minimum and value <= definition.maximum
+    end
+    if type(value) ~= "table" then
+        return false
+    end
+    for index in pairs(value) do
+        if type(index) ~= "number" or index < 1 or index > 4 or index ~= math.floor(index) then
+            return false
+        end
+    end
+    for index = 1, 4 do
+        if type(value[index]) ~= "number" or not (value[index] >= 0 and value[index] <= 1) then
+            return false
+        end
+    end
+    return value[4] == 1
+end
 local function validDisplay(value)
     return type(value) == "table" and type(value.tooltips) == "boolean" and type(value.toasts) == "boolean"
 end
@@ -331,7 +428,7 @@ end
 ---@field exchange? AzerothLedgerExchangeState
 ---@field evidence? AzerothLedgerEvidenceState
 ---@field retention? table<string, integer>
----@field display? table<string, boolean>
+---@field display? table
 ---@field journal? ALJournalState
 
 ---@class ALJournalReference
@@ -448,8 +545,9 @@ end
 ---@field setRetention fun(self: ALStore, category: string, limit: integer): boolean
 ---@field book fun(self: ALStore): ALBookPreferences
 ---@field setBook fun(self: ALStore, preferences: ALBookPreferences): boolean
----@field display fun(self: ALStore): table<string, boolean>
----@field setDisplay fun(self: ALStore, control: string, enabled: boolean): boolean
+---@field display fun(self: ALStore): table
+---@field displayRevision fun(self: ALStore): integer
+---@field setDisplay fun(self: ALStore, control: string, value: any): boolean
 ---@field takeDiscoveries fun(self: ALStore): AzerothLedgerRecord[]
 ---@field journal fun(self: ALStore, pause?: fun()): table[]
 ---@field unresolved fun(self: AzerothLedgerStore): AzerothLedgerEvidence[]
@@ -1268,6 +1366,14 @@ end
 
 local Schema = {}
 
+function Schema.displayOptions()
+    return copyValue(displayOptions)
+end
+
+function Schema.colorOptions()
+    return copyValue(colorOptions)
+end
+
 -- The entry ID identifies the creature/container type; the final field identifies a
 -- particular spawn. Keep the complete GUID in the gain as its original proof.
 local function entryID(source)
@@ -1995,17 +2101,30 @@ function Schema.open(raw, save)
         saveFields({ book = bookPreferences(preferences) })
         return true
     end
+    local displayRevision = 0
+    function store.displayRevision(_self)
+        return displayRevision
+    end
     function store.display(_self)
-        return copyValue(readable and validDisplay(raw.display) and raw.display or displayDefaults)
+        local values = copyValue(displayDefaults)
+        if readable and type(raw.display) == "table" then
+            for key, value in pairs(raw.display) do
+                if validDisplayField(key, value) then
+                    values[key] = copyValue(value)
+                end
+            end
+        end
+        return values
     end
 
     function store.setDisplay(_self, control, enabled)
-        if not readable or displayDefaults[control] == nil or type(enabled) ~= "boolean" then
+        if not readable or not validDisplayField(control, enabled) then
             return false
         end
         local values = store:display()
-        values[control] = enabled
+        values[control] = copyValue(enabled)
         saveFields({ display = values })
+        displayRevision = displayRevision + 1
         return true
     end
     function store.takeDiscoveries(_self)

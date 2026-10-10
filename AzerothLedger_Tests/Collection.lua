@@ -931,3 +931,29 @@ function tests.LatestGainAndMethodFiltersFollowTheSelectedCharacter(_self)
     WoWUnit.AreEqual(1, #result.rows)
     WoWUnit.AreEqual(key, result.rows[1].key)
 end
+
+function tests.AppearancePreferencesPersistAndKeepCollectionFacts(_self)
+    local saved
+    local store = addon.Schema.open(nil, function(value)
+        saved = value
+    end)
+    WoWUnit.IsTrue(store:scan({
+        character = "Ada",
+        realm = "A",
+        area = "bags",
+        complete = true,
+        seenAt = 1000,
+        items = { { itemID = 2672, link = meat, quantity = 3 } },
+    }))
+    WoWUnit.IsTrue(store:setDisplay("gold", { 0.2, 0.4, 0.8, 1 }))
+    WoWUnit.IsTrue(store:setDisplay("reducedMotion", true))
+    WoWUnit.IsTrue(store:setDisplay("backgroundOpacity", 0.6))
+    local restored = addon.Schema.open(saved, function() end)
+    WoWUnit.AreEqual(0.2, restored:display().gold[1])
+    WoWUnit.AreEqual(true, restored:display().reducedMotion)
+    WoWUnit.AreEqual(0.6, restored:display().backgroundOpacity)
+    WoWUnit.AreEqual(3, restored:describe("2672:0").firstSeenUnits)
+    WoWUnit.AreEqual(0, restored:describe("2672:0").totalGained)
+    WoWUnit.AreEqual(false, restored:setDisplay("backgroundOpacity", 0 / 0))
+    WoWUnit.AreEqual(false, restored:setDisplay("gold", { 1, 0, 0, 0 }))
+end

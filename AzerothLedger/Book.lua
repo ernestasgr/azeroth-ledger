@@ -180,7 +180,7 @@ local function evidenceDetails(book, id)
         row.left:ClearAllPoints()
         row.left:SetPoint("TOPLEFT", 0, -4)
         row.left:SetWidth(338)
-        row.left:SetTextColor(unpack(number == 1 and colors.gold or colors.text))
+        Widgets.tint(row.left, number == 1 and colors.gold or colors.text)
         row.left:SetText(text)
         row.left:Show()
         row.right:Hide()
@@ -253,13 +253,13 @@ function details(book, key)
     local info = addon.Client.itemMetadata(book.api, record)
     local itemName = record.links[1]:match("%[([^%]]+)%]") or ("Item " .. record.itemID)
     book.itemTitle:SetText(itemName)
-    book.itemTitle:SetTextColor(unpack(Widgets.quality(book.api, info.quality)))
+    Widgets.tint(book.itemTitle, Widgets.quality(book.api, info.quality))
     book.itemCategory:SetText(info.category .. "  •  " .. model.scopeLabel)
     Widgets.itemIcon(book.itemIcon, info.icon)
     book.itemLink = record.links[#record.links]
     book.ownership:SetText("Status: " .. model.ownership)
-    book.ownership:SetTextColor(unpack(model.ownershipState == "present" and colors.green or colors.gold))
-    book.ownershipDot:SetColorTexture(unpack(model.ownershipState == "present" and colors.green or colors.gold))
+    Widgets.tint(book.ownership, model.ownershipState == "present" and colors.green or colors.gold)
+    Widgets.tint(book.ownershipDot, model.ownershipState == "present" and colors.green or colors.gold, true)
     book.recorded:SetText(
         book.detailsAccount and tostring(model.breakdown.recorded)
             or checkedQuantity(model.checkedUnits, model.uncheckedAreas)
@@ -296,9 +296,9 @@ function details(book, key)
         row.right:SetPoint("TOPLEFT", 254, -4)
         row.left:SetWidth(kind == "note" and 338 or 246)
         row.right:SetWidth(84)
-        row.left:SetTextColor(unpack(kind == "section" and colors.gold or colors.text))
+        Widgets.tint(row.left, kind == "section" and colors.gold or colors.text)
         row.left:SetFont(book.api.STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", kind == "section" and 13 or 12, "")
-        row.right:SetTextColor(unpack(colors.muted))
+        Widgets.tint(row.right, colors.muted)
         row.left:SetText(left)
         row.right:SetText(right or "")
         row.link:ClearAllPoints()
@@ -310,7 +310,7 @@ function details(book, key)
         linkText:SetPoint("TOPLEFT", 12, -8.5)
         linkText:SetWidth(314)
         linkText:SetFont(book.api.STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 12, "")
-        linkText:SetTextColor(unpack(colors.text))
+        Widgets.tint(linkText, colors.text)
         local clickable = kind == "link" or kind == "action" or kind == "section"
         row.left:SetShown(not clickable)
         row.right:SetShown(not clickable)
@@ -332,7 +332,7 @@ function details(book, key)
             linkText:SetPoint("TOPLEFT", 28, -14)
             linkText:SetWidth(300)
             linkText:SetFont(book.api.STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 13, "")
-            linkText:SetTextColor(unpack(colors.gold))
+            Widgets.tint(linkText, colors.gold)
             row.disclosureIcon:SetTexture(
                 activeSectionCollapsed and "Interface\\Buttons\\UI-PlusButton-UP"
                     or "Interface\\Buttons\\UI-MinusButton-UP"
@@ -347,11 +347,11 @@ function details(book, key)
             row.line:ClearAllPoints()
             row.line:SetPoint("TOPLEFT", 0, -16)
             row.line:SetSize(2, 14)
-            row.line:SetColorTexture(unpack(colors.gold))
+            Widgets.tint(row.line, colors.gold, true)
             row.section:ClearAllPoints()
             row.section:SetPoint("TOPLEFT", 0, -6)
             row.section:SetSize(338, 1)
-            row.section:SetColorTexture(unpack(colors.edge))
+            Widgets.tint(row.section, colors.edge, true)
             height = 40
         elseif activeSectionCollapsed then
             row.left:Hide()
@@ -737,7 +737,7 @@ local function renderBody(book, requestedKey)
         local category = control.category
         Widgets.select(control, book.filter.category == category)
         control.count:SetText(tostring(category and (result.categories[category] or 0) or result.matchedCount))
-        control.count:SetTextColor(unpack(control.selected and colors.gold or colors.muted))
+        Widgets.tint(control.count, control.selected and colors.gold or colors.muted)
     end
     for _, row in ipairs(gallery and book.rows or book.galleryRows) do
         row:Hide()
@@ -753,7 +753,7 @@ local function renderBody(book, requestedKey)
         if item then
             row:SetText((journal or evidence) and (item.action .. " • " .. item.name) or item.name)
             row.nameColor = evidence and colors.text or Widgets.quality(book.api, item.metadata.quality)
-            row:GetFontString():SetTextColor(unpack(row.nameColor))
+            Widgets.tint(row:GetFontString(), row.nameColor)
             Widgets.itemIcon(row.icon, not evidence and item.metadata.icon or nil)
             row.subtitle:SetText(
                 evidence and (item.status .. " • " .. item.character .. "-" .. item.realm)
@@ -1086,7 +1086,9 @@ local function create(api)
     header:EnableMouse(true)
     header:RegisterForDrag("LeftButton")
     header:SetScript("OnDragStart", function()
-        frame:StartMoving()
+        if not Widgets.preferences.lockWindow then
+            frame:StartMoving()
+        end
     end)
     header:SetScript("OnDragStop", function()
         frame:StopMovingOrSizing()
@@ -1182,7 +1184,7 @@ local function create(api)
     book.search:SetPoint("TOPLEFT", 12, -2)
     book.search:SetSize(410, 32)
     book.search:SetFont(api.STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 12, "")
-    book.search:SetTextColor(unpack(colors.text))
+    Widgets.tint(book.search, colors.text)
     book.search:SetAutoFocus(false)
     book.search:SetMaxLetters(160)
     book.placeholder = Widgets.text(api, searchSurface, "Search your collection…", 12, 12, 400, 12, colors.muted)
@@ -1340,7 +1342,7 @@ local function create(api)
     end
     book.recorded, book.recordedLabel = statistic("TOTAL FOUND", 16)
     book.gained = statistic("TOTAL GAINED", 142)
-    book.gained:SetTextColor(unpack(colors.gold))
+    Widgets.tint(book.gained, colors.gold)
     book.initial, book.initialLabel = statistic("ALREADY HAD", 268)
     book.detailScroll = api.CreateFrame("ScrollFrame", nil, detailPanel, "UIPanelScrollFrameTemplate")
     book.detailScroll:SetPoint("TOPLEFT", 16, -208)
@@ -1539,6 +1541,7 @@ function Book.open(api, store, character, realm, filterCharacter, filterRealm)
             active.search:ClearFocus()
         end
         active.store, active.character, active.realm = store, character, realm
+        Widgets.applyPreferences(store:display())
         if filterCharacter or filterRealm then
             active.filter.character, active.filter.realm = filterCharacter, filterRealm
         end
@@ -1633,6 +1636,33 @@ function Book.setDeveloperMode(store, enabled)
         active.dirty = true
     end
     return true
+end
+
+function Book.setScale(store, scale)
+    if type(scale) ~= "number" or not (scale >= 0.6 and scale <= 1.1) then
+        return false
+    end
+    local preferences = store:book()
+    preferences.scale = scale
+    if not store:setBook(preferences) then
+        return false
+    end
+    if active and active.store == store then
+        active.scale = scale
+        fit(active)
+    end
+    return true
+end
+
+function Book.applyPreferences(store)
+    if active and active.store == store then
+        Widgets.applyPreferences(store:display())
+        Widgets.stopMotion(active)
+        active.frame:StopMovingOrSizing()
+        if active.character then
+            render(active)
+        end
+    end
 end
 
 function Book.refresh(store, character, realm)
