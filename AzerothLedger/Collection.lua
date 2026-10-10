@@ -495,7 +495,14 @@ end
 ---@field category? string
 ---@field character? string
 ---@field realm? string
----@field historical? boolean
+---@field ownership? 'present'|'unknown'|'historical'
+---@field quality? integer|'unknown'
+---@field method? string
+---@field sort? 'name'|'discovered'|'gained'|'quantity'
+---@field action? string
+---@field dateFrom? integer Inclusive timestamp
+---@field dateTo? integer Exclusive timestamp
+---@field dateRange? string
 ---@field foundOnce? boolean
 ---@field place? string
 ---@field placeKind? string
@@ -517,6 +524,7 @@ end
 ---@field ownership string
 ---@field ownershipState 'present'|'unknown'|'historical'
 ---@field discoveredAt integer
+---@field lastGained? integer
 ---@field metadata AzerothLedgerItemMetadata
 ---@field recorded? integer
 ---@field checkedUnits? integer
@@ -542,6 +550,16 @@ local function query(store, character, realm, filter, metadata, pause)
                 discoveredAt = math.min(discoveredAt or seen.firstSeen, seen.firstSeen)
             end
         end
+        local methodMatches = not filter.method or (filter.method == "Seen" and record.firstSeenUnits > 0)
+        local lastGained
+        for _, gain in ipairs(record.gains) do
+            if matchesFilter(filter.character, filter.realm, gain.character, gain.realm) then
+                lastGained = math.max(lastGained or gain.at, gain.at)
+                if gain.method == filter.method and gain.quantity > (gain.refunded or 0) then
+                    methodMatches = true
+                end
+            end
+        end
         local placeMatches = not filter.place
         for _, gain in ipairs(record.gains) do
             if
@@ -562,19 +580,22 @@ local function query(store, character, realm, filter, metadata, pause)
         local searchText = string.lower(name .. " " .. record.key .. " " .. table.concat(record.links, " "))
         local lastSeen = addon.LastSeen.project(store, record, character, realm, filter)
         local status = ownershipText(lastSeen)
+        local qualityMatches = filter.quality == nil
+            or (filter.quality == "unknown" and info.quality == nil)
+            or info.quality == filter.quality
         if
             matches
             and (filter.view ~= "Gallery" or info.gear == true or info.category == "Unknown")
             and placeMatches
             and (not filter.search or searchText:find(string.lower(filter.search), 1, true))
-            and (not filter.historical or lastSeen.state == "historical")
+            and (not filter.ownership or lastSeen.state == filter.ownership)
+            and qualityMatches
+            and methodMatches
             and (not filter.foundOnce or (record.firstSeenUnits == 0 and record.totalGained == 1))
         then
             result.categories[info.category] = (result.categories[info.category] or 0) + 1
             result.matchedCount = result.matchedCount + 1
             if not filter.category or filter.category == info.category then
-                local scope = (filter.character or filter.realm)
-                    and inspectRecord(store, record, character, realm, filter, lastSeen)
                 result.rows[#result.rows + 1] = {
                     key = record.key,
                     name = name,
@@ -585,10 +606,11 @@ local function query(store, character, realm, filter, metadata, pause)
                     ownershipState = lastSeen.state,
                     discoveredAt = (not filter.character and not filter.realm) and record.firstSeen or discoveredAt,
                     metadata = info,
+                    lastGained = lastGained,
                     recorded = not (filter.character or filter.realm) and (record.firstSeenUnits + record.totalGained)
                         or nil,
-                    checkedUnits = scope and scope.checkedUnits or nil,
-                    uncheckedAreas = scope and scope.uncheckedAreas or nil,
+                    checkedUnits = lastSeen.checkedUnits,
+                    uncheckedAreas = lastSeen.uncheckedAreas,
                 }
             end
         end
@@ -605,9 +627,20 @@ local function query(store, character, realm, filter, metadata, pause)
     addon.Work.sort(result.places, function(a, b)
         return a.key < b.key
     end, pause)
+    local sort = filter.sort or (filter.view == "Discoveries" and "discovered" or "name")
     addon.Work.sort(result.rows, function(a, b)
-        if filter.view == "Discoveries" and a.discoveredAt ~= b.discoveredAt then
-            return a.discoveredAt > b.discoveredAt
+        local left, right
+        if sort == "discovered" then
+            left, right = a.discoveredAt, b.discoveredAt
+        elseif sort == "gained" then
+            left, right = a.lastGained, b.lastGained
+        elseif sort == "quantity" then
+            -- Account Recorded and scoped checked stock are different facts.
+            left = a.recorded or a.checkedUnits
+            right = b.recorded or b.checkedUnits
+        end
+        if left ~= right then
+            return left ~= nil and (right == nil or left > right)
         end
         return a.name < b.name or (a.name == b.name and a.key < b.key)
     end, pause)
