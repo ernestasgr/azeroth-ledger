@@ -564,6 +564,7 @@ local function renderBody(book, requestedKey)
         book.sortFilter,
         book.foundOnce,
         book.place,
+        book.sourceFilter,
     }) do
         control:SetShown(not journal and not evidence)
     end
@@ -640,7 +641,9 @@ local function renderBody(book, requestedKey)
     book.backToCollection:SetShown(journal and book.historyReturn ~= nil)
     book.quantityHeading:SetShown(not gallery and not evidence)
     book.quantityHeading:SetText(
-        journal and "UNITS" or ((book.filter.character or book.filter.realm) and "CHECKED" or "RECORDED")
+        journal and "UNITS"
+            or book.filter.source and "GAINED"
+            or ((book.filter.character or book.filter.realm) and "CHECKED" or "RECORDED")
     )
     local state = #result.rows == 0 and "No matching items. Try another search or clear your filters." or ""
     if gallery then
@@ -663,6 +666,19 @@ local function renderBody(book, requestedKey)
     book.empty:SetText(state)
     book.empty:SetShown(#result.rows == 0)
     local loadingText = result.loading > 0 and (result.loading .. " items awaiting item data") or ""
+    local sourceLabel = "All recorded sources"
+    for _, source in ipairs(result.sources or {}) do
+        if source.key == book.filter.source then
+            sourceLabel = source.label
+        end
+    end
+    book.sourceFilter:SetText(
+        book.filter.source and sourceLabel == "All recorded sources" and "Source has no gains in scope" or sourceLabel
+    )
+    if not journal and not evidence and book.filter.source then
+        loadingText = "Recorded source history; not a possible-drop list."
+            .. (loadingText ~= "" and ("\n" .. loadingText) or "")
+    end
     if journal and book.filter.dateFrom then
         local range = stamp(book.filter.dateFrom) .. " through " .. stamp(book.filter.dateTo - 1) .. " (inclusive)"
         loadingText = range .. (loadingText ~= "" and ("\n" .. loadingText) or "")
@@ -718,6 +734,7 @@ local function renderBody(book, requestedKey)
             )
             row.quantity:SetText(
                 evidence and ""
+                    or item.sourceQuantity and tostring(item.sourceQuantity)
                     or item.recorded and tostring(item.recorded)
                     or checkedQuantity(item.checkedUnits, item.uncheckedAreas)
             )
@@ -848,6 +865,7 @@ showMenu = function(book, anchor, choices, selectChoice)
     book.menu:ClearAllPoints()
     if
         anchor == book.place
+        or anchor == book.sourceFilter
         or anchor == book.ownershipFilter
         or anchor == book.qualityFilter
         or anchor == book.methodFilter
@@ -1048,7 +1066,7 @@ local function create(api)
         { "All items", "Weapons", "Armour", "Recipes", "Materials", "Consumables", "Junk", "Other", "Unknown" }
     for index, category in ipairs(categories) do
         local selectedCategory = category ~= "All items" and category or nil
-        local control = Widgets.button(book, sidebar, category, 0, 42 + (index - 1) * 34, 178, 32, function()
+        local control = Widgets.button(book, sidebar, category, 0, 42 + (index - 1) * 30, 178, 28, function()
             change(book, "category", selectedCategory)
         end)
         control.category = selectedCategory
@@ -1057,8 +1075,20 @@ local function create(api)
         control.count:SetJustifyH("RIGHT")
         book.categories[index] = control
     end
-    Widgets.fill(sidebar, colors.edge, 12, 366, 154, 1, "ARTWORK")
-    Widgets.text(api, sidebar, "RECORDED PLACES", 12, 369, 154, 10, colors.muted)
+    Widgets.fill(sidebar, colors.edge, 12, 326, 154, 1, "ARTWORK")
+    Widgets.text(api, sidebar, "RECORDED HISTORY", 12, 337, 154, 10, colors.muted)
+    book.sourceFilter = Widgets.dropdown(book, sidebar, "All recorded sources", 6, 354, 166, function(self)
+        if book.queryPending or not book.result then
+            return
+        end
+        local choices = { { label = "All recorded sources" } }
+        for _, source in ipairs(book.result.sources or {}) do
+            choices[#choices + 1] = { label = source.label .. " • " .. source.quantity, source = source.key }
+        end
+        showMenu(book, self, choices, function(choice)
+            change(book, "source", choice.source)
+        end)
+    end)
     book.place = Widgets.dropdown(book, sidebar, "All recorded places", 6, 398, 166, function(self)
         if book.queryPending or not book.result then
             return

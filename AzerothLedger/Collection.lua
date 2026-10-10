@@ -491,6 +491,7 @@ end
 
 ---@class AzerothLedgerCollectionFilter: ALCountScope
 ---@field historyKey? string
+---@field source? string Recorded source identity
 ---@field search? string
 ---@field category? string
 ---@field character? string
@@ -529,6 +530,7 @@ end
 ---@field recorded? integer
 ---@field checkedUnits? integer
 ---@field uncheckedAreas? integer
+---@field sourceQuantity? integer Net confirmed contribution from the selected source
 
 ---@param store ALStore
 ---@param character string
@@ -540,7 +542,7 @@ local function query(store, character, realm, filter, metadata, pause)
     filter = filter or {}
     local result =
         { rows = {}, discoveryCount = store:count(), loading = 0, places = {}, categories = {}, matchedCount = 0 }
-    local places = {}
+    local places, sources, candidates = {}, {}, {}
     for record in store:cursor() do
         local matches = false
         local discoveredAt
@@ -552,12 +554,24 @@ local function query(store, character, realm, filter, metadata, pause)
         end
         local methodMatches = not filter.method or (filter.method == "Seen" and record.firstSeenUnits > 0)
         local lastGained
+        local sourceQuantity, recordSources = 0, {}
         for _, gain in ipairs(record.gains) do
             if matchesFilter(filter.character, filter.realm, gain.character, gain.realm) then
+                local quantity = gain.quantity - (gain.refunded or 0)
+                addon.Schema.addSource(sources, gain, quantity)
+                if filter.search and filter.search ~= "" then
+                    addon.Schema.addSource(recordSources, gain, quantity)
+                end
+                if filter.source and filter.source == addon.Schema.sourceIdentity(gain) then
+                    sourceQuantity = sourceQuantity + quantity
+                end
                 lastGained = math.max(lastGained or gain.at, gain.at)
                 if gain.method == filter.method and gain.quantity > (gain.refunded or 0) then
                     methodMatches = true
                 end
+            end
+            if pause then
+                pause()
             end
         end
         local placeMatches = not filter.place
@@ -587,16 +601,16 @@ local function query(store, character, realm, filter, metadata, pause)
             matches
             and (filter.view ~= "Gallery" or info.gear == true or info.category == "Unknown")
             and placeMatches
-            and (not filter.search or searchText:find(string.lower(filter.search), 1, true))
+            and (not filter.source or sourceQuantity > 0)
             and (not filter.ownership or lastSeen.state == filter.ownership)
             and qualityMatches
             and methodMatches
             and (not filter.foundOnce or (record.firstSeenUnits == 0 and record.totalGained == 1))
         then
-            result.categories[info.category] = (result.categories[info.category] or 0) + 1
-            result.matchedCount = result.matchedCount + 1
-            if not filter.category or filter.category == info.category then
-                result.rows[#result.rows + 1] = {
+            candidates[#candidates + 1] = {
+                searchText = searchText,
+                sources = recordSources,
+                row = {
                     key = record.key,
                     name = name,
                     record = record,
@@ -607,15 +621,54 @@ local function query(store, character, realm, filter, metadata, pause)
                     discoveredAt = (not filter.character and not filter.realm) and record.firstSeen or discoveredAt,
                     metadata = info,
                     lastGained = lastGained,
+                    sourceQuantity = filter.source and sourceQuantity or nil,
                     recorded = not (filter.character or filter.realm) and (record.firstSeenUnits + record.totalGained)
                         or nil,
                     checkedUnits = lastSeen.checkedUnits,
                     uncheckedAreas = lastSeen.uncheckedAreas,
-                }
-            end
+                },
+            }
         end
         if info.loading then
             result.loading = result.loading + 1
+        end
+        if pause then
+            pause()
+        end
+    end
+    result.sources = addon.Schema.sourceGroups(sources, pause)
+    local search, matchingSources = string.lower(filter.search or ""), {}
+    if search ~= "" then
+        for _, source in ipairs(result.sources) do
+            local text = string.lower(source.label .. " " .. source.neutral .. " " .. source.key)
+            local matches = text:find(search, 1, true) ~= nil
+            for name in pairs(source.names) do
+                matches = matches or string.lower(name):find(search, 1, true) ~= nil
+                if pause then
+                    pause()
+                end
+            end
+            matchingSources[source.key] = matches
+            if pause then
+                pause()
+            end
+        end
+    end
+    for _, candidate in ipairs(candidates) do
+        local matches = candidate.searchText:find(search, 1, true) ~= nil
+        for key in pairs(candidate.sources) do
+            matches = matches or matchingSources[key]
+            if pause then
+                pause()
+            end
+        end
+        if matches then
+            local row = candidate.row
+            result.categories[row.category] = (result.categories[row.category] or 0) + 1
+            result.matchedCount = result.matchedCount + 1
+            if not filter.category or filter.category == row.category then
+                result.rows[#result.rows + 1] = row
+            end
         end
         if pause then
             pause()
@@ -636,8 +689,8 @@ local function query(store, character, realm, filter, metadata, pause)
             left, right = a.lastGained, b.lastGained
         elseif sort == "quantity" then
             -- Account Recorded and scoped checked stock are different facts.
-            left = a.recorded or a.checkedUnits
-            right = b.recorded or b.checkedUnits
+            left = a.sourceQuantity or a.recorded or a.checkedUnits
+            right = b.sourceQuantity or b.recorded or b.checkedUnits
         end
         if left ~= right then
             return left ~= nil and (right == nil or left > right)
