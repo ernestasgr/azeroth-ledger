@@ -40,7 +40,7 @@ local previewMessages = {
 }
 
 local function updatePreview(book)
-    local record = book.selected and book.store:find(book.selected)
+    local record = book.selected and book.store:describe(book.selected)
     local selection =
         addon.Collection.gallerySelection(book.result, book.selected, record and record.links[book.previewIndex or 1])
     local link = selection and selection.link
@@ -219,7 +219,12 @@ function details(book, key)
             scope = { character = book.character, realm = book.realm }
         end
     end
-    local model = key and addon.Collection.inspect(book.store, key, book.character, book.realm, scope)
+    local model, pending = book.query:inspect(book.store, key, book.character, book.realm, scope)
+    book.detailPending = pending
+    book.detailEmpty:SetText(pending and "Loading item details…" or "Select an item to explore\nits history.")
+    if pending then
+        book.dirty = true
+    end
     book.detailEmpty:SetShown(not model)
     book.detailHeader:SetShown(model ~= nil)
     book.detailScroll:SetShown(model ~= nil)
@@ -713,11 +718,12 @@ local function renderBody(book, requestedKey)
     book.pageLabel:SetText(book.page .. " / " .. pages)
     Widgets.enable(book.previous, book.page > 1)
     Widgets.enable(book.next, book.page < pages)
-    if book.selected and not book.store:find(book.selected) then
+    if book.selected and not book.store:describe(book.selected) then
         book.selected = nil
     end
     if evidence then
         local selected = requestedKey or book.selectedEvidence
+        book.detailPending = false
         if not result.positions[selected] then
             selected = result.rows[(book.page - 1) * size + 1] and result.rows[(book.page - 1) * size + 1].id
         end
@@ -732,7 +738,7 @@ local function renderBody(book, requestedKey)
         end
         selectItem(book, selected)
     end
-    book.dirty = pending
+    book.dirty = pending or book.detailPending
 end
 
 render = function(book, requestedKey)
@@ -1296,7 +1302,7 @@ local function create(api)
     book.previewPanel:SetPoint("TOPLEFT", 16, -208)
     book.previewPanel:SetSize(368, 76)
     book.savedLink = Widgets.dropdown(book, book.previewPanel, "", 0, 0, 194, function(self)
-        local record = book.selected and book.store:find(book.selected)
+        local record = book.selected and book.store:describe(book.selected)
         if not record then
             return
         end
