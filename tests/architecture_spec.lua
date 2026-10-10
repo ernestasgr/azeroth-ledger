@@ -48,6 +48,7 @@ end
 -- changed, and the next completed result must include every current discovery.
 local store = storeWith(180)
 local query = addon.BookQuery.new(queryApi)
+---@type AzerothLedgerCollectionFilter
 local filter = {}
 assert(query:step(store, "Fixture", "Test", filter) == nil)
 assert(store:scan({
@@ -112,6 +113,33 @@ metadataCategory = "Materials"
 metadataQuery:metadataChanged()
 result = finish(metadataQuery, store, {})
 assert(result.categories.Materials == 181 and result.categories.Weapons == nil)
+-- New browsing inputs are captured and invalidate suspended and completed jobs.
+filter = { quality = "unknown", sort = "quantity" }
+assert(query:step(store, "Fixture", "Test", filter) == nil)
+filter.quality = 2
+result = finish(query, store, filter)
+assert(#result.rows == 0, "A quality change must replace work using the old filter")
+filter.quality = "unknown"
+assert(#finish(query, store, filter).rows == 181)
+filter.method = "Crafted"
+assert(#finish(query, store, filter).rows == 0)
+filter = { ownership = "present", search = "New item", sort = "gained" }
+assert(#finish(query, store, filter).rows == 1)
+filter.ownership = "historical"
+assert(#finish(query, store, filter).rows == 0)
+filter = { view = "Journal", action = "Sale" }
+assert(#finish(query, replacement, filter).rows == 1)
+filter.action = nil
+filter.realm = "Absent"
+assert(#finish(query, replacement, filter).rows == 0)
+filter.realm = nil
+filter.dateFrom = 999999
+assert(#finish(query, replacement, filter).rows == 0)
+filter.dateFrom = nil
+assert(#finish(query, replacement, filter).rows == 3)
+filter.dateTo = 0
+assert(#finish(query, replacement, filter).rows == 0)
+
 print("architecture_spec: query invalidation during work and cached results passed")
 
 -- All readers agree on storage truth, including offline and partial checks;
@@ -143,7 +171,7 @@ local function agree(expected)
         addon.Presentation.line(ownershipStore, link, "Ada", "Realm"):find("ownership " .. detail.ownership, 1, true)
     )
     local historical =
-        addon.Collection.query(ownershipStore, "Ada", "Realm", { historical = true }, addon.Client.itemMetadata)
+        addon.Collection.query(ownershipStore, "Ada", "Realm", { ownership = "historical" }, addon.Client.itemMetadata)
     assert(#historical.rows == (expected == "historical" and 1 or 0))
 end
 scan("Ada", "bags", 1000, true, 1)

@@ -32,18 +32,25 @@ local function location(row)
 end
 
 ---@param store ALStore
----@param search? string
+---@param filter? AzerothLedgerCollectionFilter
 ---@param pause? fun()
----@param key? string Exact intrinsic item/variant key; never a name search.
 ---@return table[]
-function Journal.query(store, search, pause, key)
+function Journal.query(store, filter, pause)
+    filter = filter or {}
     local result = {}
     local purchases, sales = {}, {}
-    search = (search or ""):lower()
+    local search = (filter.search or ""):lower()
+    local function matchesActor(name, realm)
+        return (not filter.character or filter.character == name) and (not filter.realm or filter.realm == realm)
+    end
+    local function matchesAction(action)
+        return not filter.action or filter.action == action
+    end
     for _, row in ipairs(store:journal(pause)) do
         local record = store:find(row.key)
         row.link = record and record.links[#record.links] or nil
         row.name = row.link and row.link:match("%[([^%]]+)%]") or "Unknown item"
+        local scopeMatches = false
         if row.category == "gain" then
             local first = row.contributions[1]
             row.quantity, row.refunded = 0, 0
@@ -53,6 +60,9 @@ function Journal.query(store, search, pause, key)
             row.details = {}
             local evidence, seen = {}, {}
             for _, gain in ipairs(row.contributions) do
+                if matchesActor(gain.character, gain.realm) and matchesAction(method(gain)) then
+                    scopeMatches = true
+                end
                 row.quantity = row.quantity + gain.quantity
                 row.refunded = row.refunded + (gain.refunded or 0)
                 local label = method(gain) .. ": " .. source(gain)
@@ -78,6 +88,9 @@ function Journal.query(store, search, pause, key)
             end
             row.evidence = "Matched item gain; " .. table.concat(evidence, "; ")
         elseif row.category == "transfer" then
+            scopeMatches = (
+                matchesActor(row.sender, row.senderRealm) or matchesActor(row.recipient, row.recipientRealm)
+            ) and matchesAction(row.channel == "mail" and "Alt mail" or "Alt trade")
             row.actors = actor(row.sender, row.senderRealm) .. " → " .. actor(row.recipient, row.recipientRealm)
             row.action = row.channel == "mail" and "Alt mail" or "Alt trade"
             row.evidence = "Confirmed send and matching receipt; no external gain"
@@ -85,6 +98,7 @@ function Journal.query(store, search, pause, key)
         else
             row.actors = actor(row.character, row.realm)
             row.action = ({ sale = "Sale", refund = "Refund", buyback = "Buyback" })[row.kind]
+            scopeMatches = matchesActor(row.character, row.realm) and matchesAction(row.action)
             row.evidence = "Matched vendor action; " .. (row.vendorName or "Unknown vendor")
             row.sourceText = row.vendorName or "Unknown vendor"
             if row.kind == "sale" then
@@ -93,7 +107,13 @@ function Journal.query(store, search, pause, key)
         end
         row.placeText = location(row)
         local text = row.name .. " " .. row.actors .. " " .. row.action .. " " .. row.evidence
-        if (not key or row.key == key) and text:lower():find(search, 1, true) then
+        if
+            scopeMatches
+            and (not filter.historyKey or row.key == filter.historyKey)
+            and (not filter.dateFrom or row.at >= filter.dateFrom)
+            and (not filter.dateTo or row.at < filter.dateTo)
+            and text:lower():find(search, 1, true)
+        then
             result[#result + 1] = row
         end
         if pause then

@@ -7,7 +7,14 @@ local fields = {
     "category",
     "character",
     "realm",
-    "historical",
+    "ownership",
+    "quality",
+    "method",
+    "sort",
+    "action",
+    "dateFrom",
+    "dateTo",
+    "dateRange",
     "foundOnce",
     "place",
     "placeKind",
@@ -48,12 +55,15 @@ function BookQuery.new(api)
             end)
         elseif currentFilter.view == "Journal" then
             job = addon.Work.start(api, "Journal query", function(pause)
-                local rows = addon.Journal.query(store, currentFilter.search, pause, currentFilter.historyKey)
-                local bySequence, positions = {}, {}
+                local rows = addon.Journal.query(store, currentFilter, pause)
+                local bySequence, positions, loading = {}, {}, 0
                 for index, row in ipairs(rows) do
                     row.record = store:find(row.key)
                     row.metadata = addon.Client.itemMetadata(api, row.record)
                     row.recorded = row.quantity
+                    if row.metadata.loading then
+                        loading = loading + 1
+                    end
                     bySequence[row.sequence], positions[row.sequence] = row, index
                     pause()
                 end
@@ -61,8 +71,8 @@ function BookQuery.new(api)
                     rows = rows,
                     categories = {},
                     places = {},
-                    loading = 0,
-                    matchedCount = 0,
+                    loading = loading,
+                    matchedCount = #rows,
                     discoveryCount = store:count(),
                     bySequence = bySequence,
                     positions = positions,

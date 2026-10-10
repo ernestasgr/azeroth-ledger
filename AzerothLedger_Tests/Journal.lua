@@ -256,7 +256,7 @@ function tests.ExactHistoryExplainsPartialRefundAndKeepsPrunedPurchaseAbsent(_se
     bags(3)
     action("refund", 1)
     bags(2)
-    local rows = addon.Journal.query(store, nil, nil, key)
+    local rows = addon.Journal.query(store, { historyKey = key })
     WoWUnit.AreEqual(2, #rows)
     WoWUnit.AreEqual(2, rows[2].netQuantity)
     WoWUnit.AreEqual(1, rows[2].refunded)
@@ -264,11 +264,11 @@ function tests.ExactHistoryExplainsPartialRefundAndKeepsPrunedPurchaseAbsent(_se
     WoWUnit.AreEqual(rows[1].sequence, rows[2].refundSequences[1])
     WoWUnit.AreEqual("Elwynn", rows[1].place)
     WoWUnit.AreEqual(12, rows[1].level)
-    WoWUnit.AreEqual(0, #addon.Journal.query(store, nil, nil, "4540:99"))
+    WoWUnit.AreEqual(0, #addon.Journal.query(store, { historyKey = "4540:99" }))
     store = restore()
     WoWUnit.AreEqual(rows[2].sequence, addon.Journal.query(store)[1].purchaseSequence)
     WoWUnit.IsTrue(store:setRetention("gains", 0))
-    rows = addon.Journal.query(store, nil, nil, key)
+    rows = addon.Journal.query(store, { historyKey = key })
     WoWUnit.AreEqual(1, #rows)
     WoWUnit.AreEqual(nil, rows[1].purchaseSequence)
     WoWUnit.IsTrue(rows[1].linkedGainID ~= nil)
@@ -308,7 +308,7 @@ function tests.ProvenExchangeChannelsSurviveReloadAndUnknownHistoryStaysUnknown(
         store = addon.Schema.open(saved, function(value)
             saved = value
         end)
-        local row = addon.Journal.query(store, nil, nil, key)[1]
+        local row = addon.Journal.query(store, { historyKey = key })[1]
         WoWUnit.AreEqual(channel == "mail" and "Mail" or "Trade", row.action)
         WoWUnit.AreEqual("Cara-OtherRealm", row.details[1].source)
         WoWUnit.AreEqual("Elwynn", row.details[1].place)
@@ -326,7 +326,7 @@ function tests.ProvenExchangeChannelsSurviveReloadAndUnknownHistoryStaysUnknown(
         store = addon.Schema.open(saved, function(value)
             saved = value
         end)
-        local rows = addon.Journal.query(store, nil, nil, key)
+        local rows = addon.Journal.query(store, { historyKey = key })
         WoWUnit.AreEqual(1, #rows)
         WoWUnit.AreEqual(2, rows[1].quantity)
         WoWUnit.AreEqual(2, #rows[1].details)
@@ -380,10 +380,35 @@ function tests.SameNamedIntrinsicVariantsHaveSeparateReadOnlyHistory(_self)
     end
     local before = writes
     for index, suffix in ipairs({ 0, 99 }) do
-        local rows = addon.Journal.query(store, nil, nil, "4540:" .. suffix)
+        local rows = addon.Journal.query(store, { historyKey = "4540:" .. suffix })
         WoWUnit.AreEqual(1, #rows)
         WoWUnit.AreEqual(index, rows[1].quantity)
         WoWUnit.AreEqual("4540:" .. suffix, rows[1].key)
     end
     WoWUnit.AreEqual(before, writes)
+end
+function tests.JournalFiltersCombineScopeActionAndHalfOpenDates(_self)
+    local store, bags, action, _, clock, actor = fixture()
+    action("purchase", 2)
+    bags(2)
+    clock(2000)
+    action("sale", 1)
+    bags(1)
+    actor.character, actor.realm = "Ben", "Other"
+    clock(2998)
+    bags(0)
+    clock(3000)
+    action("purchase", 1)
+    bags(1)
+    WoWUnit.AreEqual(3, #addon.Journal.query(store))
+    local rows = addon.Journal.query(
+        store,
+        { character = "Ada", realm = "Realm", action = "Sale", dateFrom = 2000, dateTo = 2001, search = "Bread" }
+    )
+    WoWUnit.AreEqual(1, #rows)
+    WoWUnit.AreEqual("Sale", rows[1].action)
+    WoWUnit.AreEqual(0, #addon.Journal.query(store, { dateTo = 1001 }))
+    WoWUnit.AreEqual(1, #addon.Journal.query(store, { realm = "Other" }))
+    WoWUnit.AreEqual(0, #addon.Journal.query(store, { action = "Looted" }))
+    WoWUnit.AreEqual(0, #addon.Journal.query(store, { dateFrom = 3000, dateTo = 2000 }))
 end

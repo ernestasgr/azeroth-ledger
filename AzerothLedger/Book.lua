@@ -12,6 +12,68 @@ local showMenu
 local details
 local openHistory
 
+local browseChoices = {
+    ownership = {
+        { label = "Any ownership" },
+        { label = "Present", value = "present" },
+        { label = "Unknown", value = "unknown" },
+        { label = "Historical only", value = "historical" },
+    },
+    quality = {
+        { label = "Any quality" },
+        { label = "Poor", value = 0 },
+        { label = "Common", value = 1 },
+        { label = "Uncommon", value = 2 },
+        { label = "Rare", value = 3 },
+        { label = "Epic", value = 4 },
+        { label = "Legendary", value = 5 },
+        { label = "Artifact", value = 6 },
+        { label = "Heirloom", value = 7 },
+        { label = "WoW Token", value = 8 },
+        { label = "Unknown quality", value = "unknown" },
+    },
+    method = {
+        { label = "Any method" },
+        { label = "Initial stock (Seen)", value = "Seen" },
+        { label = "Looted", value = "Looted" },
+        { label = "Quest reward", value = "Quest" },
+        { label = "Crafted", value = "Crafted" },
+        { label = "Vendor purchase", value = "Vendor" },
+        { label = "Obtained", value = "Obtained" },
+    },
+    sort = {
+        { label = "Name A-Z", value = "name" },
+        { label = "Discovery: newest", value = "discovered" },
+        { label = "Latest gain: newest", value = "gained" },
+        { label = "Quantity: largest", value = "quantity" },
+    },
+    action = {
+        { label = "All actions" },
+        { label = "Looted", value = "Looted" },
+        { label = "Quest reward", value = "Quest" },
+        { label = "Crafted", value = "Crafted" },
+        { label = "Purchase", value = "Purchase" },
+        { label = "Auction purchase", value = "Auction purchase" },
+        { label = "Mail", value = "Mail" },
+        { label = "Trade", value = "Trade" },
+        { label = "Obtained (channel unknown)", value = "Obtained (channel unknown)" },
+        { label = "Alt mail", value = "Alt mail" },
+        { label = "Alt trade", value = "Alt trade" },
+        { label = "Sale", value = "Sale" },
+        { label = "Refund", value = "Refund" },
+        { label = "Buyback", value = "Buyback" },
+    },
+}
+
+local function choiceLabel(field, value)
+    for _, choice in ipairs(browseChoices[field]) do
+        if choice.value == value then
+            return choice.label
+        end
+    end
+    return browseChoices[field][1].label
+end
+
 local function pageSize(book)
     return book.filter.view == "Gallery" and 6 or PAGE_SIZE
 end
@@ -492,11 +554,45 @@ local function renderBody(book, requestedKey)
     local journal = book.filter.view == "Journal"
     local evidence = book.filter.view == "Evidence"
     local gallery = book.filter.view == "Gallery"
+    for _, control in ipairs({ book.scope, book.realmFilter, book.clearFilters }) do
+        control:Show()
+    end
+    for _, control in ipairs({
+        book.ownershipFilter,
+        book.qualityFilter,
+        book.methodFilter,
+        book.sortFilter,
+        book.foundOnce,
+        book.place,
+    }) do
+        control:SetShown(not journal and not evidence)
+    end
+    book.actionFilter:SetShown(journal)
+    book.dateFilter:SetShown(journal)
+    for _, control in ipairs(book.categories) do
+        Widgets.enable(control, not journal and not evidence)
+    end
+    book.scope:SetText(book.filter.character or "All characters")
+    book.realmFilter:SetText(book.filter.realm or "All realms")
+    book.place:SetText(book.filter.place or "All recorded places")
+    book.ownershipFilter:SetText(choiceLabel("ownership", book.filter.ownership))
+    book.qualityFilter:SetText(choiceLabel("quality", book.filter.quality))
+    book.methodFilter:SetText(choiceLabel("method", book.filter.method))
+    book.sortFilter:SetText(
+        choiceLabel("sort", book.filter.sort or (book.filter.view == "Discoveries" and "discovered" or "name"))
+    )
+    book.actionFilter:SetText(choiceLabel("action", book.filter.action))
+    book.dateFilter:SetText(book.filter.dateRange or "Any date")
+    book.foundOnce.mark:SetShown(book.filter.foundOnce == true)
     local size = pageSize(book)
     local result, pending = book.query:step(book.store, book.character, book.realm, book.filter)
     book.queryPending = pending
     if not result then
-        book.empty:SetText(evidence and "Loading unresolved evidence…" or "Loading your Collection…")
+        book.empty:SetText(
+            evidence and "Loading unresolved evidence…"
+                or journal and "Loading your Journal…"
+                or "Loading your Collection…"
+        )
         book.empty:Show()
         book.loading:SetText("Loading items…")
         book.count:SetText("Loading…")
@@ -508,6 +604,7 @@ local function renderBody(book, requestedKey)
             row:Hide()
         end
         book.previewPanel:Hide()
+        book.detailEmpty:Hide()
         book.detailHeader:Hide()
         book.detailScroll:Hide()
         Widgets.enable(book.previous, false)
@@ -534,39 +631,17 @@ local function renderBody(book, requestedKey)
     )
     book.discoveries:SetText(result.discoveryCount .. (result.discoveryCount == 1 and " discovery" or " discoveries"))
     local journalContext = book.filter.historyKey and "Exact item / variant history • newest first"
-        or "Account-wide recent activity"
+        or ((book.filter.character or book.filter.realm) and "Scoped recent activity" or "Account-wide recent activity")
     book.context:SetText(
         evidence and "Unresolved evidence"
             or journal and journalContext
             or (book.filter.category or (gallery and "Gear & pending items" or "All items"))
     )
     book.backToCollection:SetShown(journal and book.historyReturn ~= nil)
-    book.placeNote:SetShown(not journal and not evidence)
     book.quantityHeading:SetShown(not gallery and not evidence)
     book.quantityHeading:SetText(
         journal and "UNITS" or ((book.filter.character or book.filter.realm) and "CHECKED" or "RECORDED")
     )
-    for _, control in ipairs({
-        book.scope,
-        book.realmFilter,
-        book.historical,
-        book.foundOnce,
-        book.clearFilters,
-        book.place,
-    }) do
-        control:SetShown(
-            not journal
-                and (
-                    not evidence
-                    or control == book.scope
-                    or control == book.realmFilter
-                    or control == book.clearFilters
-                )
-        )
-    end
-    for _, control in ipairs(book.categories) do
-        Widgets.enable(control, not journal and not evidence)
-    end
     local state = #result.rows == 0 and "No matching items. Try another search or clear your filters." or ""
     if gallery then
         state = "No matching gear. Try another search or clear your filters."
@@ -587,7 +662,12 @@ local function renderBody(book, requestedKey)
     end
     book.empty:SetText(state)
     book.empty:SetShown(#result.rows == 0)
-    book.loading:SetText(result.loading > 0 and (result.loading .. " items awaiting item data") or "")
+    local loadingText = result.loading > 0 and (result.loading .. " items awaiting item data") or ""
+    if journal and book.filter.dateFrom then
+        local range = stamp(book.filter.dateFrom) .. " through " .. stamp(book.filter.dateTo - 1) .. " (inclusive)"
+        loadingText = range .. (loadingText ~= "" and ("\n" .. loadingText) or "")
+    end
+    book.loading:SetText(loadingText)
     local warningText = warning(book)
     book.warning:SetText(warningText)
     book.warning:SetShown(warningText ~= "")
@@ -598,11 +678,6 @@ local function renderBody(book, requestedKey)
                 or "No discarded evidence details."
         )
     end
-    book.scope:SetText(book.filter.character or "All characters")
-    book.realmFilter:SetText(book.filter.realm or "All realms")
-    book.place:SetText(book.filter.place or "All recorded places")
-    book.historical.mark:SetShown(book.filter.historical == true)
-    book.foundOnce.mark:SetShown(book.filter.foundOnce == true)
     Widgets.select(
         book.collectionTab,
         not evidence and not journal and not gallery and book.filter.view ~= "Discoveries"
@@ -664,14 +739,11 @@ local function renderBody(book, requestedKey)
         book.detailsAccount = true
         selectItem(book, requestedKey)
     else
-        if gallery then
-            local selection = addon.Collection.gallerySelection(result, requestedKey or book.selected)
-            requestedKey = selection and selection.key
-            if not requestedKey then
-                book.selected = nil
-            end
+        local selected = requestedKey or book.selected
+        if not result.byKey[selected] then
+            selected = result.rows[1] and result.rows[1].key
         end
-        selectItem(book, requestedKey or book.selected or (result.rows[1] and result.rows[1].key))
+        selectItem(book, selected)
     end
     book.dirty = pending
 end
@@ -774,7 +846,12 @@ showMenu = function(book, anchor, choices, selectChoice)
     book.menuPage = 1
     book.menuIndex = 1
     book.menu:ClearAllPoints()
-    if anchor == book.place then
+    if
+        anchor == book.place
+        or anchor == book.ownershipFilter
+        or anchor == book.qualityFilter
+        or anchor == book.methodFilter
+    then
         book.menu:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, 4)
     else
         book.menu:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -4)
@@ -786,7 +863,7 @@ showMenu = function(book, anchor, choices, selectChoice)
 end
 
 local function scopeMenu(book, anchor, kind)
-    if book.queryPending then
+    if book.queryPending and book.filter.view == "Evidence" then
         return
     end
     local choices = { { label = kind == "character" and "All characters" or "All realms" } }
@@ -981,8 +1058,8 @@ local function create(api)
         book.categories[index] = control
     end
     Widgets.fill(sidebar, colors.edge, 12, 366, 154, 1, "ARTWORK")
-    Widgets.text(api, sidebar, "RECORDED PLACES", 12, 389, 154, 10, colors.muted)
-    book.place = Widgets.dropdown(book, sidebar, "All recorded places", 6, 418, 166, function(self)
+    Widgets.text(api, sidebar, "RECORDED PLACES", 12, 369, 154, 10, colors.muted)
+    book.place = Widgets.dropdown(book, sidebar, "All recorded places", 6, 398, 166, function(self)
         if book.queryPending or not book.result then
             return
         end
@@ -997,8 +1074,6 @@ local function create(api)
             change(book, "place", choice.place)
         end)
     end)
-    book.placeNote =
-        Widgets.text(api, sidebar, "Only places linked to\nrecorded gains appear here.", 12, 467, 154, 11, colors.muted)
 
     Widgets.fill(frame, colors.edge, 218, 131, 440, 1, "ARTWORK")
     book.collectionTab = Widgets.tab(book, frame, "Collection", 218, 100, 106, function()
@@ -1065,14 +1140,36 @@ local function create(api)
     book.realmFilter = Widgets.dropdown(book, frame, "All realms", 442, 194, 216, function(self)
         scopeMenu(book, self, "realm")
     end)
-    book.historical = Widgets.checkbox(book, frame, "Historical only", 218, 232, 160, function()
-        change(book, "historical", not book.filter.historical)
+    local function browseDropdown(field, parent, x, y, width)
+        return Widgets.dropdown(book, parent, "", x, y, width, function(self)
+            showMenu(book, self, browseChoices[field], function(choice)
+                change(book, field, choice.value)
+            end)
+        end)
+    end
+    book.ownershipFilter = browseDropdown("ownership", sidebar, 6, 438, 166)
+    book.qualityFilter = browseDropdown("quality", sidebar, 6, 474, 166)
+    book.methodFilter = browseDropdown("method", sidebar, 6, 510, 166)
+    book.sortFilter = browseDropdown("sort", frame, 218, 232, 160)
+    book.actionFilter = browseDropdown("action", frame, 218, 232, 150)
+    book.dateFilter = Widgets.dropdown(book, frame, "Any date", 376, 232, 164, function(self)
+        local choices = { { label = "Any date" } }
+        local now = api.GetServerTime and api.GetServerTime()
+        if now then
+            for _, range in ipairs({ { "Last 24 hours", 1 }, { "Last 7 days", 7 }, { "Last 30 days", 30 } }) do
+                choices[#choices + 1] = { label = range[1], from = now - range[2] * 86400, to = now + 1 }
+            end
+        end
+        showMenu(book, self, choices, function(choice)
+            book.filter.dateFrom, book.filter.dateTo = choice.from, choice.to
+            change(book, "dateRange", choice.from and choice.label or nil)
+        end)
     end)
     book.foundOnce = Widgets.checkbox(book, frame, "Found once", 384, 232, 150, function()
         change(book, "foundOnce", not book.filter.foundOnce)
     end)
     book.clearFilters = Widgets.button(book, frame, "Clear filters", 548, 232, 110, 26, function()
-        book.filter = { view = book.filter.view }
+        book.filter = { view = book.filter.view, historyKey = book.filter.historyKey }
         book.search:SetText("")
         book.page = 1
         closeMenu(book)
@@ -1197,7 +1294,8 @@ local function create(api)
     end)
     book.previewMessage = Widgets.text(api, book.previewPanel, "", 0, 40, 368, 10, colors.muted)
     book.previewPanel:Hide()
-    book.loading = Widgets.text(api, frame, "", 218, 660, 440, 10, colors.muted)
+    book.loading = Widgets.text(api, frame, "", 218, 656, 440, 10, colors.muted)
+    book.loading:SetHeight(22)
     Widgets.button(book, frame, "Inspect evidence", 20, 680, 150, 18, function()
         change(book, "view", "Evidence")
     end)
