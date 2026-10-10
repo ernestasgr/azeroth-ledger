@@ -27,6 +27,13 @@ class InstallLocalTests(unittest.TestCase):
             install(client, verify_only=False)
             install(client, verify_only=True)
             self.assertEqual("keep", other_file.read_text(encoding="utf-8"))
+            bindings = addons / "AzerothLedger" / "Bindings.xml"
+            self.assertIn('name="AZEROTHLEDGER_TOGGLE"', bindings.read_text())
+            self.assertNotIn('<Key', bindings.read_text())
+            bindings.write_text("stale", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "differs from source"):
+                install(client, verify_only=True)
+            install(client, verify_only=False)
 
             (addons / "AzerothLedger" / "Main.lua").write_text("stale", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "differs from source"):

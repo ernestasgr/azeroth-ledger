@@ -1,0 +1,5 @@
+<Bindings>
+    <Binding name="AZEROTHLEDGER_TOGGLE" header="AZEROTHLEDGER">
+        AzerothLedgerToggle();
+    </Binding>
+</Bindings>

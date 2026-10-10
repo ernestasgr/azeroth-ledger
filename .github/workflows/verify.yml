@@ -36,6 +36,7 @@ jobs:
           lua tests/collection_spec.lua
           lua tests/book_query_spec.lua
           lua tests/evidence_query_spec.lua
+          lua tests/book_preferences_spec.lua
           lua tests/book_ui_spec.lua
           lua tests/gallery_ui_spec.lua
           lua tests/journal_spec.lua
