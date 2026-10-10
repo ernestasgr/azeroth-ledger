@@ -80,7 +80,52 @@ local function fixture(count)
     return raw
 end
 local _, companion = ...
+-- Many acquisitions of a few items, with changing quantities and retained activity.
+local function repeatedFixture(gainCount, retained, itemCount)
+    local raw = fixture(itemCount or 1)
+    raw.journal = { nextSequence = gainCount * (itemCount or 1) + 1, gains = {} }
+    raw.retention.gains = retained
+    for index = 1, itemCount or 1 do
+        local record = raw.records[tostring(10000 + index) .. ":0"]
+        record.gains, record.observations = {}, {}
+        record.totalGained, record.firstGained, record.lastGained = gainCount, 1001, 1000 + gainCount
+        record.lastSeen = 1000 + gainCount
+        for event = 1, gainCount do
+            local id = "repeated:" .. index .. ":" .. event
+            record.gains[event] = {
+                id = id,
+                quantity = 1,
+                at = 1000 + event,
+                character = "Fixture",
+                realm = "Test",
+                level = 1,
+                place = "Test zone",
+                method = "Looted",
+                source = { kind = "mob", guid = "Creature-0-0-0-0-123-0", name = "Fixture mob" },
+            }
+            record.observations[event] = {
+                character = "Fixture",
+                realm = "Test",
+                area = "bags",
+                quantity = event,
+                seenAt = 1000 + event,
+            }
+            local sequence = (index - 1) * gainCount + event
+            if sequence > gainCount * (itemCount or 1) - retained then
+                raw.journal.gains[#raw.journal.gains + 1] = {
+                    id = id,
+                    key = record.key,
+                    at = 1000 + event,
+                    sequence = sequence,
+                }
+            end
+        end
+    end
+    raw.areas["Test:Fixture:bags"].seenAt = 1000 + gainCount
+    return raw
+end
 if companion then
     companion.performanceFixture = fixture
+    companion.repeatedFixture = repeatedFixture
 end
 return fixture

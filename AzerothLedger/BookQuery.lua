@@ -57,10 +57,15 @@ function BookQuery.new(api)
         elseif currentFilter.view == "Journal" then
             job = addon.Work.start(api, "Journal query", function(pause)
                 local rows = addon.Journal.query(store, currentFilter, pause)
-                local bySequence, positions, loading = {}, {}, 0
+                local bySequence, positions, loading, items = {}, {}, 0, {}
                 for index, row in ipairs(rows) do
-                    row.record = store:find(row.key)
-                    row.metadata = addon.Client.itemMetadata(api, row.record)
+                    local item = items[row.key]
+                    if not item then
+                        local record = store:describe(row.key)
+                        item = { record = record, metadata = addon.Client.itemMetadata(api, record) }
+                        items[row.key] = item
+                    end
+                    row.record, row.metadata = item.record, item.metadata
                     row.recorded = row.quantity
                     if row.metadata.loading then
                         loading = loading + 1
@@ -114,6 +119,36 @@ function BookQuery.new(api)
             return nil, true
         end
         return result, false
+    end
+
+    local inspection, inspectionStore, inspectionKey, inspectionScope, inspectionRevision
+    local inspectionCharacter, inspectionRealm
+    function session.inspect(_self, store, key, character, realm, scope)
+        if not key then
+            return nil, false
+        end
+        if
+            not inspection
+            or inspectionStore ~= store
+            or inspectionKey ~= key
+            or inspectionCharacter ~= character
+            or inspectionRealm ~= realm
+            or not sameFilter(inspectionScope, scope)
+            or inspectionRevision ~= store:revision()
+        then
+            inspectionStore, inspectionKey = store, key
+            inspectionCharacter, inspectionRealm = character, realm
+            inspectionScope, inspectionRevision = copyFilter(scope), store:revision()
+            inspection = addon.Work.start(api, "Item details", function(pause)
+                return addon.Collection.inspect(store, key, character, realm, inspectionScope, pause)
+            end)
+        end
+        local result = inspection:step()
+        if inspectionRevision ~= store:revision() then
+            inspection = nil
+            return nil, true
+        end
+        return result, not inspection.done
     end
 
     function session.metadataChanged(_self)

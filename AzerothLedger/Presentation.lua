@@ -9,18 +9,17 @@ local Presentation = {}
 function Presentation.line(store, link, character, realm)
     local itemID = type(link) == "string" and tonumber(link:match("item:(%d+)")) or nil
     local key = itemID and addon.Item.key(link, itemID)
-    local model = key and addon.Collection.inspect(store, key, character, realm)
-    if not model then
+    local record = key and store:describe(key)
+    local summary = key and store:tooltipFacts(key)
+    if not record or not summary then
         return nil
     end
+    local lastSeen = addon.LastSeen.project(store, record, character, realm)
     local facts = {}
-    if model.record.firstSeenUnits > 0 or #model.record.gains == 0 then
+    if record.firstSeenUnits > 0 or not summary.hasGains then
         facts[#facts + 1] = "Seen"
     end
-    local methods = {}
-    for _, gain in ipairs(model.record.gains) do
-        methods[gain.method] = true
-    end
+    local methods = summary.methods
     if methods.Looted then
         facts[#facts + 1] = "Looted"
     end
@@ -29,19 +28,8 @@ function Presentation.line(store, link, character, realm)
             facts[#facts + 1] = method == "Obtained" and "Obtained (method Unknown)" or ("Obtained (" .. method .. ")")
         end
     end
-    local sources = {}
-    for source, quantity in pairs(model.breakdown.sources) do
-        if source ~= "Initial stock" and quantity > 0 then
-            sources[#sources + 1] = source
-        end
-    end
-    table.sort(sources)
-    local source = #sources == 1 and sources[1] or (#sources > 1 and "Multiple" or "Unknown")
-    if model.breakdown.sources.Unknown and model.breakdown.sources.Unknown > 0 then
-        source = "Unknown"
-    end
     local observations = {}
-    for _, check in ipairs(model.checks) do
+    for _, check in ipairs(lastSeen.checks) do
         if check.observedQuantity ~= nil then
             observations[#observations + 1] = addon.Collection.checkText(check)
         end
@@ -49,11 +37,11 @@ function Presentation.line(store, link, character, realm)
     return "Azeroth Ledger: "
         .. table.concat(facts, ", ")
         .. " • gained "
-        .. model.breakdown.gained
+        .. record.totalGained
         .. " • ownership "
-        .. model.ownership
+        .. addon.Collection.ownershipText(lastSeen)
         .. " • source "
-        .. source
+        .. summary.source
         .. (#observations > 0 and ("\n" .. table.concat(observations, "\n")) or "")
 end
 
