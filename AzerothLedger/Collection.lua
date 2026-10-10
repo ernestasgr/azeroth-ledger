@@ -490,6 +490,7 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
 end
 
 ---@class AzerothLedgerCollectionFilter: ALCountScope
+---@field historyKey? string
 ---@field search? string
 ---@field category? string
 ---@field character? string
