@@ -268,7 +268,7 @@ function tests.FoundOnceIsAccountWideAndRefundRemovesItWithoutAnotherDiscovery(_
     local result = addon.Collection.query(store, "Ada", "A", filter)
     WoWUnit.AreEqual(1, #result.rows)
     WoWUnit.AreEqual("Unknown", result.rows[1].ownership)
-    result = addon.Collection.query(store, "Ada", "A", { historical = true, character = "Ben", realm = "A" })
+    result = addon.Collection.query(store, "Ada", "A", { ownership = "historical", character = "Ben", realm = "A" })
     WoWUnit.AreEqual(0, #result.rows)
     vendor("refund", 1004)
     scan("Ada", "bags", 1005, 0)
@@ -277,7 +277,7 @@ function tests.FoundOnceIsAccountWideAndRefundRemovesItWithoutAnotherDiscovery(_
     for _, area in ipairs({ "bags", "bank", "equipped" }) do
         scan("Ada", area, 1006, 0)
     end
-    result = addon.Collection.query(store, "Ada", "A", { historical = true, character = "Ada", realm = "A" })
+    result = addon.Collection.query(store, "Ada", "A", { ownership = "historical", character = "Ada", realm = "A" })
     WoWUnit.AreEqual(1, #result.rows)
     local detail = table.concat(addon.Collection.details(store, key, "Ada", "A", filter), "\n")
     WoWUnit.IsTrue(detail:find("offline; current ownership Unknown", 1, true) ~= nil)
@@ -638,4 +638,58 @@ function tests.MetadataUsesNumericClassesAndLeavesUnreadableItemsLoading(_self)
     })
     WoWUnit.AreEqual("Deadmines", place)
     WoWUnit.AreEqual("dungeon", kind)
+end
+function tests.BrowsingFiltersAndSortsUseScopedFactsWithStableTies(_self)
+    local store, _, writes = fixture()
+    local before = writes()
+    local function info(record)
+        return {
+            category = record.itemID == 100 and "Weapons" or "Materials",
+            quality = record.itemID == 100 and 2 or nil,
+        }
+    end
+    local function query(filter)
+        return addon.Collection.query(store, "Ada", "A", filter, info).rows
+    end
+    WoWUnit.AreEqual(1, #query({ ownership = "present", character = "Ada", realm = "A", quality = "unknown" }))
+    WoWUnit.AreEqual(0, #query({ ownership = "historical" }))
+    WoWUnit.AreEqual(2, #query({ ownership = "unknown", character = "Ben", realm = "B", quality = 2 }))
+    WoWUnit.AreEqual(3, #query({ method = "Seen" }))
+    WoWUnit.AreEqual(0, #query({ method = "Looted" }))
+    local rows = query({ sort = "discovered" })
+    WoWUnit.AreEqual(addon.Item.key(wolf, 100), rows[1].key)
+    rows = query({ sort = "quantity" })
+    WoWUnit.AreEqual(addon.Item.key(meat, 2672), rows[1].key)
+    rows = query({ sort = "gained" }) -- no confirmed dates: name, then intrinsic key
+    WoWUnit.AreEqual(addon.Item.key(meat, 2672), rows[1].key)
+    WoWUnit.AreEqual(addon.Item.key(bear, 100), rows[2].key)
+    WoWUnit.AreEqual(addon.Item.key(wolf, 100), rows[3].key)
+    rows = query({ character = "Ben", realm = "B", sort = "quantity" })
+    WoWUnit.AreEqual(nil, rows[1].recorded)
+    WoWUnit.AreEqual(1, rows[1].checkedUnits)
+    WoWUnit.AreEqual(before, writes())
+end
+
+function tests.LatestGainAndMethodFiltersFollowTheSelectedCharacter(_self)
+    local store, scan = fixture()
+    local key = addon.Item.key(wolf, 100)
+    WoWUnit.IsTrue(
+        store:vendorAction(
+            { kind = "purchase", key = key, itemID = 100, link = wolf, quantity = 2 },
+            2000,
+            { character = "Ada", realm = "A", level = 12, place = "Forest" }
+        )
+    )
+    scan("Ada", "A", "bags", 2001, {
+        { itemID = 2672, link = meat, quantity = 400 },
+        { itemID = 100, link = wolf, quantity = 2 },
+    })
+    local result = addon.Collection.query(store, "Ada", "A", { sort = "gained" }, metadata)
+    WoWUnit.AreEqual(key, result.rows[1].key)
+    WoWUnit.AreEqual(2000, result.rows[1].lastGained)
+    result = addon.Collection.query(store, "Ada", "A", { character = "Ben", realm = "B", method = "Vendor" }, metadata)
+    WoWUnit.AreEqual(0, #result.rows)
+    result = addon.Collection.query(store, "Ada", "A", { character = "Ada", realm = "A", method = "Vendor" }, metadata)
+    WoWUnit.AreEqual(1, #result.rows)
+    WoWUnit.AreEqual(key, result.rows[1].key)
 end
