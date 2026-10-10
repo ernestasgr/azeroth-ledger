@@ -294,7 +294,9 @@ addon.Collection.open(api, store, "Ada", "A")
 assert(openingFade.plays == openingPlays, "opening an already visible book must not restart the fade")
 click("Journal")
 find("0 activities")
-find("No retained activity. Retention limits are in AddOns Settings.")
+find(
+    "No retained activity in this view. This does not mean no lifetime gains. Retention limits are in AddOns Settings."
+)
 local bread = "|Hitem:4540::::::::|h[Bread]|h"
 local breadKey = addon.Item.key(bread, 4540)
 assert(
@@ -318,13 +320,57 @@ find("1 activities")
 assertIconsAboveBackings()
 click("Purchase • Bread")
 find("Purchase ×2")
-find("Matched item gain; Vendor: Unknown source")
+find("Matched item gain; Purchase: Unknown source")
+find("Gain place: Elwynn")
+find("Character level")
+find("Purchased 2; refunded 0; net gained 2.")
+click("Collection")
+search:SetText("Bread")
+frame.scripts.OnUpdate(frame, 0.1)
+click("Bread")
+local historyWrites = writes
+click("View item history")
+find("Exact item / variant history • newest first")
+for _, control in ipairs(controls) do
+    if control.text == "Only places linked to\nrecorded gains appear here." then
+        assert(not control:IsVisible(), "The place caption must not overlap the history return button")
+    end
+end
+find("1 activities")
+click("Back to Collection")
+assert(search:GetText() == "Bread", "History must restore the Collection search")
+find("Bread", "Button")
+assert(writes == historyWrites, "Viewing history must not write permanent facts")
+click("Journal")
 search:SetText("no match")
 frame.scripts.OnUpdate(frame, 0.1)
 find("0 activities")
 search:SetText("")
 frame.scripts.OnUpdate(frame, 0.1)
 find("1 activities")
+assert(
+    store:vendorAction(
+        { kind = "refund", key = breadKey, itemID = 4540, link = bread, quantity = 1 },
+        1110,
+        { character = "Ada", realm = "A", level = 12, place = "Elwynn" }
+    )
+)
+assert(store:scan({
+    character = "Ada",
+    realm = "A",
+    area = "bags",
+    complete = true,
+    seenAt = 1111,
+    items = { { itemID = 4540, link = bread, quantity = 1 } },
+}))
+addon.Book.refresh(store)
+frame.scripts.OnUpdate(frame, 0.1)
+click("Refund • Bread")
+click("Linked purchase • " .. date("%d %b %Y  %H:%M", 1100))
+find("Purchased 2; refunded 1; net gained 1.")
+click("Linked refund • " .. date("%d %b %Y  %H:%M", 1110))
+find("Refund ×1")
+assert(store:setRetention("vendor", 0))
 assert(store:setRetention("gains", 0))
 addon.Book.refresh(store)
 frame.scripts.OnUpdate(frame, 0.1)

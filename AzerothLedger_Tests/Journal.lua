@@ -249,3 +249,141 @@ function tests.PurchaseIsOneGainAndZeroRetentionPreservesRefundReferences(_self)
     WoWUnit.AreEqual(0, store:breakdown(key).gained)
     WoWUnit.AreEqual(1, #store:vendorActivity())
 end
+
+function tests.ExactHistoryExplainsPartialRefundAndKeepsPrunedPurchaseAbsent(_self)
+    local store, bags, action, restore = fixture()
+    action("purchase", 3)
+    bags(3)
+    action("refund", 1)
+    bags(2)
+    local rows = addon.Journal.query(store, nil, nil, key)
+    WoWUnit.AreEqual(2, #rows)
+    WoWUnit.AreEqual(2, rows[2].netQuantity)
+    WoWUnit.AreEqual(1, rows[2].refunded)
+    WoWUnit.AreEqual(rows[2].sequence, rows[1].purchaseSequence)
+    WoWUnit.AreEqual(rows[1].sequence, rows[2].refundSequences[1])
+    WoWUnit.AreEqual("Elwynn", rows[1].place)
+    WoWUnit.AreEqual(12, rows[1].level)
+    WoWUnit.AreEqual(0, #addon.Journal.query(store, nil, nil, "4540:99"))
+    store = restore()
+    WoWUnit.AreEqual(rows[2].sequence, addon.Journal.query(store)[1].purchaseSequence)
+    WoWUnit.IsTrue(store:setRetention("gains", 0))
+    rows = addon.Journal.query(store, nil, nil, key)
+    WoWUnit.AreEqual(1, #rows)
+    WoWUnit.AreEqual(nil, rows[1].purchaseSequence)
+    WoWUnit.IsTrue(rows[1].linkedGainID ~= nil)
+    WoWUnit.AreEqual(2, store:breakdown(key).gained)
+end
+
+function tests.ProvenExchangeChannelsSurviveReloadAndUnknownHistoryStaysUnknown(_self)
+    for _, channel in ipairs({ "mail", "trade" }) do
+        local saved
+        local store = addon.Schema.open(nil, function(value)
+            saved = value
+        end)
+        local actor = { character = "Ada", realm = "Realm", level = 12, place = "Elwynn" }
+        local function scan(at, quantity)
+            WoWUnit.IsTrue(store:scan({
+                character = "Ada",
+                realm = "Realm",
+                area = "bags",
+                complete = true,
+                seenAt = at,
+                items = quantity > 0 and { { itemID = 4540, link = link, quantity = quantity } } or {},
+            }))
+        end
+        scan(100, 0)
+        WoWUnit.IsTrue(store:exchangeIntent({
+            channel = channel,
+            direction = "in",
+            key = key,
+            itemID = 4540,
+            link = link,
+            quantity = 2,
+            peerName = "Cara",
+            peerRealm = "OtherRealm",
+        }, 101, actor))
+        WoWUnit.IsTrue(store:exchangeConfirm(channel, "in", 102, actor))
+        scan(103, 2)
+        store = addon.Schema.open(saved, function(value)
+            saved = value
+        end)
+        local row = addon.Journal.query(store, nil, nil, key)[1]
+        WoWUnit.AreEqual(channel == "mail" and "Mail" or "Trade", row.action)
+        WoWUnit.AreEqual("Cara-OtherRealm", row.details[1].source)
+        WoWUnit.AreEqual("Elwynn", row.details[1].place)
+        WoWUnit.AreEqual(12, row.details[1].level)
+        WoWUnit.IsTrue(store:correctGain({
+            id = "source-name",
+            key = key,
+            gainID = store:find(key).gains[1].id,
+            quantity = 1,
+            fromMethod = "Obtained",
+            method = "Obtained",
+            fromSource = { kind = "player", name = "Cara", realm = "OtherRealm" },
+            source = { kind = "player", name = "Dana", realm = "OtherRealm" },
+        }))
+        store = addon.Schema.open(saved, function(value)
+            saved = value
+        end)
+        local rows = addon.Journal.query(store, nil, nil, key)
+        WoWUnit.AreEqual(1, #rows)
+        WoWUnit.AreEqual(2, rows[1].quantity)
+        WoWUnit.AreEqual(2, #rows[1].details)
+        for _, gain in ipairs(rows[1].contributions) do
+            WoWUnit.AreEqual(channel, gain.channel)
+        end
+        -- Historical records without a saved channel cannot prove mail or trade.
+        for _, gain in ipairs(saved.records[key].gains) do
+            gain.channel = nil
+        end
+        store = addon.Schema.open(saved, function() end)
+        for _, detail in ipairs(addon.Journal.query(store)[1].details) do
+            WoWUnit.AreEqual("Obtained (channel unknown)", detail.method)
+        end
+        WoWUnit.IsTrue(store:setRetention("gains", 0))
+        WoWUnit.AreEqual(0, #addon.Journal.query(store))
+        WoWUnit.AreEqual(2, store:breakdown(key).gained)
+    end
+end
+
+function tests.SameNamedIntrinsicVariantsHaveSeparateReadOnlyHistory(_self)
+    local writes = 0
+    local store = addon.Schema.open(nil, function()
+        writes = writes + 1
+    end)
+    local actor = { character = "Ada", realm = "Realm", level = 12, place = "Elwynn" }
+    local items = {}
+    local function scan(at)
+        WoWUnit.IsTrue(store:scan({
+            character = "Ada",
+            realm = "Realm",
+            area = "bags",
+            complete = true,
+            seenAt = at,
+            items = items,
+        }))
+    end
+    scan(100)
+    for index, suffix in ipairs({ 0, 99 }) do
+        local variant = "|Hitem:4540:0:0:0:0:0:" .. suffix .. ":0|h[Bread]|h"
+        local variantKey = addon.Item.key(variant, 4540)
+        WoWUnit.IsTrue(store:vendorAction({
+            kind = "purchase",
+            key = variantKey,
+            itemID = 4540,
+            link = variant,
+            quantity = index,
+        }, 100 + index * 2, actor))
+        items[#items + 1] = { itemID = 4540, link = variant, quantity = index }
+        scan(101 + index * 2)
+    end
+    local before = writes
+    for index, suffix in ipairs({ 0, 99 }) do
+        local rows = addon.Journal.query(store, nil, nil, "4540:" .. suffix)
+        WoWUnit.AreEqual(1, #rows)
+        WoWUnit.AreEqual(index, rows[1].quantity)
+        WoWUnit.AreEqual("4540:" .. suffix, rows[1].key)
+    end
+    WoWUnit.AreEqual(before, writes)
+end

@@ -10,10 +10,7 @@ local function source(gain)
         return "Auction purchase"
     end
     if gain.source then
-        if gain.source.kind == "container" then
-            return addon.Schema.sourceText(gain.source)
-        end
-        return gain.source.name and actor(gain.source.name, gain.source.realm) or "Unnamed " .. gain.source.kind
+        return addon.Schema.sourceText(gain.source)
     end
     if gain.context then
         return gain.context.name or (gain.context.kind .. " " .. gain.context.id)
@@ -21,12 +18,27 @@ local function source(gain)
     return "Unknown source"
 end
 
+local function method(gain)
+    if gain.method == "Obtained" and not gain.mailKind then
+        return ({ mail = "Mail", trade = "Trade" })[gain.channel] or "Obtained (channel unknown)"
+    end
+    return gain.mailKind == "auction-purchase" and "Auction purchase"
+        or gain.method == "Vendor" and "Purchase"
+        or gain.method
+end
+
+local function location(row)
+    return row.place and row.place ~= "" and row.place or "Unknown"
+end
+
 ---@param store ALStore
 ---@param search? string
 ---@param pause? fun()
+---@param key? string Exact intrinsic item/variant key; never a name search.
 ---@return table[]
-function Journal.query(store, search, pause)
+function Journal.query(store, search, pause, key)
     local result = {}
+    local purchases, sales = {}, {}
     search = (search or ""):lower()
     for _, row in ipairs(store:journal(pause)) do
         local record = store:find(row.key)
@@ -36,34 +48,66 @@ function Journal.query(store, search, pause)
             local first = row.contributions[1]
             row.quantity, row.refunded = 0, 0
             row.actors = actor(first.character, first.realm)
-            row.action = first.mailKind == "auction-purchase" and "Auction purchase"
-                or first.method == "Vendor" and "Purchase"
-                or first.method
+            row.action = method(first)
+            row.place, row.level = first.place, first.level
+            row.details = {}
             local evidence, seen = {}, {}
             for _, gain in ipairs(row.contributions) do
                 row.quantity = row.quantity + gain.quantity
                 row.refunded = row.refunded + (gain.refunded or 0)
-                local label = gain.method .. ": " .. source(gain)
+                local label = method(gain) .. ": " .. source(gain)
+                row.details[#row.details + 1] = {
+                    actor = actor(gain.character, gain.realm),
+                    at = gain.at,
+                    quantity = gain.quantity,
+                    place = location(gain),
+                    level = gain.level,
+                    method = method(gain),
+                    source = source(gain),
+                }
                 if not seen[label] then
                     evidence[#evidence + 1], seen[label] = label, true
                 end
             end
             table.sort(evidence)
+            row.netQuantity = row.quantity - row.refunded
+            row.refundSequences = {}
+            purchases[row.key .. ":" .. row.id] = row
+            if #evidence > 1 then
+                row.action = "Acquisition"
+            end
             row.evidence = "Matched item gain; " .. table.concat(evidence, "; ")
         elseif row.category == "transfer" then
             row.actors = actor(row.sender, row.senderRealm) .. " → " .. actor(row.recipient, row.recipientRealm)
             row.action = row.channel == "mail" and "Alt mail" or "Alt trade"
             row.evidence = "Confirmed send and matching receipt; no external gain"
+            row.sourceText = actor(row.sender, row.senderRealm)
         else
             row.actors = actor(row.character, row.realm)
             row.action = ({ sale = "Sale", refund = "Refund", buyback = "Buyback" })[row.kind]
             row.evidence = "Matched vendor action; " .. (row.vendorName or "Unknown vendor")
+            row.sourceText = row.vendorName or "Unknown vendor"
+            if row.kind == "sale" then
+                sales[row.key .. ":" .. row.id] = row
+            end
         end
-        if
-            (row.name .. " " .. row.actors .. " " .. row.action .. " " .. row.evidence):lower():find(search, 1, true)
-        then
+        row.placeText = location(row)
+        local text = row.name .. " " .. row.actors .. " " .. row.action .. " " .. row.evidence
+        if (not key or row.key == key) and text:lower():find(search, 1, true) then
             result[#result + 1] = row
         end
+        if pause then
+            pause()
+        end
+    end
+    for _, row in ipairs(result) do
+        local purchase = row.linkedAcquisitionID and purchases[row.key .. ":" .. row.linkedAcquisitionID]
+        if purchase then
+            row.purchaseSequence = purchase.sequence
+            purchase.refundSequences[#purchase.refundSequences + 1] = row.sequence
+        end
+        local sale = row.linkedSaleID and sales[row.key .. ":" .. row.linkedSaleID]
+        row.saleSequence = sale and sale.sequence or nil
         if pause then
             pause()
         end

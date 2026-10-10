@@ -90,6 +90,11 @@ for index, row in ipairs(result.rows) do
     assert(result.bySequence[row.sequence] == row and result.positions[row.sequence] == index)
     assert(row.metadata and row.recorded == row.quantity)
 end
+local exact = finish(query, replacement, { view = "Journal", historyKey = "10001:0" })
+assert(#exact.rows == 3)
+local absentHistory = finish(query, replacement, { view = "Journal", historyKey = "10001:99" })
+assert(#absentHistory.rows == 0, "Changing the intrinsic variant must invalidate cached Journal rows")
+assert(#finish(query, replacement, { view = "Journal" }).rows == 3)
 query:metadataChanged()
 priorReads = reads
 assert(#finish(query, replacement, {}).rows == 1)
