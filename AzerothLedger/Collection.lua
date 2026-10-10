@@ -2,6 +2,170 @@ local _, addon = ...
 
 local Collection = {}
 
+local evidenceActions = {
+    loot = "Loot",
+    lootOpen = "Loot",
+    lootReceipt = "Loot receipt",
+    rewards = "Reward",
+    rewardReceipt = "Reward",
+    quest = "Quest reward",
+    questPrepared = "Quest reward",
+    vendor = "Vendor",
+    vendorAction = "Vendor",
+    vendorReceipt = "Vendor receipt",
+    exchange = "Mail or trade",
+    exchangeIntent = "Mail or trade",
+    identity = "Storage check (Seen)",
+}
+local evidenceReasons = {
+    expired = "The matching window ended without enough proof.",
+    reload = "A login or reload ended this match before it was confirmed.",
+    overflow = "The evidence queue was full; this candidate was not accepted for matching.",
+    unreadable = "The item identity could not be read safely.",
+    unmatched = "This receipt did not have a matching action.",
+    stopped = "The action could not be matched uniquely; automatic matching has stopped.",
+}
+
+local sourceUncertainty = "No single source is proven; sources may be missing or competing. "
+    .. "A matching gain is also required."
+
+---@param entry ALEvidenceViewEntry
+local function evidenceReason(entry)
+    local reason = evidenceReasons[entry.reason]
+    if entry.kind == "loot" and not entry.sourceKnown then
+        return reason and (reason .. " " .. sourceUncertainty) or sourceUncertainty
+    end
+    if reason then
+        return reason
+    elseif entry.kind == "vendor" then
+        return "The item change or its purchase/sale reference is not uniquely proven."
+    elseif entry.kind == "exchange" then
+        return "The completed exchange, item change or other character is not uniquely proven."
+    end
+    return "The action and matching item change have not both been proven."
+end
+
+---@param entry ALEvidenceViewEntry
+local function evidenceNextStep(entry)
+    if entry.reason == "expired" or entry.reason == "reload" or entry.reason == "overflow" then
+        return "This evidence cannot restart matching. Future checks do not confirm this old gain."
+    elseif entry.kind == "identity" then
+        local area = entry.area == "bank" and "the bank" or entry.area == "equipped" and "equipped gear" or "bags"
+        return "Wait for item data, then check " .. area .. " again. A readable identity establishes Seen, not a gain."
+    elseif entry.reason == "unmatched" then
+        return "No matching action was captured. This receipt alone cannot prove a gain."
+    elseif entry.reason == "stopped" then
+        return "This action will not resume matching. Future checks cannot confirm this old action."
+    elseif entry.reason ~= "active" then
+        return "This retained record does not establish whether matching can still settle."
+    end
+    return "Still eligible while its matching window remains open. "
+        .. "A complete check of relevant storage may help; it cannot guarantee a gain."
+end
+
+-- Public read-only projection: saved evidence and live candidates share one
+-- presentation, with stable IDs independent of Collection item identity.
+function Collection.evidenceQuery(store, filter, pause)
+    pause = pause or function() end
+    local candidates, actors, seenActors, representedPreparations = {}, {}, {}, {}
+    local summary = store:visitEvidence(function(entry)
+        candidates[#candidates + 1] = entry
+        if entry.kind == "rewards" and entry.preparationID then
+            local key = entry.character .. "\031" .. entry.realm .. "\031" .. entry.preparationID
+            representedPreparations[key] = true
+        end
+        local actorKey = entry.character .. "\031" .. entry.realm
+        if not seenActors[actorKey] then
+            seenActors[actorKey] = true
+            actors[#actors + 1] = { character = entry.character, realm = entry.realm }
+        end
+    end, pause)
+    local rows, positions, total = {}, {}, 0
+    local search = string.lower(filter.search or "")
+    for _, entry in ipairs(candidates) do
+        local preparationKey = entry.preparationID
+            and (entry.character .. "\031" .. entry.realm .. "\031" .. entry.preparationID)
+        if entry.kind ~= "quest" or not representedPreparations[preparationKey] then
+            total = total + 1
+            local record = entry.key and store:find(entry.key)
+            local link = entry.link or (record and record.links[1])
+            local readableLink = link and addon.Item.key(link, entry.itemID or (record and record.itemID))
+            local name = readableLink and link:match("%[([^%]]+)%]")
+                or (entry.itemID and ("Item " .. entry.itemID .. (not readableLink and " • unresolved variant" or "")))
+                or entry.key
+                or "Unresolved item identity"
+            local action = evidenceActions[entry.kind] or "Item evidence"
+            if (entry.kind == "vendor" or entry.kind == "vendorAction") and entry.action then
+                action = "Vendor " .. entry.action
+            elseif entry.kind == "exchange" or entry.kind == "exchangeIntent" then
+                action = entry.channel == "mail" and "Mail" or entry.channel == "trade" and "Trade" or "Mail or trade"
+                if entry.direction == "in" then
+                    action = action .. " received"
+                elseif entry.direction == "out" then
+                    action = action .. " sent"
+                end
+            elseif entry.method then
+                action = entry.method == "Crafted" and "Craft" or "Quest reward"
+            end
+            if
+                (not filter.character or entry.character == filter.character)
+                and (not filter.realm or entry.realm == filter.realm)
+                and string
+                    .lower(name .. " " .. (link or "") .. " " .. (entry.key or "") .. " " .. (entry.itemID or ""))
+                    :find(search, 1, true)
+            then
+                rows[#rows + 1] = {
+                    id = entry.id,
+                    key = entry.key,
+                    link = readableLink and link or nil,
+                    name = name,
+                    character = entry.character,
+                    realm = entry.realm,
+                    at = entry.at,
+                    action = action,
+                    reason = evidenceReason(entry),
+                    nextStep = evidenceNextStep(entry),
+                    quantity = entry.quantity,
+                    location = entry.location,
+                    status = entry.reason == "expired" and "Expired"
+                        or entry.reason == "reload" and "Reload ended"
+                        or entry.reason == "overflow" and "Not matched (overflow)"
+                        or entry.kind == "identity" and "Identity unresolved"
+                        or entry.reason == "stopped" and "Matching stopped"
+                        or entry.reason == "unmatched" and "Unmatched receipt"
+                        or entry.reason == "active" and "Active"
+                        or "Unresolved",
+                }
+            end
+        end
+        pause()
+    end
+    addon.Work.sort(rows, function(left, right)
+        return left.at > right.at or (left.at == right.at and left.id < right.id)
+    end, pause)
+    addon.Work.sort(actors, function(left, right)
+        return left.realm < right.realm or (left.realm == right.realm and left.character < right.character)
+    end, pause)
+    for index, row in ipairs(rows) do
+        positions[row.id] = index
+        pause()
+    end
+    return {
+        rows = rows,
+        positions = positions,
+        actors = actors,
+        total = total,
+        discarded = summary.discarded,
+        firstDiscarded = summary.firstDiscarded,
+        lastDiscarded = summary.lastDiscarded,
+        categories = {},
+        places = {},
+        loading = 0,
+        matchedCount = #rows,
+        discoveryCount = store:count(),
+    }
+end
+
 ---@class AzerothLedgerCollectionApi
 ---@field CreateFrame? fun(frameType: string, name?: string, parent?: table, template?: string): table
 ---@field UIParent table

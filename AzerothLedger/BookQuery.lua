@@ -31,7 +31,11 @@ function BookQuery.new(api)
     local function start(store, character, realm, filter)
         currentStore, currentCharacter, currentRealm = store, character, realm
         currentFilter, revision, metadataPending = copyFilter(filter), store:revision(), false
-        if currentFilter.view == "Journal" then
+        if currentFilter.view == "Evidence" then
+            job = addon.Work.start(api, "Evidence query", function(pause)
+                return addon.Collection.evidenceQuery(store, currentFilter, pause)
+            end)
+        elseif currentFilter.view == "Journal" then
             job = addon.Work.start(api, "Journal query", function(pause)
                 local rows = addon.Journal.query(store, currentFilter.search, pause)
                 local bySequence, positions = {}, {}

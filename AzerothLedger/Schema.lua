@@ -344,6 +344,27 @@ end
 ---@field realm string
 ---@field detail table
 
+---@class ALEvidenceViewEntry
+---@field id string
+---@field kind string
+---@field reason string
+---@field at integer
+---@field character string
+---@field realm string
+---@field key? string
+---@field link? string
+---@field itemID? integer
+---@field quantity? integer
+---@field action? string
+---@field method? string
+---@field channel? string
+---@field direction? string
+---@field area? string
+---@field location? string
+---@field confirmed? boolean
+---@field sourceKnown boolean
+---@field preparationID? integer
+
 ---@class AzerothLedgerEvidenceState
 ---@field nextID integer
 ---@field unresolved AzerothLedgerEvidence[]
@@ -400,6 +421,8 @@ end
 ---@field takeDiscoveries fun(self: ALStore): AzerothLedgerRecord[]
 ---@field journal fun(self: ALStore, pause?: fun()): table[]
 ---@field unresolved fun(self: AzerothLedgerStore): AzerothLedgerEvidence[]
+---@field visitEvidence fun(self: AzerothLedgerStore, visit: fun(entry: ALEvidenceViewEntry), pause?: fun()): table
+---@field evidenceStatus fun(self: AzerothLedgerStore): table
 ---@field evidenceSummary fun(self: AzerothLedgerStore): AzerothLedgerEvidenceState
 ---@field expireEvidence fun(self: AzerothLedgerStore, at: integer): boolean
 ---@field correctGain fun(self: AzerothLedgerStore, proof: AzerothLedgerGainCorrection): boolean
@@ -1702,6 +1725,130 @@ function Schema.open(raw, save)
 
     function store.evidenceSummary(_self)
         return evidenceState() or { nextID = 1, unresolved = {}, discarded = 0 }
+    end
+
+    -- The book warning needs counts, not deep copies of up to 2,000 payloads.
+    function store.evidenceStatus(_self)
+        local state = raw.evidence
+        if not state or not validEvidence(state) then
+            return { count = 0, discarded = 0 }
+        end
+        return {
+            count = #state.unresolved,
+            discarded = state.discarded,
+            firstDiscarded = state.firstDiscarded,
+            lastDiscarded = state.lastDiscarded,
+        }
+    end
+
+    -- Copy only presentation fields, one candidate at a time. Never resume,
+    -- expire or settle a match from a read-only query.
+    function store.visitEvidence(_self, visit, pause)
+        pause = pause or function() end
+        local function emit(id, kind, reason, at, actor, detail)
+            local slot = type(detail.slot) == "table" and detail.slot or {}
+            local quantity = detail.quantity or slot.limit
+            local preparationID = kind == "quest" and detail.id or detail.questPreparationID
+            visit({
+                id = id,
+                kind = kind,
+                reason = reason,
+                at = at,
+                character = actor.character,
+                realm = actor.realm,
+                key = type(detail.key) == "string" and detail.key or nil,
+                link = type(detail.link) == "string" and detail.link or nil,
+                itemID = isInteger(detail.itemID) and detail.itemID > 0 and detail.itemID or nil,
+                quantity = isInteger(quantity) and quantity > 0 and quantity or nil,
+                action = type(detail.kind) == "string" and detail.kind or nil,
+                method = (detail.method == "Quest" or detail.method == "Crafted") and detail.method or nil,
+                channel = (detail.channel == "mail" or detail.channel == "trade") and detail.channel or nil,
+                direction = (detail.direction == "in" or detail.direction == "out") and detail.direction or nil,
+                area = type(detail.area) == "string" and detail.area or nil,
+                location = type(detail.location) == "string" and detail.location or nil,
+                confirmed = detail.confirmed == true,
+                sourceKnown = slot.source ~= nil and validLootSource(slot.source),
+                preparationID = isInteger(preparationID) and preparationID > 0 and preparationID or nil,
+            })
+            pause()
+        end
+        local evidence = raw.evidence
+        if evidence and validEvidence(evidence) then
+            for _, entry in ipairs(evidence.unresolved) do
+                if entry.kind == "lootOpen" and type(entry.detail.slots) == "table" and #entry.detail.slots > 0 then
+                    for index, slot in ipairs(entry.detail.slots) do
+                        slot = type(slot) == "table" and slot or {}
+                        emit(
+                            "saved:" .. entry.id .. ":" .. index,
+                            entry.kind,
+                            entry.reason,
+                            entry.at,
+                            entry,
+                            { key = slot.key, quantity = slot.quantity }
+                        )
+                    end
+                else
+                    emit("saved:" .. entry.id, entry.kind, entry.reason, entry.at, entry, entry.detail)
+                end
+            end
+        end
+        for _, kind in ipairs({ "loot", "rewards", "vendor", "exchange" }) do
+            local state = raw[kind]
+            local healthy
+            if kind == "loot" then
+                healthy = state and validLootState(state)
+            elseif kind == "rewards" then
+                healthy = state and validRewardState(state)
+            elseif kind == "vendor" then
+                healthy = vendorHealthy
+            else
+                healthy = exchangeHealthy
+            end
+            if readable and state and healthy then
+                local list = (kind == "loot" or kind == "rewards") and state.sessions or state.actions
+                for _, entry in ipairs(list) do
+                    local id = kind .. ":" .. entry.id
+                    if kind == "loot" then
+                        for key, slot in pairs(entry.slots) do
+                            local receipt = entry.receipts[key]
+                            local quantity =
+                                math.max(slot.limit or 0, receipt and receipt.quantity or 0, entry.credits[key] or 0)
+                            if quantity == 0 or quantity > (entry.awarded[key] or 0) then
+                                emit(
+                                    id .. ":" .. key,
+                                    kind,
+                                    "active",
+                                    entry.openedAt,
+                                    entry,
+                                    { key = key, slot = slot, quantity = quantity > 0 and quantity or nil }
+                                )
+                            end
+                            pause()
+                        end
+                    elseif kind == "rewards" then
+                        if entry.awarded < entry.quantity or not entry.confirmed then
+                            emit(id, kind, "active", entry.at, entry, entry)
+                        end
+                    elseif entry.status == "pending" or entry.status == "unresolved" then
+                        local stopped = entry.status == "unresolved" and (kind == "vendor" or not entry.confirmed)
+                        local reason = stopped and "stopped" or "active"
+                        emit(id, kind, reason, entry.at, entry, entry)
+                    end
+                    pause()
+                end
+                for _, entry in ipairs(kind == "rewards" and state.preparations or {}) do
+                    if not entry.confirmed then
+                        emit("quest:" .. entry.questID .. ":" .. entry.at, "quest", "active", entry.at, entry, entry)
+                    end
+                    pause()
+                end
+            end
+        end
+        return {
+            discarded = evidence and validEvidence(evidence) and evidence.discarded or 0,
+            firstDiscarded = evidence and evidence.firstDiscarded,
+            lastDiscarded = evidence and evidence.lastDiscarded,
+        }
     end
 
     local function sameSource(left, right)
