@@ -46,6 +46,27 @@ function tests.ExpiredLootEvidenceCannotBecomeAGain(_self)
     WoWUnit.AreEqual("expired", store:unresolved()[1].reason)
 end
 
+function tests.BookEvidenceShowsActiveAndEndedMatchesWithoutGains(_self)
+    local store, _, open, saved = fixture()
+    WoWUnit.IsTrue(open(1010))
+    local revision = store:revision()
+    local result = addon.Collection.evidenceQuery(store, { search = "Meat", character = "Ada", realm = "Realm" })
+    WoWUnit.AreEqual(1, #result.rows)
+    WoWUnit.AreEqual("Active", result.rows[1].status)
+    WoWUnit.AreEqual(revision, store:revision())
+    WoWUnit.IsTrue(store:expireEvidence(1070))
+    result = addon.Collection.evidenceQuery(store, {})
+    WoWUnit.AreEqual(1, #result.rows)
+    WoWUnit.AreEqual("Expired", result.rows[1].status)
+    WoWUnit.AreEqual(0, store:find(key).totalGained)
+    WoWUnit.AreEqual(0, #addon.Collection.evidenceQuery(store, { search = "Sword" }).rows)
+    WoWUnit.IsTrue(open(1080))
+    local restored = addon.Schema.open(saved(), function() end)
+    result = addon.Collection.evidenceQuery(restored, {})
+    WoWUnit.AreEqual("Reload ended", result.rows[1].status)
+    WoWUnit.AreEqual(0, restored:find(key).totalGained)
+end
+
 function tests.CompletedLootDoesNotHideTheNextSource(_self)
     local store, scan, open = fixture()
     local first = { kind = "mob", guid = "Creature-0-1-2-3-4-5", name = "Boar" }
