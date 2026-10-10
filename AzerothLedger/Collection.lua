@@ -3,31 +3,31 @@ local _, addon = ...
 local Collection = {}
 
 local evidenceActions = {
-    loot = "Loot",
-    lootOpen = "Loot",
-    lootReceipt = "Loot receipt",
-    rewards = "Reward",
-    rewardReceipt = "Reward",
+    loot = "Loot pickup",
+    lootOpen = "Loot pickup",
+    lootReceipt = "Loot pickup",
+    rewards = "Quest reward",
+    rewardReceipt = "Quest reward",
     quest = "Quest reward",
     questPrepared = "Quest reward",
-    vendor = "Vendor",
-    vendorAction = "Vendor",
-    vendorReceipt = "Vendor receipt",
+    vendor = "Vendor action",
+    vendorAction = "Vendor action",
+    vendorReceipt = "Vendor action",
     exchange = "Mail or trade",
     exchangeIntent = "Mail or trade",
-    identity = "Storage check (Seen)",
+    identity = "Bag, bank, or gear check",
 }
 local evidenceReasons = {
-    expired = "The matching window ended without enough proof.",
-    reload = "A login or reload ended this match before it was confirmed.",
-    overflow = "The evidence queue was full; this candidate was not accepted for matching.",
-    unreadable = "The item identity could not be read safely.",
-    unmatched = "This receipt did not have a matching action.",
-    stopped = "The action could not be matched uniquely; automatic matching has stopped.",
+    expired = "The addon could not confirm this item gain in time.",
+    reload = "You logged out or reloaded before the addon could confirm this item gain.",
+    overflow = "Too many item changes happened at once for the addon to confirm this one.",
+    unreadable = "The game did not provide a readable item name.",
+    unmatched = "The item change did not match an action the addon saw.",
+    stopped = "The addon could not tell which action caused this item change.",
 }
 
-local sourceUncertainty = "No single source is proven; sources may be missing or competing. "
-    .. "A matching gain is also required."
+local sourceUncertainty = "The addon could not identify one clear loot source. "
+    .. "It also needs to see the item gain."
 
 ---@param entry ALEvidenceViewEntry
 local function evidenceReason(entry)
@@ -38,29 +38,31 @@ local function evidenceReason(entry)
     if reason then
         return reason
     elseif entry.kind == "vendor" then
-        return "The item change or its purchase/sale reference is not uniquely proven."
+        return "The vendor action and matching item change could not both be confirmed."
     elseif entry.kind == "exchange" then
-        return "The completed exchange, item change or other character is not uniquely proven."
+        return "The mail or trade, item change, or other character could not be confirmed."
     end
-    return "The action and matching item change have not both been proven."
+    return "The addon could not confirm both the action and the item change."
 end
 
 ---@param entry ALEvidenceViewEntry
 local function evidenceNextStep(entry)
     if entry.reason == "expired" or entry.reason == "reload" or entry.reason == "overflow" then
-        return "This evidence cannot restart matching. Future checks do not confirm this old gain."
+        return "This old item change can no longer be confirmed. Future checks will not add it to Total gained."
     elseif entry.kind == "identity" then
         local area = entry.area == "bank" and "the bank" or entry.area == "equipped" and "equipped gear" or "bags"
-        return "Wait for item data, then check " .. area .. " again. A readable identity establishes Seen, not a gain."
+        return "Wait for the item name to load, then check "
+            .. area
+            .. " again. The item may be added as Seen, but that will not count as a gain."
     elseif entry.reason == "unmatched" then
-        return "No matching action was captured. This receipt alone cannot prove a gain."
+        return "The addon did not see a matching action. This receipt alone does not confirm a gain."
     elseif entry.reason == "stopped" then
-        return "This action will not resume matching. Future checks cannot confirm this old action."
+        return "The addon will not retry this action. Future checks will not confirm it."
     elseif entry.reason ~= "active" then
-        return "This retained record does not establish whether matching can still settle."
+        return "This saved entry does not show whether the addon can still confirm the item change."
     end
-    return "Still eligible while its matching window remains open. "
-        .. "A complete check of relevant storage may help; it cannot guarantee a gain."
+    return "The addon can still match this while its check is open. "
+        .. "Checking bags, bank, or gear may help, but might not confirm a gain."
 end
 
 -- Public read-only projection: saved evidence and live candidates share one
@@ -127,14 +129,14 @@ function Collection.evidenceQuery(store, filter, pause)
                     nextStep = evidenceNextStep(entry),
                     quantity = entry.quantity,
                     location = entry.location,
-                    status = entry.reason == "expired" and "Expired"
-                        or entry.reason == "reload" and "Reload ended"
-                        or entry.reason == "overflow" and "Not matched (overflow)"
-                        or entry.kind == "identity" and "Identity unresolved"
-                        or entry.reason == "stopped" and "Matching stopped"
-                        or entry.reason == "unmatched" and "Unmatched receipt"
-                        or entry.reason == "active" and "Active"
-                        or "Unresolved",
+                    status = entry.reason == "expired" and "Timed out"
+                        or entry.reason == "reload" and "Login interrupted"
+                        or entry.reason == "overflow" and "Too many changes"
+                        or entry.kind == "identity" and "Item name unavailable"
+                        or entry.reason == "stopped" and "Could not match"
+                        or entry.reason == "unmatched" and "No matching action"
+                        or entry.reason == "active" and "Still checking"
+                        or "Needs review",
                 }
             end
         end
@@ -199,16 +201,13 @@ function Collection.checkText(check)
         .. " • "
         .. storageLabels[check.area]
         .. ": "
-        .. (check.observedQuantity ~= nil and ("last observed " .. check.observedQuantity .. " at " .. stamp(
+        .. (check.observedQuantity ~= nil and ("last found " .. check.observedQuantity .. " on " .. stamp(
             check.observedAt
-        )) or "never observed")
+        )) or "not seen yet")
         .. "; latest check "
-        .. (check.quantity or "Unknown")
-        .. (check.at and (" at " .. stamp(check.at)) or "; never checked")
-        .. (
-            not check.online and " (offline; current ownership Unknown)"
-            or (check.quantity == nil and "; current ownership Unknown" or "")
-        )
+        .. (check.quantity ~= nil and tostring(check.quantity) or "Unknown")
+        .. (check.at and (" on " .. stamp(check.at)) or "; not checked yet")
+        .. (not check.online and " (offline; status Unknown)" or (check.quantity == nil and "; status Unknown" or ""))
 end
 
 local inspectRecord
@@ -229,27 +228,28 @@ Collection.ownershipText = ownershipText
 ---@param realm string
 ---@param filterCharacter? string
 ---@param filterRealm? string
+---@param developerMode? boolean
 ---@return string[]
 -- Produces the text shown in the Collection, including scope freshness.
-function Collection.lines(store, character, realm, filterCharacter, filterRealm)
+function Collection.lines(store, character, realm, filterCharacter, filterRealm, developerMode)
     local lines = {}
     local evidence = store:evidenceSummary()
     if evidence.discarded > 0 then
-        lines[#lines + 1] = "WARNING: unresolved evidence discarded: "
+        lines[#lines + 1] = "WARNING: older item changes need review; details unavailable: "
             .. evidence.discarded
             .. " • "
             .. stamp(evidence.firstDiscarded)
             .. " through "
             .. stamp(evidence.lastDiscarded)
     end
-    local unresolved = store:unresolved()
-    if #unresolved > 0 then
-        lines[#lines + 1] = "Unresolved evidence: " .. #unresolved .. " account-wide records; no guessed gains"
+    local review = Collection.evidenceQuery(store, {})
+    if #review.rows > 0 then
+        lines[#lines + 1] = "Item changes to review: " .. #review.rows .. " • no gains guessed"
         local shownEvidence = 0
-        for index = #unresolved, 1, -1 do
-            local entry = unresolved[index]
+        for index = #review.rows, 1, -1 do
+            local entry = review.rows[index]
             if matchesFilter(filterCharacter, filterRealm, entry.character, entry.realm) then
-                lines[#lines + 1] = "  " .. entry.kind .. " • " .. entry.reason .. " • " .. stamp(entry.at)
+                lines[#lines + 1] = "  " .. entry.action .. " • " .. entry.status .. " • " .. stamp(entry.at)
                 shownEvidence = shownEvidence + 1
                 if shownEvidence == 10 then
                     break
@@ -261,9 +261,9 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
         for _, area in ipairs(storageAreas) do
             local state = store:area(filterCharacter or character, filterRealm or realm, area)
             if not state or not state.complete then
-                lines[#lines + 1] = area .. ": incomplete / current stock unknown"
+                lines[#lines + 1] = storageLabels[area] .. ": needs a check; amount Unknown"
             else
-                lines[#lines + 1] = area .. ": checked " .. stamp(state.seenAt)
+                lines[#lines + 1] = storageLabels[area] .. ": last checked " .. stamp(state.seenAt)
             end
         end
     end
@@ -282,13 +282,12 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
             shown = shown + 1
             local name = record.links[1]:match("%[([^%]]+)%]") or ("Item " .. record.itemID)
             lines[#lines + 1] = name
-                .. " ["
-                .. record.key
-                .. "] — first scan "
+                .. (developerMode and (" [internal item key " .. record.key .. "]") or "")
+                .. " — already had at first check "
                 .. record.firstSeenUnits
-                .. " Seen; Total gained "
+                .. "; Total gained "
                 .. record.totalGained
-                .. "; Recorded units "
+                .. "; Total found "
                 .. (record.firstSeenUnits + record.totalGained)
             local lastSeen = addon.LastSeen.project(
                 store,
@@ -297,13 +296,13 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                 realm,
                 { character = filterCharacter, realm = filterRealm }
             )
-            lines[#lines + 1] = "  Ownership: " .. ownershipText(lastSeen)
+            lines[#lines + 1] = "  Status: " .. ownershipText(lastSeen)
             for _, check in ipairs(lastSeen.checks) do
                 lines[#lines + 1] = "  " .. Collection.checkText(check)
             end
             local lastCheck = lastSeen.latestCheck
             if lastCheck then
-                lines[#lines + 1] = "  Latest area check "
+                lines[#lines + 1] = "  Latest check "
                     .. (lastCheck.quantity or "Unknown")
                     .. " • "
                     .. lastCheck.character
@@ -314,9 +313,9 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                     .. " • "
                     .. stamp(lastCheck.at)
             end
-            lines[#lines + 1] = "  First Seen "
+            lines[#lines + 1] = "  First seen "
                 .. stamp(record.firstSeen)
-                .. " • latest Seen "
+                .. " • last seen "
                 .. stamp(record.lastSeen)
                 .. (
                     record.firstGained and (" • first confirmed gain " .. stamp(record.firstGained))
@@ -336,7 +335,10 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                 table.sort(methodLabels)
                 for _, method in ipairs(methodLabels) do
                     if methods[method] > 0 then
-                        lines[#lines + 1] = "  Method total: " .. method .. " " .. methods[method]
+                        lines[#lines + 1] = "  How you got it: "
+                            .. (method == "Seen" and "Already had at first check" or method)
+                            .. " "
+                            .. methods[method]
                     end
                 end
                 local labels = {}
@@ -346,7 +348,10 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                 table.sort(labels)
                 for _, label in ipairs(labels) do
                     if sources[label] > 0 then
-                        lines[#lines + 1] = "  Source total: " .. label .. " " .. sources[label]
+                        lines[#lines + 1] = "  From "
+                            .. (label == "Initial stock" and "Already had before first check" or label)
+                            .. " "
+                            .. sources[label]
                     end
                 end
             end
@@ -356,7 +361,7 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                         .. seen.name
                         .. "-"
                         .. seen.realm
-                        .. ": first Seen "
+                        .. ": first seen "
                         .. stamp(seen.firstSeen)
                         .. " • "
                         .. seen.firstSeenUnits
@@ -374,7 +379,7 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
                         .. "-"
                         .. observation.realm
                         .. " • "
-                        .. observation.area
+                        .. storageLabels[observation.area]
                 end
             end
             for _, gain in ipairs(record.gains) do
@@ -429,7 +434,7 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
     end
     for _, action in ipairs(store:vendorUnresolved()) do
         if matchesFilter(filterCharacter, filterRealm, action.character, action.realm) then
-            lines[#lines + 1] = "Vendor evidence unresolved: "
+            lines[#lines + 1] = "Vendor action needs review: "
                 .. action.kind
                 .. " x"
                 .. action.quantity
@@ -466,7 +471,7 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
     end
     for _, action in ipairs(store:exchangeUnresolved()) do
         if matchesFilter(filterCharacter, filterRealm, action.character, action.realm) then
-            lines[#lines + 1] = "Mail/trade evidence unresolved: "
+            lines[#lines + 1] = "Mail or trade needs review: "
                 .. action.channel
                 .. " "
                 .. action.direction
@@ -477,7 +482,7 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm)
         end
     end
     if shown == 0 then
-        lines[#lines + 1] = "No items Seen yet."
+        lines[#lines + 1] = "No items found yet."
     end
     if #recent > 0 then
         table.sort(recent, function(left, right)
@@ -851,44 +856,51 @@ end
 ---@param character string
 ---@param realm string
 ---@param filter? AzerothLedgerCollectionFilter
+---@param developerMode? boolean
 ---@return string[]
-function Collection.details(store, key, character, realm, filter)
+function Collection.details(store, key, character, realm, filter, developerMode)
     filter = filter or {}
     local model = Collection.inspect(store, key, character, realm, filter)
     if not model then
         return { "Select an item to see its history." }
     end
     local record = model.record
-    local lines = { "Variant: " .. record.key }
-    for _, link in ipairs(record.links) do
-        lines[#lines + 1] = link
-    end
-    lines[#lines + 1] = "First Seen " .. stamp(model.firstSeen)
-    lines[#lines + 1] = "Latest Seen " .. stamp(model.lastSeen)
+    local lines = {}
+    lines[#lines + 1] = "First seen " .. stamp(model.firstSeen)
+    lines[#lines + 1] = "Last seen " .. stamp(model.lastSeen)
     lines[#lines + 1] = "First confirmed gain: " .. stamp(model.firstGained)
-    lines[#lines + 1] = "Latest confirmed gain: " .. stamp(model.lastGained)
-    lines[#lines + 1] = "Strongest evidence: " .. model.evidence
+    lines[#lines + 1] = "Last confirmed gain: " .. stamp(model.lastGained)
+    if developerMode then
+        lines[#lines + 1] = "Internal item key: " .. record.key
+        lines[#lines + 1] = "Evidence summary: " .. model.evidence
+    end
     local breakdown = model.breakdown
     if breakdown.recorded then
-        lines[#lines + 1] = "Recorded units: " .. breakdown.recorded .. " (" .. model.scopeLabel .. ")"
+        lines[#lines + 1] = "Total found: " .. breakdown.recorded .. " (" .. model.scopeLabel .. ")"
     else
-        lines[#lines + 1] = "Checked units: "
+        lines[#lines + 1] = "Latest check: "
             .. (model.checkedUnits or "Unknown")
-            .. (model.uncheckedAreas > 0 and "; unchecked storage Unknown" or "")
-        lines[#lines + 1] = "First check: " .. (model.firstChecked or "Unknown")
+            .. (model.uncheckedAreas > 0 and "; some bags, bank, or gear need checking" or "")
+        lines[#lines + 1] = "First checked: " .. (model.firstChecked or "Unknown")
     end
     lines[#lines + 1] = "Total gained: " .. breakdown.gained
-    for _, group in ipairs({ { "Method", breakdown.methods }, { "Source", breakdown.sources } }) do
+    for _, group in ipairs({ { "How you got it", breakdown.methods }, { "Where it came from", breakdown.sources } }) do
         local labels = {}
         for label in pairs(group[2]) do
             labels[#labels + 1] = label
         end
         table.sort(labels)
         for _, label in ipairs(labels) do
-            lines[#lines + 1] = group[1] .. " total: " .. label .. " " .. group[2][label]
+            local playerLabel = label
+            if group[1] == "How you got it" and label == "Seen" then
+                playerLabel = "Already had at first check"
+            elseif group[1] == "Where it came from" and label == "Initial stock" then
+                playerLabel = "Already had before first check"
+            end
+            lines[#lines + 1] = group[1] .. ": " .. playerLabel .. " " .. group[2][label]
         end
     end
-    lines[#lines + 1] = "Ownership: " .. model.ownership
+    lines[#lines + 1] = "Status: " .. model.ownership
     local describedActors = {}
     for _, seen in ipairs(record.characters) do
         if matchesFilter(filter.character, filter.realm, seen.name, seen.realm) then
@@ -896,9 +908,9 @@ function Collection.details(store, key, character, realm, filter)
             lines[#lines + 1] = seen.name
                 .. "-"
                 .. seen.realm
-                .. ": first Seen "
+                .. ": first seen "
                 .. stamp(seen.firstSeen)
-                .. "; latest Seen "
+                .. "; last seen "
                 .. stamp(seen.lastSeen)
             for _, check in ipairs(model.checks) do
                 if check.character == seen.name and check.realm == seen.realm then
@@ -912,7 +924,7 @@ function Collection.details(store, key, character, realm, filter)
         local actor = check.character .. "-" .. check.realm
         if not describedActors[actor] then
             if not additionalActors[actor] then
-                lines[#lines + 1] = actor .. (not check.online and " • Offline; current ownership unknown" or "")
+                lines[#lines + 1] = actor .. (not check.online and " • Offline; status Unknown" or "")
                 additionalActors[actor] = true
             end
             lines[#lines + 1] = "  " .. Collection.checkText(check)

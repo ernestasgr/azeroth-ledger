@@ -85,7 +85,7 @@ end
 function tests.CollectionOpensWithDatedObservations(_self)
     local store = replay()
     local lines = addon.Collection.lines(store, "Ada", "Realm A")
-    WoWUnit.IsTrue(lines[2]:find("incomplete", 1, true) ~= nil)
+    WoWUnit.IsTrue(lines[2]:find("needs a check", 1, true) ~= nil)
     local frame = addon.Collection.open(_G, store, "Ada", "Realm A")
     WoWUnit.IsTrue(frame and frame:IsShown())
     frame:Hide()
@@ -140,7 +140,7 @@ function tests.StorageMovesAndUnreadableChecks(_self)
     end
     local function ownership(expected)
         local lines = addon.Collection.lines(store, character, "Realm", "Ada", "Realm")
-        WoWUnit.IsTrue(table.concat(lines, "\n"):find("Ownership: " .. expected, 1, true) ~= nil)
+        WoWUnit.IsTrue(table.concat(lines, "\n"):find("Status: " .. expected, 1, true) ~= nil)
     end
     scan("bags", true)
     scan("bank", true)

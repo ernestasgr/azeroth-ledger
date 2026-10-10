@@ -25,7 +25,7 @@ function Presentation.line(store, link, character, realm)
     end
     for _, method in ipairs({ "Quest", "Crafted", "Vendor", "Obtained" }) do
         if methods[method] then
-            facts[#facts + 1] = method == "Obtained" and "Obtained (method Unknown)" or ("Obtained (" .. method .. ")")
+            facts[#facts + 1] = method == "Obtained" and "Obtained (way unknown)" or ("Obtained (" .. method .. ")")
         end
     end
     local observations = {}
@@ -36,9 +36,9 @@ function Presentation.line(store, link, character, realm)
     end
     return "Azeroth Ledger: "
         .. table.concat(facts, ", ")
-        .. " • gained "
+        .. " • total gained "
         .. record.totalGained
-        .. " • ownership "
+        .. " • status "
         .. addon.Collection.ownershipText(lastSeen)
         .. " • source "
         .. summary.source

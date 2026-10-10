@@ -26,7 +26,7 @@ controls irrelevant to a view do not restrict its query.
 - Journal action and actor must match the same gain contribution. A grouped gain
   stays one complete event, with all its contributions visible in details.
   Transfers match either sender or recipient. Unknown channels match
-  Obtained (channel unknown), never Mail or Trade.
+  Obtained (way unknown), never Mail or Trade.
 - Journal ranges are the last 24 hours, 7 days or 30 days as of choosing the range.
   The exact inclusive bounds appear below the list, in the client's local time.
   The query accepts inclusive `dateFrom` and exclusive `dateTo` timestamps;

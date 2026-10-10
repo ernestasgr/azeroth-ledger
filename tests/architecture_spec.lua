@@ -166,10 +166,8 @@ local function agree(expected)
     assert(detail.ownershipState == expected and rows[1].ownershipState == expected)
     assert(detail.ownership == rows[1].ownership)
     local text = table.concat(addon.Collection.lines(ownershipStore, "Ada", "Realm"), "\n")
-    assert(text:find("Ownership: " .. detail.ownership, 1, true))
-    assert(
-        addon.Presentation.line(ownershipStore, link, "Ada", "Realm"):find("ownership " .. detail.ownership, 1, true)
-    )
+    assert(text:find("Status: " .. detail.ownership, 1, true))
+    assert(addon.Presentation.line(ownershipStore, link, "Ada", "Realm"):find("status " .. detail.ownership, 1, true))
     local historical =
         addon.Collection.query(ownershipStore, "Ada", "Realm", { ownership = "historical" }, addon.Client.itemMetadata)
     assert(#historical.rows == (expected == "historical" and 1 or 0))
@@ -203,14 +201,14 @@ assert(closed.ownershipState == "unknown")
 local bank = closed.checks[2]
 assert(bank.quantity == nil and bank.at == 4001)
 assert(bank.observedQuantity == 5 and bank.observedAt == 4000, "Closing the bank hid its dated five-unit observation")
-local datedBank = "Ada-Realm • Bank: last observed 5 at " .. date("%Y-%m-%d %H:%M", 4000)
+local datedBank = "Ada-Realm • Bank: last found 5 on " .. date("%Y-%m-%d %H:%M", 4000)
 for _, text in ipairs({
     table.concat(addon.Collection.lines(ownershipStore, "Ada", "Realm", "Ada"), "\n"),
     table.concat(addon.Collection.details(ownershipStore, key, "Ada", "Realm", { character = "Ada" }), "\n"),
     addon.Presentation.line(ownershipStore, link, "Ada", "Realm"),
 }) do
     assert(text:find(datedBank, 1, true), "A reader hid the dated bank observation: " .. text)
-    assert(text:find("current ownership Unknown", 1, true))
+    assert(text:find("status Unknown", 1, true))
 end
 print("architecture_spec: dated bank observation survives closure")
 
@@ -263,7 +261,7 @@ scan("Cara", "bank", 4051, false, 0)
 local neverSeenText =
     table.concat(addon.Collection.details(ownershipStore, key, "Ada", "Realm", { character = "Cara" }), "\n")
 assert(
-    neverSeenText:find("Cara-Realm • Bank: last observed 0 at " .. date("%Y-%m-%d %H:%M", 4050), 1, true),
+    neverSeenText:find("Cara-Realm • Bank: last found 0 on " .. date("%Y-%m-%d %H:%M", 4050), 1, true),
     "Text details hid an observed zero on a character who never held the item"
 )
 print("architecture_spec: changed stock, partial/offline checks, persisted zero, and complete absence passed")

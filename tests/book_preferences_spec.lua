@@ -120,7 +120,7 @@ addon, native, store, frame, find, saved = session({
         filter = { view = "Gallery", sort = "quantity" },
     },
 })
-local buttons, opened = {}, nil
+local buttons, opened, registeredSettings = {}, nil, {}
 local category = {
     GetID = function()
         return 59
@@ -137,7 +137,8 @@ native.api.Settings = {
     RegisterVerticalLayoutCategory = function()
         return category, { AddInitializer = function() end }
     end,
-    RegisterProxySetting = function()
+    RegisterProxySetting = function(_, name, _, _, _, get, set)
+        registeredSettings[name] = { get = get, set = set }
         return {}
     end,
     CreateSliderOptions = function()
@@ -157,6 +158,10 @@ native.api.CreateSettingsButtonInitializer = function(name, _, callback)
     return {}
 end
 assert(addon.Settings.register(native.api, store))
+local developerSetting = assert(registeredSettings.AzerothLedger_developerMode)
+assert(developerSetting.get() == false, "Developer mode should be off by default")
+developerSetting.set(true)
+assert(developerSetting.get() == true and saved().book.developerMode == true)
 find("Settings"):Click()
 assert(opened == 59)
 assert(not frame:IsShown(), "Opening native Settings should uncover the Settings panel")
@@ -170,6 +175,8 @@ find("Name A-Z")
 frame:Hide()
 assert(saved().book.filter.sort == nil)
 assert(next(saved().records) == nil and next(saved().areas) == nil)
+local _, _, restoredDeveloperStore = session(saved())
+assert(restoredDeveloperStore:book().developerMode, "Developer mode should persist across reload")
 local unknown = { schema = 99, records = {}, areas = {}, book = { version = 1, scale = 0.8 } }
 _, _, _, frame, _, saved = session(unknown)
 frame:Hide()
@@ -189,7 +196,7 @@ for _, action in ipairs({
     "Auction purchase",
     "Mail",
     "Trade",
-    "Obtained (channel unknown)",
+    "Obtained (way unknown)",
     "Alt mail",
     "Alt trade",
     "Sale",
@@ -202,7 +209,7 @@ for _, action in ipairs({
         areas = {},
         book = { version = 1, guided = true, filter = { view = "Journal" } },
     })
-    actionFind("All actions"):Click()
+    actionFind("All activity"):Click()
     while not pcall(actionFind, action) do
         actionFind("Next"):Click()
     end
