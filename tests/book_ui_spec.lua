@@ -574,3 +574,57 @@ end
 find("2000 evidence records")
 assert(queueWrites == 0)
 print("book_ui_spec: large evidence queue, loading keyboard access and overflow layout passed")
+
+api.debugprofilestop = nil
+local sourceSaved
+local sourceStore = addon.Schema.open(nil, function(value)
+    sourceSaved = value
+end)
+assert(sourceStore:scan({
+    character = "Ada",
+    realm = "A",
+    area = "bags",
+    complete = true,
+    seenAt = 1000,
+    items = { { itemID = 2672, link = "|Hitem:2672::::::::|h[Meat]|h", quantity = 2 } },
+}))
+local sourceRecord = sourceSaved.records["2672:0"]
+sourceRecord.totalGained, sourceRecord.firstGained, sourceRecord.lastGained = 5, 1001, 1001
+sourceRecord.gains = {
+    {
+        id = "mob-gain",
+        at = 1001,
+        quantity = 5,
+        character = "Ada",
+        realm = "A",
+        level = 1,
+        place = "Forest",
+        method = "Looted",
+        source = { kind = "mob", guid = "Creature-0-1-2-3-4-001", name = "Boar" },
+    },
+}
+local sourceWrites = 0
+sourceStore = addon.Schema.open(sourceSaved, function()
+    sourceWrites = sourceWrites + 1
+end)
+addon.Book.open(api, sourceStore, "Ada", "A")
+click("Collection")
+click("Clear filters")
+click("All recorded sources")
+click("Boar • 5")
+find("Boar", "Button")
+find("GAINED")
+find("5")
+find("Recorded source history; not a possible-drop list.")
+local sourceSearch = find("", "EditBox")
+sourceSearch:SetText("Boar")
+sourceSearch.scripts.OnEnterPressed(sourceSearch)
+find("Meat", "Button")
+click("All realms")
+click("A")
+find("GAINED")
+click("Clear filters")
+find("All recorded sources", "Button")
+find("RECORDED")
+assert(sourceWrites == 0)
+print("book_ui_spec: source navigation, source search, contribution quantity and clearing passed")

@@ -19,6 +19,7 @@ local fields = {
     "place",
     "placeKind",
     "historyKey",
+    "source",
 }
 
 local function sameFilter(left, right)

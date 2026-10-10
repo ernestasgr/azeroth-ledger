@@ -239,7 +239,11 @@ function tests.PurchaseIsOneGainAndZeroRetentionPreservesRefundReferences(_self)
         method = "Vendor",
         source = { kind = "vendor", name = "Dermot" },
     }))
-    WoWUnit.AreEqual(3, store:breakdown(key).sources.Dermot)
+    WoWUnit.AreEqual(3, store:breakdown(key).sources["Dermot (vendor; name only)"])
+    WoWUnit.AreEqual(
+        3,
+        addon.Collection.query(store, "Ada", "Realm", { source = "vendor:Dermot" }).rows[1].sourceQuantity
+    )
     WoWUnit.AreEqual(0, #addon.Journal.query(store))
     store = saved()
     WoWUnit.AreEqual(0, store:retention().gains)
@@ -247,6 +251,7 @@ function tests.PurchaseIsOneGainAndZeroRetentionPreservesRefundReferences(_self)
     action("refund", 3)
     bags(0)
     WoWUnit.AreEqual(0, store:breakdown(key).gained)
+    WoWUnit.AreEqual(0, #addon.Collection.query(store, "Ada", "Realm", { source = "vendor:Dermot" }).rows)
     WoWUnit.AreEqual(1, #store:vendorActivity())
 end
 
