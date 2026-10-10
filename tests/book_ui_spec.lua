@@ -92,6 +92,7 @@ assert(store:scan({
 }))
 local before = writes
 local frame = assert(addon.Collection.open(api, store, "Ada", "A"))
+frame.scripts.OnKeyDown(frame, "ENTER")
 local openingFade = assert(frame.animationGroups[1])
 assert(openingFade.playing and openingFade.animations[1].duration <= 0.5)
 openingFade:Finish()
@@ -546,6 +547,7 @@ api.debugprofilestop = function()
     return profileTime
 end
 addon.Book.open(api, queueStore, "Ada", "A")
+frame.scripts.OnKeyDown(frame, "ENTER")
 click("Inspect evidence")
 frame.scripts.OnKeyDown(frame, "DOWN")
 for _ = 1, 10000 do
@@ -608,6 +610,7 @@ sourceStore = addon.Schema.open(sourceSaved, function()
     sourceWrites = sourceWrites + 1
 end)
 addon.Book.open(api, sourceStore, "Ada", "A")
+frame.scripts.OnKeyDown(frame, "ENTER")
 click("Collection")
 click("Clear filters")
 click("All recorded sources")

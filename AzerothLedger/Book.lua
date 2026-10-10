@@ -12,58 +12,7 @@ local showMenu
 local details
 local openHistory
 
-local browseChoices = {
-    ownership = {
-        { label = "Any ownership" },
-        { label = "Present", value = "present" },
-        { label = "Unknown", value = "unknown" },
-        { label = "Historical only", value = "historical" },
-    },
-    quality = {
-        { label = "Any quality" },
-        { label = "Poor", value = 0 },
-        { label = "Common", value = 1 },
-        { label = "Uncommon", value = 2 },
-        { label = "Rare", value = 3 },
-        { label = "Epic", value = 4 },
-        { label = "Legendary", value = 5 },
-        { label = "Artifact", value = 6 },
-        { label = "Heirloom", value = 7 },
-        { label = "WoW Token", value = 8 },
-        { label = "Unknown quality", value = "unknown" },
-    },
-    method = {
-        { label = "Any method" },
-        { label = "Initial stock (Seen)", value = "Seen" },
-        { label = "Looted", value = "Looted" },
-        { label = "Quest reward", value = "Quest" },
-        { label = "Crafted", value = "Crafted" },
-        { label = "Vendor purchase", value = "Vendor" },
-        { label = "Obtained", value = "Obtained" },
-    },
-    sort = {
-        { label = "Name A-Z", value = "name" },
-        { label = "Discovery: newest", value = "discovered" },
-        { label = "Latest gain: newest", value = "gained" },
-        { label = "Quantity: largest", value = "quantity" },
-    },
-    action = {
-        { label = "All actions" },
-        { label = "Looted", value = "Looted" },
-        { label = "Quest reward", value = "Quest" },
-        { label = "Crafted", value = "Crafted" },
-        { label = "Purchase", value = "Purchase" },
-        { label = "Auction purchase", value = "Auction purchase" },
-        { label = "Mail", value = "Mail" },
-        { label = "Trade", value = "Trade" },
-        { label = "Obtained (channel unknown)", value = "Obtained (channel unknown)" },
-        { label = "Alt mail", value = "Alt mail" },
-        { label = "Alt trade", value = "Alt trade" },
-        { label = "Sale", value = "Sale" },
-        { label = "Refund", value = "Refund" },
-        { label = "Buyback", value = "Buyback" },
-    },
-}
+local browseChoices = addon.Schema.bookChoices()
 
 local function choiceLabel(field, value)
     for _, choice in ipairs(browseChoices[field]) do
@@ -111,11 +60,30 @@ local function checkedQuantity(quantity, unchecked)
     return quantity == nil and "Unknown" or (tostring(quantity) .. ((unchecked or 0) > 0 and "+" or ""))
 end
 
+local function save(book)
+    if book.store then
+        book.store:setBook({
+            version = 1,
+            scale = book.scale,
+            x = book.x or 0,
+            y = book.y or 0,
+            filter = book.filter,
+            guided = book.guided,
+        })
+    end
+end
+
 local function fit(book)
     local parent = book.api.UIParent
     local maximum = math.min(1.1, parent:GetWidth() * 0.9 / 1100, parent:GetHeight() * 0.86 / 700)
     local scale = math.min(book.scale, maximum)
     book.frame:SetScale(scale)
+    local maxX = math.max(0, (parent:GetWidth() - 1100 * scale) / 2)
+    local maxY = math.max(0, (parent:GetHeight() - 700 * scale) / 2)
+    book.x = math.max(-maxX, math.min(maxX, book.x or 0))
+    book.y = math.max(-maxY, math.min(maxY, book.y or 0))
+    book.frame:ClearAllPoints()
+    book.frame:SetPoint("CENTER", parent, "CENTER", book.x / scale, book.y / scale)
     if book.shrink then
         Widgets.enable(book.shrink, scale > 0.601)
     end
@@ -563,6 +531,8 @@ local function renderBody(book, requestedKey)
         book.methodFilter,
         book.sortFilter,
         book.foundOnce,
+        book.foundOnceHelp,
+        book.ownershipHelp,
         book.place,
         book.sourceFilter,
     }) do
@@ -917,13 +887,31 @@ end
 local function keyboard(book, key)
     local frame = book.frame
     frame:SetPropagateKeyboardInput(false)
+    if key == "F1" then
+        closeMenu(book)
+        book.search:ClearFocus()
+        book.help:SetShown(not book.help:IsShown())
+        return
+    end
     if key == "ESCAPE" then
-        if book.menu:IsShown() then
+        if book.help:IsShown() then
+            book.help:Hide()
+            book.guided = true
+        elseif book.menu:IsShown() then
             closeMenu(book)
         elseif book.search:HasFocus() then
             book.search:ClearFocus()
         else
             frame:Hide()
+        end
+        return
+    end
+    if book.help:IsShown() then
+        if key == "ENTER" then
+            book.help:Hide()
+            book.guided = true
+        else
+            frame:SetPropagateKeyboardInput(true)
         end
         return
     end
@@ -1039,6 +1027,12 @@ local function create(api)
     end)
     header:SetScript("OnDragStop", function()
         frame:StopMovingOrSizing()
+        local x, y = frame:GetCenter()
+        local px, py = api.UIParent:GetCenter()
+        local scale = frame:GetScale()
+        book.x, book.y = x * scale - px, y * scale - py
+        fit(book)
+        save(book)
     end)
     local emblem = Widgets.icon(header, 24, 24, 32)
     emblem:SetTexture("Interface\\Icons\\INV_Misc_Book_09")
@@ -1177,7 +1171,7 @@ local function create(api)
             end)
         end)
     end
-    book.ownershipFilter = browseDropdown("ownership", sidebar, 6, 438, 166)
+    book.ownershipFilter = browseDropdown("ownership", sidebar, 6, 438, 132)
     book.qualityFilter = browseDropdown("quality", sidebar, 6, 474, 166)
     book.methodFilter = browseDropdown("method", sidebar, 6, 510, 166)
     book.sortFilter = browseDropdown("sort", frame, 218, 232, 160)
@@ -1195,7 +1189,7 @@ local function create(api)
             change(book, "dateRange", choice.from and choice.label or nil)
         end)
     end)
-    book.foundOnce = Widgets.checkbox(book, frame, "Found once", 384, 232, 150, function()
+    book.foundOnce = Widgets.checkbox(book, frame, "Found once", 384, 232, 120, function()
         change(book, "foundOnce", not book.filter.foundOnce)
     end)
     book.clearFilters = Widgets.button(book, frame, "Clear filters", 548, 232, 110, 26, function()
@@ -1388,6 +1382,9 @@ local function create(api)
         fit(book)
     end)
     frame:SetScript("OnHide", function()
+        save(book)
+        book.search:ClearFocus()
+        book.help:Hide()
         Widgets.stopMotion(book)
         if book.focus then
             book.controls[book.focus]:UnlockHighlight()
@@ -1406,6 +1403,50 @@ local function create(api)
     Widgets.button(book, header, "Close", 1020, 24, 60, 30, function()
         frame:Hide()
     end)
+    local helpText = "Only locally recorded characters are covered. "
+        .. "Visit your alts to record them, and open banks to check their contents. "
+        .. "Starting stock has no known acquisition history.\n\n"
+        .. "Recorded: lifetime recorded units, including starting stock and confirmed gains. "
+        .. "It is not current ownership. "
+        .. "Checked units: quantities from the selected character's storage checks; "
+        .. "+ means other storage is older or unchecked.\n\n"
+        .. "Found once: exactly one confirmed unit gained, with none seen beforehand.\n\n"
+        .. "Historical only: absent from complete checks of relevant bags, bank and gear, as of those dates. "
+        .. "Unknown: required storage could not be checked."
+    book.help = Widgets.panel(api, frame, 218, 146, 440, 500, colors.raised)
+    book.help:SetFrameLevel(frame:GetFrameLevel() + 30)
+    book.help:EnableMouse(true)
+    Widgets.text(api, book.help, "About your Ledger", 18, 18, 400, 20, colors.gold)
+    local explanation = Widgets.text(api, book.help, helpText, 18, 58, 400, 13)
+    explanation:SetHeight(360)
+    Widgets.button(book, book.help, "Got it", 18, 444, 130, 32, function()
+        book.guided = true
+        book.help:Hide()
+    end)
+    book.help:Hide()
+    local function help()
+        closeMenu(book)
+        book.search:ClearFocus()
+        book.help:Show()
+    end
+    Widgets.button(book, header, "Help (F1)", 520, 24, 90, 30, help)
+    Widgets.button(book, header, "Settings", 620, 24, 90, 30, function()
+        if addon.Settings then
+            addon.Settings.open(api)
+        end
+    end)
+    local function helpButton(parent, x, y, height)
+        local control = Widgets.button(book, parent, "?", x, y, 28, height, help)
+        local font = control:GetFontString()
+        font:ClearAllPoints()
+        font:SetPoint("CENTER")
+        font:SetWidth(24)
+        font:SetJustifyH("CENTER")
+        return control
+    end
+    book.ownershipHelp = helpButton(sidebar, 144, 438, 32)
+    book.foundOnceHelp = helpButton(frame, 506, 232, 26)
+    helpButton(frame, 566, 290, 20)
     fit(book)
     return book
 end
@@ -1422,18 +1463,74 @@ function Book.open(api, store, character, realm, filterCharacter, filterRealm)
         if type(api.CreateFrame) ~= "function" then
             return nil
         end
+        local restoring = not active or active.store ~= store
         active = active or create(api)
+        if restoring then
+            local preferences = store:book()
+            active.filter, active.scale = preferences.filter, preferences.scale
+            active.x, active.y, active.guided = preferences.x, preferences.y, preferences.guided
+            active.selected, active.selectedSequence, active.selectedEvidence = nil, nil, nil
+            active.historyReturn, active.focus, active.page = nil, nil, 1
+            active.search:SetText(active.filter.search or "")
+            closeMenu(active)
+            active.search:ClearFocus()
+        end
         active.store, active.character, active.realm = store, character, realm
-        active.filter.character, active.filter.realm = filterCharacter, filterRealm
+        if filterCharacter or filterRealm then
+            active.filter.character, active.filter.realm = filterCharacter, filterRealm
+        end
+        local days = { ["Last 24 hours"] = 1, ["Last 7 days"] = 7, ["Last 30 days"] = 30 }
+        local now = api.GetServerTime and api.GetServerTime()
+        local duration = days[active.filter.dateRange]
+        active.filter.dateFrom = duration and now and now - duration * 86400 or nil
+        active.filter.dateTo = duration and now and now + 1 or nil
+        fit(active)
         render(active)
         local opening = not active.opened or not active.frame:IsShown()
         active.frame:Show()
         if opening then
             Widgets.fade(active, active.frame, 0.45, 0.75)
         end
+        if not active.guided then
+            active.help:Show()
+        end
         active.opened = true
         return active.frame
     end)
+end
+
+function Book.save()
+    if active then
+        save(active)
+    end
+end
+
+function Book.toggle(api, store, character, realm)
+    if active and active.store == store and active.frame:IsShown() then
+        active.frame:Hide()
+    else
+        Book.open(api, store, character, realm)
+    end
+end
+
+function Book.reset(store, kind)
+    local preferences = store:book()
+    if kind == "layout" then
+        preferences.scale, preferences.x, preferences.y = 1, 0, 0
+    else
+        preferences.filter = {}
+    end
+    if store:setBook(preferences) and active and active.store == store then
+        active.scale, active.x, active.y, active.filter =
+            preferences.scale, preferences.x, preferences.y, preferences.filter
+        active.selected, active.selectedSequence, active.selectedEvidence = nil, nil, nil
+        active.historyReturn, active.page = nil, 1
+        active.search:SetText(active.filter.search or "")
+        active.search:ClearFocus()
+        closeMenu(active)
+        fit(active)
+        render(active)
+    end
 end
 
 function Book.refresh(store, character, realm)

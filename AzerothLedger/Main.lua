@@ -452,6 +452,16 @@ local function printStatus()
     end
 end
 
+_G.BINDING_HEADER_AZEROTHLEDGER = "Azeroth Ledger"
+_G.BINDING_NAME_AZEROTHLEDGER_TOGGLE = "Toggle Ledger"
+_G.AzerothLedgerToggle = function()
+    initializeStore()
+    local character, realm = identity()
+    if character and realm then
+        addon.Book.toggle(_G, store, character, realm)
+    end
+end
+
 SLASH_AZEROTHLEDGER1 = "/al"
 SlashCmdList.AZEROTHLEDGER = function(message)
     message = (message or ""):match("^%s*(.-)%s*$")
@@ -527,6 +537,7 @@ if client.frame then
         "TRADE_TARGET_ITEM_CHANGED",
         "TRADE_CLOSED",
         "UI_INFO_MESSAGE",
+        "PLAYER_LOGOUT",
     }) do
         local ok = pcall(client.frame.RegisterEvent, client.frame, event)
         if not ok then
@@ -534,7 +545,9 @@ if client.frame then
         end
     end
     local function handleEvent(_, event, ...)
-        if event == "ADDON_LOADED" then
+        if event == "PLAYER_LOGOUT" then
+            addon.Book.save()
+        elseif event == "ADDON_LOADED" then
             if ... == addonName then
                 initializeStore()
             end
