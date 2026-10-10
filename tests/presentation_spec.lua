@@ -1,6 +1,18 @@
 local addon = {}
 _G.date = os.date
-for _, source in ipairs({ "Item", "Work", "Schema", "LastSeen", "Collection", "Presentation", "Settings" }) do
+for _, source in ipairs({
+    "Item",
+    "Work",
+    "Client",
+    "Schema",
+    "LastSeen",
+    "Collection",
+    "Presentation",
+    "BookWidgets",
+    "BookQuery",
+    "Book",
+    "Settings",
+}) do
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
 end
 
@@ -94,11 +106,32 @@ local update = driver.scripts.OnUpdate
 assert(not toast.shown)
 update(driver, 0.1)
 assert(toast.shown)
+assert(toast.scripts.OnClick, "A new-discovery toast should open its Collection entry when clicked")
 local announced = false
 for _, control in ipairs(native.controls) do
     announced = announced or control.text == link
 end
 assert(announced)
+toast.scripts.OnClick(toast, "LeftButton")
+local book
+for _, control in ipairs(native.controls) do
+    if control.name == "AzerothLedgerCollection" then
+        book = control
+        break
+    end
+end
+assert(book and book:IsShown(), "Clicking the discovery toast should open the Ledger")
+book.scripts.OnUpdate(book, 0)
+local discoveryTab, selectedItem
+for _, control in ipairs(native.controls) do
+    if control.text == "Discoveries" and control.kind == "Button" then
+        discoveryTab = control
+    elseif control.key == key and control.kind == "Button" then
+        selectedItem = control
+    end
+end
+assert(discoveryTab and discoveryTab.selected, "Clicking the discovery toast should open Discoveries")
+assert(selectedItem and selectedItem.selected, "Clicking the discovery toast should select the discovered item")
 update(driver, 6)
 assert(not toast.shown)
 buy(1003)

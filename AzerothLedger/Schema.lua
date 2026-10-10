@@ -3146,21 +3146,21 @@ function Schema.open(raw, save)
         local session = copyValue(current)
         local keys = {}
         local additions = {}
-        if not session.closedAt then
-            for index, proof in ipairs(slots) do
-                local existing = session.slots[proof.key]
-                local captured = existing ~= nil and existing.shares == nil
-                for _, share in ipairs(existing and existing.shares or {}) do
-                    if share.slot == (proof.slot or index) then
-                        captured = true
-                        break
-                    end
+        -- Loot slot links can become readable after LOOT_CLOSED. activeSession
+        -- bounds this late proof to the same recent, current actor session.
+        for index, proof in ipairs(slots) do
+            local existing = session.slots[proof.key]
+            local captured = existing ~= nil and existing.shares == nil
+            for _, share in ipairs(existing and existing.shares or {}) do
+                if share.slot == (proof.slot or index) then
+                    captured = true
+                    break
                 end
-                if not captured then
-                    local addition = copyValue(proof)
-                    addition.slot = proof.slot or index
-                    additions[#additions + 1] = addition
-                end
+            end
+            if not captured then
+                local addition = copyValue(proof)
+                addition.slot = proof.slot or index
+                additions[#additions + 1] = addition
             end
         end
         local newSlots = lootSlots(additions) or {}

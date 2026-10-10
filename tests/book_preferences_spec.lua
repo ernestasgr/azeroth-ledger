@@ -159,6 +159,7 @@ end
 assert(addon.Settings.register(native.api, store))
 find("Settings"):Click()
 assert(opened == 59)
+assert(not frame:IsShown(), "Opening native Settings should uncover the Settings panel")
 frame:Hide()
 buttons["Open Ledger"]()
 assert(frame:IsShown())

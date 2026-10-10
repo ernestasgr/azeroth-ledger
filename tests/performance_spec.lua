@@ -96,7 +96,8 @@ assert(visible("2 / 1429"))
 assert(metadataReads - beforePage < 20, "Paging must reuse its completed query")
 frame.scripts.OnEvent(frame, "ITEM_DATA_LOAD_RESULT", 10001, true)
 frame.scripts.OnUpdate(frame)
-assert(visible("Loading your Collection…"))
+assert(not visible("Loading your Collection…"), "Metadata refresh should keep the completed Collection visible")
+assert(visible("2 / 1429"), "Metadata refresh must preserve the current page")
 for _ = 1, 12000 do
     if visible("10000 items") then
         break
@@ -279,7 +280,8 @@ assert(visible("2 / 715") and metadataReads - priorMetadata < 20)
 assert(addon.Work.timings["Item details"].frames == detailFrames)
 repeatedFrame.scripts.OnEvent(repeatedFrame, "ITEM_DATA_LOAD_RESULT", 10001, true)
 repeatedFrame.scripts.OnUpdate(repeatedFrame)
-assert(visible("Loading your Journal…"))
+assert(not visible("Loading your Journal…"), "Metadata refresh should keep the completed Journal visible")
+assert(visible("2 / 715"), "Journal metadata refresh must preserve the current page")
 for _ = 1, 20000 do
     repeatedFrame.scripts.OnUpdate(repeatedFrame)
     if visible("5002 activities") then

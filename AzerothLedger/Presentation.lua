@@ -89,10 +89,12 @@ function Presentation.register(api, store)
     end)
 
     local driver = api.CreateFrame("Frame")
-    local toast = api.CreateFrame("Frame", nil, api.UIParent)
+    local toast = api.CreateFrame("Button", nil, api.UIParent)
     toast:SetSize(340, 64)
     toast:SetPoint("TOP", api.UIParent, "TOP", 0, -150)
     toast:SetFrameStrata("DIALOG")
+    toast:EnableMouse(true)
+    toast:RegisterForClicks("LeftButtonUp")
     local background = toast:CreateTexture(nil, "BACKGROUND")
     background:SetAllPoints()
     background:SetColorTexture(0.08, 0.06, 0.03, 0.95)
@@ -102,8 +104,16 @@ function Presentation.register(api, store)
     local item = toast:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     item:SetPoint("TOP", heading, "BOTTOM", 0, -8)
     item:SetWidth(320)
-    toast:Hide()
     local queue, remaining = {}, 0
+    toast:SetScript("OnClick", function()
+        local link = item:GetText()
+        toast:Hide()
+        remaining = 0
+        if addon.Book and type(addon.Book.openDiscovery) == "function" then
+            addon.Book.openDiscovery(api, store, api.UnitName("player"), api.GetRealmName(), link)
+        end
+    end)
+    toast:Hide()
     driver:SetScript("OnUpdate", function(_, elapsed)
         local discoveries = store:takeDiscoveries()
         if not store:display().toasts then

@@ -563,6 +563,9 @@ local function renderBody(book, requestedKey)
     local size = pageSize(book)
     local result, pending = book.query:step(book.store, book.character, book.realm, book.filter)
     book.queryPending = pending
+    if not result and pending then
+        result = book.query:lastCompleteResult(book.store, book.character, book.realm, book.filter)
+    end
     if not result then
         book.empty:SetText(
             evidence and "Loading unresolved evidence…"
@@ -1437,8 +1440,9 @@ local function create(api)
     end
     Widgets.button(book, header, "Help (F1)", 520, 24, 90, 30, help)
     Widgets.button(book, header, "Settings", 620, 24, 90, 30, function()
-        if addon.Settings then
-            addon.Settings.open(api)
+        if addon.Settings and addon.Settings.open(api) then
+            -- Keep the Settings panel visible after opening it from this window.
+            frame:Hide()
         end
     end)
     local function helpButton(parent, x, y, height)
@@ -1503,6 +1507,29 @@ function Book.open(api, store, character, realm, filterCharacter, filterRealm)
         active.opened = true
         return active.frame
     end)
+end
+
+---@param store ALStore
+---@param character string
+---@param realm string
+---@param link string
+---@return table?
+function Book.openDiscovery(api, store, character, realm, link)
+    local itemID = type(link) == "string" and tonumber(link:match("item:(%d+)")) or nil
+    local key = itemID and addon.Item.key(link, itemID)
+    if not key then
+        return nil
+    end
+    local frame = Book.open(api, store, character, realm)
+    if not frame then
+        return nil
+    end
+    active.filter = { view = "Discoveries", sort = "discovered" }
+    active.selected, active.page = key, 1
+    active.search:SetText("")
+    active.search:ClearFocus()
+    render(active, key)
+    return frame
 end
 
 function Book.save()
