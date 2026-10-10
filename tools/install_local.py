@@ -8,7 +8,7 @@ import re
 import shutil
 from pathlib import Path
 
-from package import ADDON, ROOT, TESTS, check, manifest_files
+from package import AUTO_LOADED_FILES, ADDON, ROOT, TESTS, check, manifest_files
 
 
 DEFAULT_WOW_ROOT = Path("C:/Program Files (x86)/World of Warcraft/_classic_beta_")
@@ -46,6 +46,8 @@ def install(wow_root: Path, verify_only: bool) -> None:
             target.mkdir(exist_ok=True)
 
         names = [f"{source.name}.toc", *manifest_files(source / f"{source.name}.toc")]
+        if source == ADDON:
+            names.extend(AUTO_LOADED_FILES)
         for name in names:
             origin = source / name
             destination = target / name

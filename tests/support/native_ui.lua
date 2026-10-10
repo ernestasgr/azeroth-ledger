@@ -64,6 +64,13 @@ function Native.create(options)
         function control:SetHeight(value)
             self.height = value
         end
+        function control:GetCenter()
+            local point = self.points[1]
+            local scale = self:GetScale()
+            local owner = self.parent
+            local x, y = owner and owner.width / 2 or self.width / 2, owner and owner.height / 2 or self.height / 2
+            return x / scale + (point and point.x or 0), y / scale + (point and point.y or 0)
+        end
         function control:GetWidth()
             return self.width
         end

@@ -88,6 +88,7 @@ for _ = 1, 12000 do
     frame.scripts.OnUpdate(frame)
 end
 assert(visible("10000 items"), "Native book must finish its query across frames")
+frame.scripts.OnKeyDown(frame, "ENTER")
 local beforePage = metadataReads
 frame.scripts.OnKeyDown(frame, "PAGEDOWN")
 assert(visible("2 / 1429"))

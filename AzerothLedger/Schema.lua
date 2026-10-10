@@ -425,6 +425,8 @@ end
 ---@field exchangeUnresolved fun(self: AzerothLedgerStore): AzerothLedgerExchangeAction[]
 ---@field retention fun(self: ALStore): table<string, integer>
 ---@field setRetention fun(self: ALStore, category: string, limit: integer): boolean
+---@field book fun(self: ALStore): ALBookPreferences
+---@field setBook fun(self: ALStore, preferences: ALBookPreferences): boolean
 ---@field display fun(self: ALStore): table<string, boolean>
 ---@field setDisplay fun(self: ALStore, control: string, enabled: boolean): boolean
 ---@field takeDiscoveries fun(self: ALStore): AzerothLedgerRecord[]
@@ -1309,6 +1311,119 @@ function Schema.sourceGroups(groups, pause)
     return rows
 end
 
+local bookChoices = {
+    ownership = {
+        { label = "Any ownership" },
+        { label = "Present", value = "present" },
+        { label = "Unknown", value = "unknown" },
+        { label = "Historical only", value = "historical" },
+    },
+    quality = {
+        { label = "Any quality" },
+        { label = "Poor", value = 0 },
+        { label = "Common", value = 1 },
+        { label = "Uncommon", value = 2 },
+        { label = "Rare", value = 3 },
+        { label = "Epic", value = 4 },
+        { label = "Legendary", value = 5 },
+        { label = "Artifact", value = 6 },
+        { label = "Heirloom", value = 7 },
+        { label = "WoW Token", value = 8 },
+        { label = "Unknown quality", value = "unknown" },
+    },
+    method = {
+        { label = "Any method" },
+        { label = "Initial stock (Seen)", value = "Seen" },
+        { label = "Looted", value = "Looted" },
+        { label = "Quest reward", value = "Quest" },
+        { label = "Crafted", value = "Crafted" },
+        { label = "Vendor purchase", value = "Vendor" },
+        { label = "Obtained", value = "Obtained" },
+    },
+    sort = {
+        { label = "Name A-Z", value = "name" },
+        { label = "Discovery: newest", value = "discovered" },
+        { label = "Latest gain: newest", value = "gained" },
+        { label = "Quantity: largest", value = "quantity" },
+    },
+    action = {
+        { label = "All actions" },
+        { label = "Looted", value = "Looted" },
+        { label = "Quest reward", value = "Quest" },
+        { label = "Crafted", value = "Crafted" },
+        { label = "Purchase", value = "Purchase" },
+        { label = "Auction purchase", value = "Auction purchase" },
+        { label = "Mail", value = "Mail" },
+        { label = "Trade", value = "Trade" },
+        { label = "Obtained (channel unknown)", value = "Obtained (channel unknown)" },
+        { label = "Alt mail", value = "Alt mail" },
+        { label = "Alt trade", value = "Alt trade" },
+        { label = "Sale", value = "Sale" },
+        { label = "Refund", value = "Refund" },
+        { label = "Buyback", value = "Buyback" },
+    },
+}
+
+-- The book and saved-preference validation share the same filter values.
+function Schema.bookChoices()
+    return copyValue(bookChoices)
+end
+
+---@class ALBookPreferences
+---@field version integer
+---@field scale number
+---@field x number Horizontal offset in UIParent coordinates
+---@field y number Vertical offset in UIParent coordinates
+---@field guided boolean
+---@field filter table<string, string|number|boolean|nil>
+
+---@param value any
+---@return ALBookPreferences
+local function bookPreferences(value)
+    local result = { version = 1, scale = 1, x = 0, y = 0, guided = false, filter = {} }
+    if type(value) ~= "table" or value.version ~= 1 then
+        return result
+    end
+    local function finite(number)
+        return type(number) == "number" and number == number and math.abs(number) < math.huge
+    end
+    for _, field in ipairs({ "scale", "x", "y" }) do
+        if finite(value[field]) then
+            result[field] = field == "scale" and math.max(0.6, math.min(1.1, value[field])) or value[field]
+        end
+    end
+    result.guided = value.guided == true
+    local filter = type(value.filter) == "table" and value.filter or {}
+    local choices = {
+        view = { "Collection", "Gallery", "Discoveries", "Journal", "Evidence" },
+        category = { "Weapons", "Armour", "Recipes", "Materials", "Consumables", "Junk", "Other", "Unknown" },
+        placeKind = { "zone", "dungeon", "place" },
+        dateRange = { "Last 24 hours", "Last 7 days", "Last 30 days" },
+    }
+    for field, definitions in pairs(bookChoices) do
+        choices[field] = {}
+        for _, definition in ipairs(definitions) do
+            if definition.value ~= nil then
+                choices[field][#choices[field] + 1] = definition.value
+            end
+        end
+    end
+    for field, allowed in pairs(choices) do
+        for _, choice in ipairs(allowed) do
+            if filter[field] == choice then
+                result.filter[field] = choice
+            end
+        end
+    end
+    for _, field in ipairs({ "search", "character", "realm", "place", "source" }) do
+        if type(filter[field]) == "string" and #filter[field] <= 160 then
+            result.filter[field] = filter[field]
+        end
+    end
+    result.filter.foundOnce = filter.foundOnce == true or nil
+    return result
+end
+
 function Schema.retentionOptions()
     return copyValue(retentionDefinitions)
 end
@@ -1491,6 +1606,7 @@ function Schema.open(raw, save)
             evidence = fields.evidence or raw.evidence,
             retention = fields.retention or raw.retention,
             display = fields.display or raw.display,
+            book = fields.book or raw.book,
             journal = journalHealthy and raw.journal or { nextSequence = 1, gains = {} },
         }
         local history = { nextSequence = nextValue.journal.nextSequence, gains = nextValue.journal.gains }
@@ -1609,6 +1725,16 @@ function Schema.open(raw, save)
     end
 
     local store = {}
+    function store.book(_self)
+        return bookPreferences(readable and raw.book or nil)
+    end
+    function store.setBook(_self, preferences)
+        if not readable or (type(raw.book) == "table" and raw.book.version ~= 1) then
+            return false
+        end
+        saveFields({ book = bookPreferences(preferences) })
+        return true
+    end
     function store.display(_self)
         return copyValue(readable and validDisplay(raw.display) and raw.display or displayDefaults)
     end

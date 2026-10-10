@@ -12,6 +12,7 @@ ADDON = ROOT / "AzerothLedger"
 TESTS = ROOT / "AzerothLedger_Tests"
 SOURCE_ORDER = ("Item.lua", "Work.lua", "Schema.lua", "Client.lua", "Scan.lua", "Inventory.lua", "Loot.lua", "Reward.lua", "Vendor.lua", "Exchange.lua", "LastSeen.lua", "Collection.lua", "Presentation.lua", "Journal.lua", "BookWidgets.lua", "BookQuery.lua", "Book.lua", "Settings.lua", "Main.lua")
 
+AUTO_LOADED_FILES = ("Bindings.xml",)
 
 def manifest_files(path: Path) -> list[str]:
     return [
@@ -31,7 +32,7 @@ def check() -> list[Path]:
     assert "## SavedVariables: AzerothLedgerDB" in main
     assert "## Dependencies: AzerothLedger, WoWUnit" in companion
 
-    files = [toc, *(ADDON / name for name in SOURCE_ORDER)]
+    files = [toc, *(ADDON / name for name in (*SOURCE_ORDER, *AUTO_LOADED_FILES))]
     assert sorted(ADDON.iterdir()) == sorted(files), "unexpected file in release addon"
     assert all(path.is_file() for path in files)
     return files

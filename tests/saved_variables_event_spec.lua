@@ -82,3 +82,32 @@ assert(restored.gains[1].source.name == "Dermot Johns")
 assert(AzerothLedgerDB.records[key].gains[1].source.name == "Dermot Johns")
 
 print("saved_variables_event_spec: passed")
+
+local toggles, savedBook, slashOpens = 0, 0, 0
+addon.Book = {
+    toggle = function(_, receivedStore, character, realm)
+        assert(receivedStore == addon.store and character == "Ada" and realm == "Realm")
+        toggles = toggles + 1
+    end,
+    save = function()
+        savedBook = savedBook + 1
+    end,
+}
+rawset(_G, "UnitName", function()
+    return "Ada"
+end)
+rawset(_G, "GetRealmName", function()
+    return "Realm"
+end)
+addon.Collection.open = function()
+    slashOpens = slashOpens + 1
+end
+_G.AzerothLedgerToggle()
+_G.AzerothLedgerToggle()
+SlashCmdList.AZEROTHLEDGER("")
+assert(toggles == 2 and slashOpens == 1)
+assert(_G.BINDING_NAME_AZEROTHLEDGER_TOGGLE == "Toggle Ledger")
+assert(frame.registered.PLAYER_LOGOUT)
+frame.onEvent(frame, "PLAYER_LOGOUT")
+assert(savedBook == 1)
+print("saved_variables_event_spec: native binding entry, slash command and reload save passed")
