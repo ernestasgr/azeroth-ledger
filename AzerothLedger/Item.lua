@@ -57,6 +57,33 @@ function Item.linkGroups(links)
                 fields[#fields + 1] = tostring(tonumber(field) or 0)
             end
             fields[8], fields[9], fields[10] = "0", "0", "0"
+            -- Bonus order is not part of Item.key identity, but keep enchants,
+            -- gems and other item-link details in the visible link grouping.
+            local bonusCount = tonumber(fields[13])
+            if
+                bonusCount
+                and bonusCount >= 0
+                and bonusCount <= 100
+                and bonusCount == math.floor(bonusCount)
+                and #fields >= 13 + bonusCount
+            then
+                local bonuses = {}
+                local validBonuses = true
+                for index = 1, bonusCount do
+                    local bonus = tonumber(fields[13 + index])
+                    if not bonus or bonus ~= math.floor(bonus) then
+                        validBonuses = false
+                        break
+                    end
+                    bonuses[#bonuses + 1] = bonus
+                end
+                if validBonuses then
+                    table.sort(bonuses)
+                    for index, bonus in ipairs(bonuses) do
+                        fields[13 + index] = tostring(bonus)
+                    end
+                end
+            end
             while fields[#fields] == "0" do
                 fields[#fields] = nil
             end

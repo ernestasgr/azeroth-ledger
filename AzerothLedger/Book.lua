@@ -123,13 +123,14 @@ local function detailRow(book, index)
     row.link = Widgets.button(book, row, "", 0, 0, 338, 30, function(_, mouseButton)
         if row.onClick then
             row.onClick()
-        elseif row.action then
-            book.showAllLinks = not book.showAllLinks
-            details(book, book.selected)
         else
             Widgets.openLink(book.api, row.fullLink, mouseButton)
         end
     end)
+    row.disclosureIcon = row.link:CreateTexture(nil, "ARTWORK", nil, 1)
+    row.disclosureIcon:SetPoint("LEFT", row.link, "LEFT", 8, 0)
+    row.disclosureIcon:SetSize(16, 16)
+    row.disclosureIcon:Hide()
     tooltip(book, row.link, function()
         return row.fullLink
     end)
@@ -209,7 +210,6 @@ function details(book, key)
     local oldScroll = book.detailScroll:GetVerticalScroll()
     book.selected = key
     if previous ~= key then
-        book.showAllLinks = false
         book.previewIndex = 1
     end
     local scope = {}
@@ -272,8 +272,21 @@ function details(book, key)
     Widgets.select(book.selectedTotals, not book.detailsAccount)
     Widgets.select(book.accountTotals, book.detailsAccount)
     local index, y = 0, 0
+    local detailItem = book.filter.view == "Journal" and book.selectedSequence or key
+    local detailIdentity = tostring(book.filter.view) .. "\031" .. tostring(detailItem)
+    if book.collapsedContext ~= detailIdentity then
+        book.collapsedContext = detailIdentity
+        book.collapsedSections = {}
+    end
+    book.collapsedSections = book.collapsedSections or {}
+    local sectionIndex, activeSectionKey, activeSectionCollapsed = 0, nil, false
     local function write(kind, left, right, onClick)
         index = index + 1
+        if kind == "section" then
+            sectionIndex = sectionIndex + 1
+            activeSectionKey = sectionIndex
+            activeSectionCollapsed = book.collapsedSections[activeSectionKey] == true
+        end
         local row = detailRow(book, index)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", 0, -y)
@@ -288,19 +301,49 @@ function details(book, key)
         row.right:SetTextColor(unpack(colors.muted))
         row.left:SetText(left)
         row.right:SetText(right or "")
-        local clickable = kind == "link" or kind == "action"
+        row.link:ClearAllPoints()
+        row.link:SetPoint("TOPLEFT", 0, 0)
+        row.link:SetSize(338, 30)
+        row.link.background:Show()
+        local linkText = row.link:GetFontString()
+        linkText:ClearAllPoints()
+        linkText:SetPoint("TOPLEFT", 12, -8.5)
+        linkText:SetWidth(314)
+        linkText:SetFont(book.api.STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 12, "")
+        linkText:SetTextColor(unpack(colors.text))
+        local clickable = kind == "link" or kind == "action" or kind == "section"
         row.left:SetShown(not clickable)
         row.right:SetShown(not clickable)
         row.link:SetShown(clickable)
         row.line:SetShown(kind == "section")
         row.section:SetShown(kind == "section")
         row.fullLink = kind == "link" and left or nil
-        row.action = kind == "action"
-        row.onClick = onClick
+        row.disclosureIcon:Hide()
+        if kind == "section" then
+            local sectionKey = assert(activeSectionKey)
+            row.onClick = function()
+                book.collapsedSections[sectionKey] = not book.collapsedSections[sectionKey]
+                details(book, key)
+            end
+            row.link:SetText(left)
+            row.link:SetSize(338, 40)
+            row.link.background:Hide()
+            linkText:ClearAllPoints()
+            linkText:SetPoint("TOPLEFT", 28, -14)
+            linkText:SetWidth(300)
+            linkText:SetFont(book.api.STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 13, "")
+            linkText:SetTextColor(unpack(colors.gold))
+            row.disclosureIcon:SetTexture(
+                activeSectionCollapsed and "Interface\\Buttons\\UI-PlusButton-UP"
+                    or "Interface\\Buttons\\UI-MinusButton-UP"
+            )
+            row.disclosureIcon:Show()
+        else
+            row.onClick = onClick
+            row.link:SetText(left)
+        end
         local height = math.max(24, row.left:GetStringHeight() + 10, row.right:GetStringHeight() + 10)
         if kind == "section" then
-            row.left:ClearAllPoints()
-            row.left:SetPoint("TOPLEFT", 10, -16)
             row.line:ClearAllPoints()
             row.line:SetPoint("TOPLEFT", 0, -16)
             row.line:SetSize(2, 14)
@@ -310,6 +353,15 @@ function details(book, key)
             row.section:SetSize(338, 1)
             row.section:SetColorTexture(unpack(colors.edge))
             height = 40
+        elseif activeSectionCollapsed then
+            row.left:Hide()
+            row.right:Hide()
+            row.link:Hide()
+            row.line:Hide()
+            row.section:Hide()
+            row:SetHeight(1)
+            row:Hide()
+            return
         end
         if kind == "date" then
             row.left:SetWidth(118)
@@ -318,8 +370,7 @@ function details(book, key)
             row.right:SetWidth(218)
             height = math.max(24, row.right:GetStringHeight() + 10)
         end
-        if clickable then
-            row.link:SetText(left)
+        if kind == "link" or kind == "action" then
             height = 34
         end
         row:SetHeight(height)
@@ -463,20 +514,18 @@ function details(book, key)
     if #model.links > 1 then
         write("note", "Hover over versions to compare bonuses, enchants, and gems.")
     end
-    if book.showAllLinks then
-        for _, link in ipairs(record.links) do
-            write("link", link)
-        end
-    else
-        for _, group in ipairs(model.links) do
-            write("link", group.link)
-        end
-    end
     if #record.links > #model.links then
         write(
-            "action",
-            book.showAllLinks and "Show item versions only" or ("Show all " .. #record.links .. " saved links")
+            "note",
+            #record.links
+                .. " saved links represent "
+                .. #model.links
+                .. " distinct item "
+                .. (#model.links == 1 and "version." or "versions.")
         )
+    end
+    for _, group in ipairs(model.links) do
+        write("link", group.link)
     end
     book.detailBody:SetHeight(math.max(y, 1))
     book.detailScroll:SetVerticalScroll(

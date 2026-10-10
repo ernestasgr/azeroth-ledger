@@ -189,6 +189,16 @@ function tests.VariantsDiscoverSeparatelyWhileEnchantsDoNot(_self)
     WoWUnit.AreEqual(2, #store:list())
 end
 
+function tests.ItemLinksGroupByCanonicalVariantWithoutDroppingEnchants(_self)
+    local links = {
+        "|Hitem:100:0:0:0:0:0:42:1:60:0:0:0:2:111:222|h[Sword]|h",
+        "|Hitem:100:0:0:0:0:0:42:9:70:0:0:0:2:222:111|h[Sword]|h",
+        "|Hitem:100:88:0:0:0:0:42:1:60:0:0:0:2:111:222|h[Sword]|h",
+    }
+    WoWUnit.AreEqual(addon.Item.key(links[1], 100), addon.Item.key(links[2], 100))
+    WoWUnit.AreEqual(2, #addon.Item.linkGroups(links))
+end
+
 function tests.UnsupportedAndDamagedDisplayDataStaySafe(_self)
     local writes = 0
     local store = addon.Schema.open({ schema = 999 }, function()
