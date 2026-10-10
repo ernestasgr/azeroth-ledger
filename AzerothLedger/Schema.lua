@@ -1312,14 +1312,14 @@ function Schema.sourceIdentity(gain)
         return "unknown", "Unknown"
     elseif source.kind == "player" then
         local label = source.name .. "-" .. source.realm
-        return "player:" .. label, "Outside player: " .. label
+        return "player:" .. label, "Player: " .. label
     elseif source.kind == "vendor" then
-        return "vendor:" .. source.name, source.name .. " (vendor; name only)"
+        return "vendor:" .. source.name, "Vendor: " .. source.name
     end
     local id = entryID(source)
     local kind = source.kind == "container" and "Container" or "Mob"
     return source.kind .. ":" .. (id or source.guid),
-        id and (kind .. " #" .. id) or ("Unnamed " .. source.kind .. " (spawn identity only)"),
+        id and (kind .. " #" .. id) or ("Unknown " .. source.kind),
         source.name
 end
 
@@ -1400,7 +1400,7 @@ end
 
 local bookChoices = {
     ownership = {
-        { label = "Any ownership" },
+        { label = "Any status" },
         { label = "Present", value = "present" },
         { label = "Unknown", value = "unknown" },
         { label = "Historical only", value = "historical" },
@@ -1420,7 +1420,7 @@ local bookChoices = {
     },
     method = {
         { label = "Any method" },
-        { label = "Initial stock (Seen)", value = "Seen" },
+        { label = "Already had", value = "Seen" },
         { label = "Looted", value = "Looted" },
         { label = "Quest reward", value = "Quest" },
         { label = "Crafted", value = "Crafted" },
@@ -1434,7 +1434,7 @@ local bookChoices = {
         { label = "Quantity: largest", value = "quantity" },
     },
     action = {
-        { label = "All actions" },
+        { label = "All activity" },
         { label = "Looted", value = "Looted" },
         { label = "Quest reward", value = "Quest" },
         { label = "Crafted", value = "Crafted" },
@@ -1442,7 +1442,7 @@ local bookChoices = {
         { label = "Auction purchase", value = "Auction purchase" },
         { label = "Mail", value = "Mail" },
         { label = "Trade", value = "Trade" },
-        { label = "Obtained (channel unknown)", value = "Obtained (channel unknown)" },
+        { label = "Obtained (way unknown)", value = "Obtained (way unknown)" },
         { label = "Alt mail", value = "Alt mail" },
         { label = "Alt trade", value = "Alt trade" },
         { label = "Sale", value = "Sale" },
@@ -1462,12 +1462,13 @@ end
 ---@field x number Horizontal offset in UIParent coordinates
 ---@field y number Vertical offset in UIParent coordinates
 ---@field guided boolean
+---@field developerMode boolean
 ---@field filter table<string, string|number|boolean|nil>
 
 ---@param value any
 ---@return ALBookPreferences
 local function bookPreferences(value)
-    local result = { version = 1, scale = 1, x = 0, y = 0, guided = false, filter = {} }
+    local result = { version = 1, scale = 1, x = 0, y = 0, guided = false, developerMode = false, filter = {} }
     if type(value) ~= "table" or value.version ~= 1 then
         return result
     end
@@ -1480,6 +1481,7 @@ local function bookPreferences(value)
         end
     end
     result.guided = value.guided == true
+    result.developerMode = value.developerMode == true
     local filter = type(value.filter) == "table" and value.filter or {}
     local choices = {
         view = { "Collection", "Gallery", "Discoveries", "Journal", "Evidence" },

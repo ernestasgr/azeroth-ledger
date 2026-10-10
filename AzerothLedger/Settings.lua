@@ -36,7 +36,7 @@ function SettingsPanel.register(api, store)
         button("Open Ledger", function()
             local character, realm = api.UnitName("player"), api.GetRealmName()
             addon.Book.open(api, store, character, realm)
-        end, "Open your recorded Collection and Journal.")
+        end, "Open your Collection and Journal.")
         button("Reset book layout", function()
             addon.Book.reset(store, "layout")
         end, "Center the book and reset its size. Item records are kept.")
@@ -63,6 +63,22 @@ function SettingsPanel.register(api, store)
         )
         settings.CreateCheckbox(category, setting, "Affects the next interaction. Collection facts are kept.")
     end
+    local developerMode = settings.RegisterProxySetting(
+        category,
+        "AzerothLedger_developerMode",
+        settings.VarType.Boolean,
+        "Developer mode",
+        false,
+        function()
+            return store:book().developerMode
+        end,
+        function(value)
+            if addon.Book then
+                addon.Book.setDeveloperMode(store, value)
+            end
+        end
+    )
+    settings.CreateCheckbox(category, developerMode, "Show internal item keys and recording details in item pages.")
     for _, definition in ipairs(addon.Schema.retentionOptions()) do
         local setting = settings.RegisterProxySetting(
             category,

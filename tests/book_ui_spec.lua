@@ -90,7 +90,6 @@ assert(store:scan({
     seenAt = 1001,
     items = { { itemID = 2672, link = "|cffffffff|Hitem:2672:0:0:0:0:0:0:0:15:7|h[Meat]|h|r", quantity = 10 } },
 }))
-local before = writes
 local frame = assert(addon.Collection.open(api, store, "Ada", "A"))
 frame.scripts.OnKeyDown(frame, "ENTER")
 local openingFade = assert(frame.animationGroups[1])
@@ -140,13 +139,21 @@ find("2 / 3")
 click("Collection")
 click("Meat")
 find("400")
-find("Discovery history")
-find("How it was recorded")
-click("Show all 2 recorded links")
+find("Item history")
+find("How you got it")
+assert(not pcall(find, "Developer details"), "Internal details should be hidden by default")
+assert(addon.Book.setDeveloperMode(store, true))
+frame.scripts.OnUpdate(frame)
+find("Developer details")
+find("Internal item key: 2672:0")
+assert(addon.Book.setDeveloperMode(store, false))
+frame.scripts.OnUpdate(frame)
+local before = writes
+click("Show all 2 saved links")
 find("|Hitem:2672::::::::|h[Meat]|h", "Button")
 find("|cffffffff|Hitem:2672:0:0:0:0:0:0:0:15:7|h[Meat]|h|r", "Button")
-click("Show distinct versions")
-find("Show all 2 recorded links", "Button")
+click("Show item versions only")
+find("Show all 2 saved links", "Button")
 scroll.scripts.OnMouseWheel(scroll, -1)
 assert(scroll:GetVerticalScroll() == 48)
 addon.Collection.refresh(store, "Ada", "A")
@@ -167,7 +174,7 @@ find("0 items")
 find("No matching items. Try another search or clear your filters.")
 find("Select an item to explore\nits history.")
 click("Clear filters")
-click("Any ownership")
+click("Any status")
 click("Historical only")
 find("0 items")
 click("Clear filters")
@@ -204,7 +211,7 @@ click("A")
 click("All realms")
 find("All realms", "Button")
 click("Clear filters")
-click("All recorded places")
+click("All places")
 frame.scripts.OnKeyDown(frame, "ESCAPE")
 assert(frame:IsShown(), "Escape should dismiss an open menu before closing the book")
 frame.scripts.OnKeyDown(frame, "F")
@@ -254,7 +261,7 @@ find("10")
 click("Account")
 find("400")
 click("Character")
-local stats = find("CHECKED UNITS", "FontString").parent
+local stats = find("LATEST CHECK", "FontString").parent
 local detailFade = assert(stats.animationGroups[1])
 local detailPlays = detailFade.plays
 addon.Collection.refresh(store, "Ada", "A")
@@ -271,7 +278,7 @@ for _, control in ipairs(controls) do
 end
 assert(scopedRecorded, "the detail statistic must show the selected character's initial stock")
 click("Clear filters")
-click("All recorded places")
+click("All places")
 local menu = find("Next", "Button").parent
 assert(menu.background:GetHeight() == menu:GetHeight(), "a short menu must not paint beyond its visible bounds")
 frame.scripts.OnKeyDown(frame, "ESCAPE")
@@ -330,9 +337,9 @@ assert(openingFade.plays == openingPlays, "opening an already visible book must 
 click("Journal")
 click("Clear filters")
 find("All characters", "Button")
-find("All actions", "Button")
+find("All activity", "Button")
 find("Any date", "Button")
-find("0 activities")
+find("0 entries")
 find(
     "No retained activity in this view. This does not mean no lifetime gains. Retention limits are in AddOns Settings."
 )
@@ -355,31 +362,36 @@ assert(store:scan({
 }))
 addon.Collection.refresh(store, "Ada", "A")
 frame.scripts.OnUpdate(frame, 0.1)
-find("1 activities")
+find("1 entry")
 assertIconsAboveBackings()
 click("Purchase • Bread")
 find("Purchase ×2")
-find("Matched item gain; Purchase: Unknown source")
-find("Gain place: Elwynn")
+assert(not pcall(find, "Recording details: Matched item gain; Purchase: Unknown source"))
+assert(addon.Book.setDeveloperMode(store, true))
+frame.scripts.OnUpdate(frame)
+find("Recording details: Matched item gain; Purchase: Unknown source")
+find("Place: Elwynn")
 find("Character level")
 find("Purchased 2; refunded 0; net gained 2.")
+assert(addon.Book.setDeveloperMode(store, false))
+frame.scripts.OnUpdate(frame)
 local browsingWrites = writes
-click("All actions")
+click("All activity")
 click("Looted")
-find("0 activities")
+find("0 entries")
 find("Select an item to explore\nits history.")
 click("Clear filters")
-find("1 activities")
+find("1 entry")
 click("Any date")
 click("Last 24 hours")
-find("0 activities")
+find("0 entries")
 browsingTime = 604900
 click("Last 24 hours")
 click("Last 7 days")
 ready = false
 frame.scripts.OnEvent()
 frame.scripts.OnUpdate()
-find("1 activities")
+find("1 entry")
 local dateAndLoading = date("%d %b %Y  %H:%M", 100)
     .. " through "
     .. date("%d %b %Y  %H:%M", 604900)
@@ -391,12 +403,12 @@ frame.scripts.OnUpdate()
 click("Clear filters")
 click("All characters")
 click("Ada-A")
-find("1 activities")
+find("1 entry")
 click("A")
 click("B")
-find("0 activities")
+find("0 entries")
 click("Clear filters")
-find("1 activities")
+find("1 entry")
 assert(writes == browsingWrites, "Journal controls must be read-only")
 click("Collection")
 search:SetText("Bread")
@@ -404,13 +416,13 @@ frame.scripts.OnUpdate(frame, 0.1)
 click("Bread")
 local historyWrites = writes
 click("View item history")
-find("Exact item / variant history • newest first")
+find("This item's history • newest first")
 for _, control in ipairs(controls) do
     if control.text == "Only places linked to\nrecorded gains appear here." then
         assert(not control:IsVisible(), "The place caption must not overlap the history return button")
     end
 end
-find("1 activities")
+find("1 entry")
 click("Back to Collection")
 assert(search:GetText() == "Bread", "History must restore the Collection search")
 find("Bread", "Button")
@@ -418,10 +430,10 @@ assert(writes == historyWrites, "Viewing history must not write permanent facts"
 click("Journal")
 search:SetText("no match")
 frame.scripts.OnUpdate(frame, 0.1)
-find("0 activities")
+find("0 entries")
 search:SetText("")
 frame.scripts.OnUpdate(frame, 0.1)
-find("1 activities")
+find("1 entry")
 assert(
     store:vendorAction(
         { kind = "refund", key = breadKey, itemID = 4540, link = bread, quantity = 1 },
@@ -448,7 +460,7 @@ assert(store:setRetention("vendor", 0))
 assert(store:setRetention("gains", 0))
 addon.Book.refresh(store)
 frame.scripts.OnUpdate(frame, 0.1)
-find("0 activities")
+find("0 entries")
 click("Collection")
 find("Bread", "Button")
 for _, area in ipairs({ "bags", "equipped", "bank" }) do
@@ -466,14 +478,14 @@ addon.Collection.open(api, store, "Ada", "A", "Ada", "A")
 frame.scripts.OnUpdate(frame, 0.1)
 click("Bread")
 find("Unknown")
-find("Bank • Last observed")
+find("Bank • Last found")
 find("5")
 find(date("%d %b %Y  %H:%M", 4000))
-find("Current check")
+find("Latest check")
 find(date("%d %b %Y  %H:%M", 4100))
-click("Inspect evidence")
-find("Unresolved evidence")
-find("No unresolved evidence in this scope.")
+click("Review item changes")
+find("Item changes to review")
+find("No item changes need review in this view.")
 assert(store:lootOpen({
     character = "Ada",
     realm = "A",
@@ -484,8 +496,8 @@ assert(store:lootOpen({
 }))
 addon.Book.refresh(store)
 frame.scripts.OnUpdate(frame, 0.1)
-click("Loot • Bread")
-find("Active")
+click("Loot pickup • Bread")
+find("Still checking")
 find("Ada-A")
 local evidenceWrites = writes
 frame.scripts.OnKeyDown(frame, "DOWN")
@@ -493,11 +505,11 @@ assert(writes == evidenceWrites)
 assert(store:expireEvidence(4170))
 addon.Book.refresh(store)
 frame.scripts.OnUpdate(frame, 0.1)
-find("Expired")
-find("This evidence cannot restart matching. Future checks do not confirm this old gain.")
+find("Timed out")
+find("This old item change can no longer be confirmed. Future checks will not add it to Total gained.")
 search:SetText("nothing matches")
 frame.scripts.OnUpdate(frame, 0.1)
-find("No matching evidence. Try another item search or character/realm filter.")
+find("No matching item changes. Try another search or character/realm filter.")
 search:SetText("")
 frame.scripts.OnUpdate(frame, 0.1)
 for index = 1, 10 do
@@ -548,18 +560,30 @@ api.debugprofilestop = function()
 end
 addon.Book.open(api, queueStore, "Ada", "A")
 frame.scripts.OnKeyDown(frame, "ENTER")
-click("Inspect evidence")
+click("Review item changes")
 frame.scripts.OnKeyDown(frame, "DOWN")
 for _ = 1, 10000 do
     frame.scripts.OnUpdate(frame, 0.1)
 end
-find("2000 evidence records")
+find("2000 items to review")
 find("1 / 286")
-find("Account-wide: 5 discarded • " .. date("%d %b %Y  %H:%M", 100) .. " – " .. date("%d %b %Y  %H:%M", 200))
-local loading =
-    find("Account-wide: 5 discarded • " .. date("%d %b %Y  %H:%M", 100) .. " – " .. date("%d %b %Y  %H:%M", 200))
+find(
+    "5 older item changes without details • "
+        .. date("%d %b %Y  %H:%M", 100)
+        .. " – "
+        .. date("%d %b %Y  %H:%M", 200)
+)
+local loading = find(
+    "5 older item changes without details • "
+        .. date("%d %b %Y  %H:%M", 100)
+        .. " – "
+        .. date("%d %b %Y  %H:%M", 200)
+)
 local warningControl = find(
-    "Warning: 5 unresolved records discarded • " .. date("%d %b %Y", 100) .. " – " .. date("%d %b %Y", 200),
+    "Warning: 5 item changes need review; details discarded • "
+        .. date("%d %b %Y", 100)
+        .. " – "
+        .. date("%d %b %Y", 200),
     "Button"
 )
 assert(loading.points[1].y > warningControl.points[1].y, "Discarded details and warning must occupy separate lines")
@@ -573,7 +597,7 @@ click("EvidenceOnly-EvidenceRealm")
 for _ = 1, 10000 do
     frame.scripts.OnUpdate(frame, 0.1)
 end
-find("2000 evidence records")
+find("2000 items to review")
 assert(queueWrites == 0)
 print("book_ui_spec: large evidence queue, loading keyboard access and overflow layout passed")
 
@@ -613,12 +637,12 @@ addon.Book.open(api, sourceStore, "Ada", "A")
 frame.scripts.OnKeyDown(frame, "ENTER")
 click("Collection")
 click("Clear filters")
-click("All recorded sources")
+click("All sources")
 click("Boar • 5")
 find("Boar", "Button")
 find("GAINED")
 find("5")
-find("Recorded source history; not a possible-drop list.")
+find("Shows items gained from this source, not everything it can drop.")
 local sourceSearch = find("", "EditBox")
 sourceSearch:SetText("Boar")
 sourceSearch.scripts.OnEnterPressed(sourceSearch)
@@ -627,8 +651,8 @@ click("All realms")
 click("A")
 find("GAINED")
 click("Clear filters")
-find("All recorded sources", "Button")
-find("RECORDED")
+find("All sources", "Button")
+find("TRACKED")
 assert(sourceWrites == 0)
 print("book_ui_spec: source navigation, source search, contribution quantity and clearing passed")
 
@@ -670,10 +694,10 @@ for _, control in ipairs(controls) do
     end
 end
 assert(historicalRow, "A sold item should remain in Collection history")
-local profileTime = 0
+local historicalProfileTime = 0
 rawset(api, "debugprofilestop", function()
-    profileTime = profileTime + 1
-    return profileTime
+    historicalProfileTime = historicalProfileTime + 1
+    return historicalProfileTime
 end)
 api.GameTooltip = {
     SetOwner = function() end,
