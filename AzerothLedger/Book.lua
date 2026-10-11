@@ -586,8 +586,6 @@ local function renderBody(book, requestedKey)
         book.qualityFilter,
         book.methodFilter,
         book.sortFilter,
-        book.foundOnce,
-        book.foundOnceHelp,
         book.ownershipHelp,
         book.place,
         book.sourceFilter,
@@ -610,7 +608,6 @@ local function renderBody(book, requestedKey)
     )
     book.actionFilter:SetText(choiceLabel("action", book.filter.action))
     book.dateFilter:SetText(book.filter.dateRange or "Any date")
-    book.foundOnce.mark:SetShown(book.filter.foundOnce == true)
     local size = pageSize(book)
     local result, pending = book.query:step(book.store, book.character, book.realm, book.filter)
     book.queryPending = pending
@@ -1254,9 +1251,6 @@ local function create(api)
             change(book, "dateRange", choice.from and choice.label or nil)
         end)
     end)
-    book.foundOnce = Widgets.checkbox(book, frame, "Found once", 384, 232, 120, function()
-        change(book, "foundOnce", not book.filter.foundOnce)
-    end)
     book.clearFilters = Widgets.button(book, frame, "Clear filters", 548, 232, 110, 26, function()
         book.filter = { view = book.filter.view, historyKey = book.filter.historyKey }
         book.search:SetText("")
@@ -1473,7 +1467,6 @@ local function create(api)
         .. "Total found counts items found on the first check and confirmed gains later. "
         .. "It is not how many you have now.\n\n"
         .. "A + means some bags, bank, or gear have an older or missing check.\n\n"
-        .. "Found once: one confirmed item gained, with no earlier sighting of that version.\n\n"
         .. "Historical only: not found when all relevant bags, bank, and gear were checked. "
         .. "Unknown means a needed check could not be completed."
     book.help = Widgets.panel(api, frame, 218, 146, 440, 500, colors.raised)
@@ -1509,7 +1502,6 @@ local function create(api)
         return control
     end
     book.ownershipHelp = helpButton(sidebar, 144, 438, 32)
-    book.foundOnceHelp = helpButton(frame, 506, 232, 26)
     helpButton(frame, 566, 290, 20)
     fit(book)
     return book
