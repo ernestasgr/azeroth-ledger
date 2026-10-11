@@ -29,7 +29,7 @@ def check() -> list[Path]:
 
     main = toc.read_text(encoding="utf-8")
     companion = (TESTS / "AzerothLedger_Tests.toc").read_text(encoding="utf-8")
-    assert "## SavedVariables: AzerothLedgerDB" in main
+    assert "## SavedVariables: AzerothLedgerDB, AzerothLedgerMinimapButtonDB" in main
     assert "## Dependencies: AzerothLedger, WoWUnit" in companion
 
     files = [toc, *(ADDON / name for name in (*SOURCE_ORDER, *AUTO_LOADED_FILES))]
