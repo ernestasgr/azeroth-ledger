@@ -1,7 +1,7 @@
 # Browsing recorded items and activity
 
 Collection, Discoveries and Gallery share search, character/realm, category,
-recorded place, ownership, quality, acquisition method, Found once and sorting.
+recorded place, ownership, quality, acquisition method and sorting.
 Gallery additionally restricts results to gear and items awaiting classification.
 Journal defaults to account-wide retained activity, newest first. Search,
 character/realm, action and date range combine; they never change saved facts.
@@ -21,8 +21,6 @@ controls irrelevant to a view do not restrict its query.
   positive quantity after refunds. Obtained includes gains whose exact means are
   unknown. Initial stock (Seen) matches account initial stock, within the selected
   item/character scope; it does not imply an acquisition by that character.
-- Found once remains account-wide: no initial stock and exactly one net gained
-  unit. Changing scope cannot turn a repeatedly gained item into Found once.
 - Journal action and actor must match the same gain contribution. A grouped gain
   stays one complete event, with all its contributions visible in details.
   Transfers match either sender or recipient. Unknown channels match
