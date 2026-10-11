@@ -4,7 +4,7 @@ A World of Warcraft: Forever development addon for tracking items across your ch
 
 The [completed plan](https://github.com/ernestasgr/azeroth-ledger/issues/1) links the decisions and staged build order. Release validation remains in progress.
 
-Open the Ledger book with `/al`. Browse categories and places, search item names, switch account/character/realm views, and select an item to see its history. Discoveries show when an item version first appeared in your Collection. Found once means one confirmed gain with no earlier sighting. Historical only means the item was not found on complete checks of the selected characters' bags, bank, and gear.
+Open the Ledger book with `/al`. Browse categories and places, search item names, switch account/character/realm views, and select an item to see its history. Discoveries show when an item version first appeared in your Collection. Historical only means the item was not found on complete checks of the selected characters' bags, bank, and gear.
 
 The Journal shows recent gains, moves between your characters, and vendor sales, refunds, and buybacks, newest first. Select an entry to see who was involved and where the item came from. A purchase appears once as a gain. AddOns Settings → Azeroth Ledger controls how many recent entries to keep: gains default to 1,000 (0–5,000), transfers and vendor actions to 250 each (0–2,000). Zero keeps no recent entries in that category. Removing old Journal entries does not change Collection totals, dates, or sources.
 

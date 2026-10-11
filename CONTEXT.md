@@ -34,6 +34,4 @@ Azeroth Ledger keeps a Collection of items found on your characters and a Journa
 
 **Source**: Who or what you got the item from, when the game provided enough information to tell. Otherwise the source is Unknown.
 
-**Found once**: One confirmed item gained, with no earlier sighting of that item version on the characters you have checked.
-
 **Zone or dungeon items**: Items with a confirmed gain there or a known source there. This is not a list of every item that can drop in that place.

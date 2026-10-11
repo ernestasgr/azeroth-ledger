@@ -478,7 +478,7 @@ local function fixture()
     end
 end
 
-function tests.FoundOnceIsAccountWideAndRefundRemovesItWithoutAnotherDiscovery(_self)
+function tests.IncompleteStorageRemainsUnknownAfterRefund(_self)
     local store = addon.Schema.open(nil, function() end)
     local bread = "|Hitem:4540::::::::|h[Bread]|h"
     local key = addon.Item.key(bread, 4540)
@@ -502,7 +502,7 @@ function tests.FoundOnceIsAccountWideAndRefundRemovesItWithoutAnotherDiscovery(_
     vendor("purchase", 1001)
     scan("Ada", "bags", 1002, 1)
     scan("Ben", "bags", 1003, 1)
-    local filter = { foundOnce = true, character = "Ben", realm = "A" }
+    local filter = { character = "Ben", realm = "A" }
     local result = addon.Collection.query(store, "Ada", "A", filter)
     WoWUnit.AreEqual(1, #result.rows)
     WoWUnit.AreEqual("Unknown", result.rows[1].ownership)
@@ -510,7 +510,8 @@ function tests.FoundOnceIsAccountWideAndRefundRemovesItWithoutAnotherDiscovery(_
     WoWUnit.AreEqual(0, #result.rows)
     vendor("refund", 1004)
     scan("Ada", "bags", 1005, 0)
-    WoWUnit.AreEqual(0, #addon.Collection.query(store, "Ada", "A", filter).rows)
+    WoWUnit.AreEqual(0, store:breakdown(key).gained)
+    WoWUnit.AreEqual(1, #addon.Collection.query(store, "Ada", "A", filter).rows)
     WoWUnit.AreEqual(1, addon.Collection.query(store, "Ada", "A", {}).discoveryCount)
     for _, area in ipairs({ "bags", "bank", "equipped" }) do
         scan("Ada", area, 1006, 0)

@@ -1615,7 +1615,6 @@ local function bookPreferences(value)
             result.filter[field] = filter[field]
         end
     end
-    result.filter.foundOnce = filter.foundOnce == true or nil
     return result
 end
 

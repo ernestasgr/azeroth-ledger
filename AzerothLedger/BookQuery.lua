@@ -15,7 +15,6 @@ local fields = {
     "dateFrom",
     "dateTo",
     "dateRange",
-    "foundOnce",
     "place",
     "placeKind",
     "historyKey",

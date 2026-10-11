@@ -44,11 +44,6 @@ for _, control in ipairs(native.controls) do
     end
 end
 find("Journal"):Click()
-for _, control in ipairs(native.controls) do
-    if control.text == "?" and control.points[1].x == 506 then
-        assert(not control:IsVisible(), "Found once help must not cover the Journal date selector")
-    end
-end
 find("Collection"):Click()
 find("Gallery"):Click()
 find("Name A-Z"):Click()

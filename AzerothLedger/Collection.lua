@@ -511,7 +511,6 @@ end
 ---@field dateFrom? integer Inclusive timestamp
 ---@field dateTo? integer Exclusive timestamp
 ---@field dateRange? string
----@field foundOnce? boolean
 ---@field place? string
 ---@field placeKind? string
 ---@field view? string
@@ -620,7 +619,6 @@ local function query(store, character, realm, filter, metadata, pause)
             and (not filter.ownership or lastSeen.state == filter.ownership)
             and qualityMatches
             and methodMatches
-            and (not filter.foundOnce or (record.firstSeenUnits == 0 and record.totalGained == 1))
         then
             candidates[#candidates + 1] = {
                 searchText = searchText,
