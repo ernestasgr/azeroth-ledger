@@ -12,7 +12,7 @@ Item tooltips show when an item was Seen, Looted, or Obtained, its confirmed tot
 
 Select the book's warning or **Review item changes** to see gains the addon could not confirm. Search by item and filter by character or realm to read what happened and whether another check may help. Looking at an unconfirmed change never adds it to Total gained.
 
-Character and realm filters show the latest checked quantities and focus item details on that view. A + means some bags, bank, or gear have older or missing checks. Use Character/Account (or Realm/Account) in the detail pane to compare that view with the account total. Item links let you compare versions, enchants, and gems. Icons load automatically from the client.
+Character and realm filters focus item details on that view. Current counts add each tracked character's latest known bags, bank, and equipped quantities, including offline characters. Areas without a saved check add no known quantity, and different areas may have been checked at different times. Item links let you compare versions, enchants, and gems. Icons load automatically from the client.
 
 AddOns Settings → Azeroth Ledger includes an optional **Developer mode** setting. It shows internal item keys and recording details in item pages; it is off by default.
 

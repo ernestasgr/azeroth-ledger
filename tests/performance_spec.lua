@@ -185,7 +185,8 @@ assert(repeatedRecord.firstGained == 1001 and repeatedRecord.lastGained == 6000)
 assert(repeatedStore:breakdown("10001:0").methods.Looted == 5000)
 assert(repeatedStore:breakdown("10001:0").sources["Fixture mob"] == 5000)
 local checked = addon.LastSeen.project(repeatedStore, repeatedRecord, "Fixture", "Test")
-assert(checked.firstChecked == 1 and checked.checkedUnits == 5001)
+assert(checked.characterOverall == 5001 and checked.allCharactersOverall == 5001)
+assert(checked.characterCurrent == 5001 and checked.allCharactersCurrent == 5001)
 -- Public identity and activity copies cannot change indexed permanent facts.
 local description = repeatedStore:describe("10001:0")
 description.links[1], description.observations[1].quantity = "changed", 999

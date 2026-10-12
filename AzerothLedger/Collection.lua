@@ -281,14 +281,6 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm,
         if matches then
             shown = shown + 1
             local name = record.links[1]:match("%[([^%]]+)%]") or ("Item " .. record.itemID)
-            lines[#lines + 1] = name
-                .. (developerMode and (" [internal item key " .. record.key .. "]") or "")
-                .. " — already had at first check "
-                .. record.firstSeenUnits
-                .. "; Total gained "
-                .. record.totalGained
-                .. "; Total found "
-                .. (record.firstSeenUnits + record.totalGained)
             local lastSeen = addon.LastSeen.project(
                 store,
                 record,
@@ -296,6 +288,16 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm,
                 realm,
                 { character = filterCharacter, realm = filterRealm }
             )
+            lines[#lines + 1] = name
+                .. (developerMode and (" [internal item key " .. record.key .. "]") or "")
+                .. " — Character overall "
+                .. (lastSeen.characterOverall or "Unknown")
+                .. "; All characters overall "
+                .. (lastSeen.allCharactersOverall or "Unknown")
+                .. "; Character current "
+                .. (lastSeen.characterCurrent or "Unknown")
+                .. "; All characters current "
+                .. (lastSeen.allCharactersCurrent or "Unknown")
             lines[#lines + 1] = "  Status: " .. ownershipText(lastSeen)
             for _, check in ipairs(lastSeen.checks) do
                 lines[#lines + 1] = "  " .. Collection.checkText(check)
@@ -534,8 +536,11 @@ end
 ---@field lastGained? integer
 ---@field metadata AzerothLedgerItemMetadata
 ---@field recorded? integer
----@field checkedUnits? integer
----@field uncheckedAreas? integer
+---@field characterOverall? integer
+---@field allCharactersOverall? integer
+---@field characterCurrent? integer
+---@field allCharactersCurrent? integer
+---@field currentUnits? integer
 ---@field sourceQuantity? integer Net confirmed contribution from the selected source
 
 ---@param store ALStore
@@ -608,6 +613,12 @@ local function query(store, character, realm, filter, metadata, pause)
         local searchText = string.lower(name .. " " .. record.key .. " " .. table.concat(record.links, " "))
         local lastSeen = addon.LastSeen.project(store, record, character, realm, filter)
         local status = ownershipText(lastSeen)
+        local currentUnits
+        if filter.character then
+            currentUnits = lastSeen.characterCurrent
+        else
+            currentUnits = lastSeen.allCharactersCurrent
+        end
         local qualityMatches = filter.quality == nil
             or (filter.quality == "unknown" and info.quality == nil)
             or info.quality == filter.quality
@@ -635,10 +646,11 @@ local function query(store, character, realm, filter, metadata, pause)
                     metadata = info,
                     lastGained = lastGained,
                     sourceQuantity = filter.source and sourceQuantity or nil,
-                    recorded = not (filter.character or filter.realm) and (record.firstSeenUnits + record.totalGained)
-                        or nil,
-                    checkedUnits = lastSeen.checkedUnits,
-                    uncheckedAreas = lastSeen.uncheckedAreas,
+                    characterOverall = lastSeen.characterOverall,
+                    allCharactersOverall = lastSeen.allCharactersOverall,
+                    characterCurrent = lastSeen.characterCurrent,
+                    allCharactersCurrent = lastSeen.allCharactersCurrent,
+                    currentUnits = currentUnits,
                 },
             }
         end
@@ -701,9 +713,8 @@ local function query(store, character, realm, filter, metadata, pause)
         elseif sort == "gained" then
             left, right = a.lastGained, b.lastGained
         elseif sort == "quantity" then
-            -- Account Recorded and scoped checked stock are different facts.
-            left = a.sourceQuantity or a.recorded or a.checkedUnits
-            right = b.sourceQuantity or b.recorded or b.checkedUnits
+            left = a.currentUnits
+            right = b.currentUnits
         end
         if left ~= right then
             return left ~= nil and (right == nil or left > right)
@@ -777,10 +788,11 @@ end
 ---@field firstGained? integer
 ---@field lastGained? integer
 ---@field scopeLabel string
----@field checkedUnits? integer
----@field uncheckedAreas integer
----@field checkedAt? integer
----@field firstChecked? integer
+---@field characterOverall? integer
+---@field allCharactersOverall? integer
+---@field characterCurrent? integer
+---@field allCharactersCurrent? integer
+---@field currentAt? integer
 ---@field checks ALStorageCheck[]
 
 ---@param store ALStore
@@ -827,10 +839,11 @@ inspectRecord = function(store, record, character, realm, filter, lastSeen, paus
         scopeLabel = filter.character and (filter.character .. (filter.realm and ("-" .. filter.realm) or ""))
             or filter.realm
             or "Account",
-        checkedUnits = lastSeen.checkedUnits,
-        uncheckedAreas = lastSeen.uncheckedAreas,
-        checkedAt = lastSeen.checkedAt,
-        firstChecked = lastSeen.firstChecked,
+        characterOverall = lastSeen.characterOverall,
+        allCharactersOverall = lastSeen.allCharactersOverall,
+        characterCurrent = lastSeen.characterCurrent,
+        allCharactersCurrent = lastSeen.allCharactersCurrent,
+        currentAt = lastSeen.currentAt,
         evidence = strength,
         checks = lastSeen.checks,
         ownership = ownershipText(lastSeen),
@@ -872,32 +885,10 @@ function Collection.details(store, key, character, realm, filter, developerMode)
         lines[#lines + 1] = "Internal item key: " .. record.key
         lines[#lines + 1] = "Evidence summary: " .. model.evidence
     end
-    local breakdown = model.breakdown
-    if breakdown.recorded then
-        lines[#lines + 1] = "Total found: " .. breakdown.recorded .. " (" .. model.scopeLabel .. ")"
-    else
-        lines[#lines + 1] = "Latest check: "
-            .. (model.checkedUnits or "Unknown")
-            .. (model.uncheckedAreas > 0 and "; some bags, bank, or gear need checking" or "")
-        lines[#lines + 1] = "First checked: " .. (model.firstChecked or "Unknown")
-    end
-    lines[#lines + 1] = "Total gained: " .. breakdown.gained
-    for _, group in ipairs({ { "How you got it", breakdown.methods }, { "Where it came from", breakdown.sources } }) do
-        local labels = {}
-        for label in pairs(group[2]) do
-            labels[#labels + 1] = label
-        end
-        table.sort(labels)
-        for _, label in ipairs(labels) do
-            local playerLabel = label
-            if group[1] == "How you got it" and label == "Seen" then
-                playerLabel = "Already had at first check"
-            elseif group[1] == "Where it came from" and label == "Initial stock" then
-                playerLabel = "Already had before first check"
-            end
-            lines[#lines + 1] = group[1] .. ": " .. playerLabel .. " " .. group[2][label]
-        end
-    end
+    lines[#lines + 1] = "Character overall: " .. (model.characterOverall or "Unknown")
+    lines[#lines + 1] = "All characters overall: " .. (model.allCharactersOverall or "Unknown")
+    lines[#lines + 1] = "Character current: " .. (model.characterCurrent or "Unknown")
+    lines[#lines + 1] = "All characters current: " .. (model.allCharactersCurrent or "Unknown")
     lines[#lines + 1] = "Status: " .. model.ownership
     local describedActors = {}
     for _, seen in ipairs(record.characters) do

@@ -56,8 +56,8 @@ local function stamp(at)
     return at and date("%d %b %Y  %H:%M", at) or "Unknown"
 end
 
-local function checkedQuantity(quantity, unchecked)
-    return quantity == nil and "Unknown" or (tostring(quantity) .. ((unchecked or 0) > 0 and "+" or ""))
+local function exactQuantity(quantity)
+    return quantity == nil and "Unknown" or tostring(quantity)
 end
 
 local function save(book)
@@ -212,14 +212,7 @@ function details(book, key)
     if previous ~= key then
         book.previewIndex = 1
     end
-    local scope = {}
-    if not book.detailsAccount then
-        if book.filter.character or book.filter.realm then
-            scope = { character = book.filter.character, realm = book.filter.realm }
-        else
-            scope = { character = book.character, realm = book.realm }
-        end
-    end
+    local scope = { character = book.filter.character, realm = book.filter.realm }
     local model, pending = book.query:inspect(book.store, key, book.character, book.realm, scope)
     local developerMode = book.developerMode == true
     book.detailPending = pending
@@ -260,17 +253,10 @@ function details(book, key)
     book.ownership:SetText("Status: " .. model.ownership)
     Widgets.tint(book.ownership, model.ownershipState == "present" and colors.green or colors.gold)
     Widgets.tint(book.ownershipDot, model.ownershipState == "present" and colors.green or colors.gold, true)
-    book.recorded:SetText(
-        book.detailsAccount and tostring(model.breakdown.recorded)
-            or checkedQuantity(model.checkedUnits, model.uncheckedAreas)
-    )
-    book.gained:SetText(tostring(model.breakdown.gained))
-    book.initial:SetText(tostring((book.detailsAccount and model.breakdown.initial or model.firstChecked) or "Unknown"))
-    book.recordedLabel:SetText(book.detailsAccount and "TOTAL FOUND" or "LATEST CHECK")
-    book.initialLabel:SetText(book.detailsAccount and "ALREADY HAD" or "FIRST CHECK")
-    book.selectedTotals:SetText(book.filter.realm and not book.filter.character and "Realm" or "Character")
-    Widgets.select(book.selectedTotals, not book.detailsAccount)
-    Widgets.select(book.accountTotals, book.detailsAccount)
+    book.characterOverall:SetText(exactQuantity(model.characterOverall))
+    book.allCharactersOverall:SetText(exactQuantity(model.allCharactersOverall))
+    book.characterCurrent:SetText(exactQuantity(model.characterCurrent))
+    book.allCharactersCurrent:SetText(exactQuantity(model.allCharactersCurrent))
     local index, y = 0, 0
     local detailItem = book.filter.view == "Journal" and book.selectedSequence or key
     local detailIdentity = tostring(book.filter.view) .. "\031" .. tostring(detailItem)
@@ -454,38 +440,40 @@ function details(book, key)
         end)
     end
     write("note", "The Journal keeps recent activity. Older entries may disappear, but your Collection totals remain.")
-    write("section", "Item history")
-    if not book.detailsAccount then
-        write(
-            "note",
-            "Latest check "
-                .. stamp(model.checkedAt)
-                .. ". + means bags, bank, or gear have an older or missing check. "
-                .. "A first sighting does not tell when you got it."
-        )
-    end
-    write("date", "First seen", stamp(model.firstSeen))
-    write("date", "Last seen", stamp(model.lastSeen))
-    write("date", "First confirmed gain", stamp(model.firstGained))
-    write("date", "Last confirmed gain", stamp(model.lastGained))
-    local function breakdown(title, totals)
+    local function breakdown(title, totals, emptyMessage, labelFor)
         write("section", title)
         local labels = {}
-        for name, quantity in pairs(totals) do
+        for label, quantity in pairs(totals) do
             if quantity > 0 then
-                labels[#labels + 1] = name
+                labels[#labels + 1] = label
             end
         end
         table.sort(labels)
         if #labels == 0 then
-            write("note", book.detailsAccount and "No items counted yet." or "No confirmed gains in this view.")
+            write("note", emptyMessage)
+            return
         end
-        for _, name in ipairs(labels) do
-            write("pair", name == "Seen" and "Already had at first check" or name, tostring(totals[name]))
+        for _, label in ipairs(labels) do
+            write("pair", labelFor(label), tostring(totals[label]))
         end
     end
-    breakdown("How you got it", model.breakdown.methods)
-    breakdown("Where it came from", model.breakdown.sources)
+    breakdown("How you got it", model.breakdown.methods, "No confirmed gains in this view.", function(label)
+        return label == "Seen" and "Already had at first check" or label
+    end)
+    breakdown("Where it came from", model.breakdown.sources, "No source details recorded in this view.", function(label)
+        return label == "Initial stock" and "Already had before first check" or label
+    end)
+    write("section", "Item history")
+    write(
+        "note",
+        "Current counts add the latest known bags, bank, and equipped quantities for each character, "
+            .. "including offline characters. "
+            .. "Areas without a saved check add no known quantity; checks can be from different times."
+    )
+    write("date", "First seen", stamp(model.firstSeen))
+    write("date", "Last seen", stamp(model.lastSeen))
+    write("date", "First confirmed gain", stamp(model.firstGained))
+    write("date", "Last confirmed gain", stamp(model.lastGained))
     write("section", "Last checks")
     local lastCharacter
     local areas = { bags = "Bags", bank = "Bank", equipped = "Equipped" }
@@ -572,7 +560,6 @@ end
 local function renderBody(book, requestedKey)
     local scopeKey = (book.filter.realm or "") .. ":" .. (book.filter.character or "")
     if book.lastDetailScope ~= scopeKey then
-        book.detailsAccount = not book.filter.character and not book.filter.realm
         book.lastDetailScope = scopeKey
     end
     local journal = book.filter.view == "Journal"
@@ -669,11 +656,7 @@ local function renderBody(book, requestedKey)
     )
     book.backToCollection:SetShown(journal and book.historyReturn ~= nil)
     book.quantityHeading:SetShown(not gallery and not evidence)
-    book.quantityHeading:SetText(
-        journal and "UNITS"
-            or book.filter.source and "GAINED"
-            or ((book.filter.character or book.filter.realm) and "CHECKED" or "TRACKED")
-    )
+    book.quantityHeading:SetText(journal and "UNITS" or (book.filter.character and "CHAR CURRENT" or "ALL CURRENT"))
     local state = #result.rows == 0 and "No matching items. Try another search or clear your filters." or ""
     if gallery then
         state = "No matching gear. Try another search or clear your filters."
@@ -761,11 +744,14 @@ local function renderBody(book, requestedKey)
                         or item.category
                     )
             )
+            local currentQuantity
+            if book.filter.character then
+                currentQuantity = item.characterCurrent
+            else
+                currentQuantity = item.allCharactersCurrent
+            end
             row.quantity:SetText(
-                evidence and ""
-                    or item.sourceQuantity and tostring(item.sourceQuantity)
-                    or item.recorded and tostring(item.recorded)
-                    or checkedQuantity(item.checkedUnits, item.uncheckedAreas)
+                evidence and "" or journal and tostring(item.recorded or "Unknown") or exactQuantity(currentQuantity)
             )
         end
     end
@@ -783,7 +769,6 @@ local function renderBody(book, requestedKey)
         end
         selectItem(book, selected)
     elseif journal then
-        book.detailsAccount = true
         selectItem(book, requestedKey)
     else
         local selected = requestedKey or book.selected
@@ -806,7 +791,7 @@ openHistory = function(book, key)
     for field, value in pairs(book.filter) do
         filter[field] = value
     end
-    book.historyReturn = { filter = filter, page = book.page, key = key, detailsAccount = book.detailsAccount }
+    book.historyReturn = { filter = filter, page = book.page, key = key }
     book.filter = { view = "Journal", historyKey = key }
     book.search:SetText("")
     book.page, book.selectedSequence = 1, nil
@@ -1110,7 +1095,6 @@ local function create(api)
         local previous = book.historyReturn
         if previous then
             book.filter, book.page, book.selected = previous.filter, previous.page, previous.key
-            book.detailsAccount = previous.detailsAccount
             book.historyReturn, book.selectedSequence = nil, nil
             book.search:SetText(book.filter.search or "")
             book.page = previous.page
@@ -1139,7 +1123,7 @@ local function create(api)
         end
         local choices = { { label = "All sources" } }
         for _, source in ipairs(book.result.sources or {}) do
-            choices[#choices + 1] = { label = source.label .. " • " .. source.quantity, source = source.key }
+            choices[#choices + 1] = { label = source.label, source = source.key }
         end
         showMenu(book, self, choices, function(choice)
             change(book, "source", choice.source)
@@ -1261,7 +1245,7 @@ local function create(api)
     book.count = Widgets.text(api, frame, "", 218, 274, 160, 12)
     book.context = Widgets.text(api, frame, "", 390, 274, 268, 11, colors.muted)
     book.context:SetJustifyH("RIGHT")
-    book.quantityHeading = Widgets.text(api, frame, "TRACKED", 598, 295, 60, 9, colors.muted)
+    book.quantityHeading = Widgets.text(api, frame, "ALL CURRENT", 558, 295, 90, 9, colors.muted)
     book.quantityHeading:SetJustifyH("RIGHT")
     book.empty = Widgets.text(api, frame, "", 248, 408, 380, 14, colors.muted)
     for index = 1, PAGE_SIZE do
@@ -1269,10 +1253,10 @@ local function create(api)
         row.icon = Widgets.icon(row, 8, 4, 32)
         row:GetFontString():ClearAllPoints()
         row:GetFontString():SetPoint("TOPLEFT", 50, -6)
-        row:GetFontString():SetWidth(320)
-        row.subtitle = Widgets.text(api, row, "", 50, 23, 312, 10, colors.muted)
+        row:GetFontString():SetWidth(280)
+        row.subtitle = Widgets.text(api, row, "", 50, 23, 280, 10, colors.muted)
         row.subtitle:SetWordWrap(false)
-        row.quantity = Widgets.text(api, row, "", 378, 13, 48, 13, colors.text)
+        row.quantity = Widgets.text(api, row, "", 340, 13, 90, 13, colors.text)
         row.quantity:SetJustifyH("RIGHT")
         book.rows[index] = row
     end
@@ -1307,16 +1291,8 @@ local function create(api)
     book.itemTitle = Widgets.text(api, book.detailHeader, "", 74, 17, 310, 17)
     book.itemTitle:SetHeight(40)
     book.itemCategory = Widgets.text(api, book.detailHeader, "", 74, 61, 310, 10, colors.muted)
-    book.selectedTotals = Widgets.tab(book, book.detailHeader, "Character", 16, 80, 174, function()
-        book.detailsAccount = false
-        details(book, book.selected)
-    end)
-    book.accountTotals = Widgets.tab(book, book.detailHeader, "Account", 206, 80, 178, function()
-        book.detailsAccount = true
-        details(book, book.selected)
-    end)
-    book.ownership = Widgets.text(api, book.detailHeader, "", 26, 122, 348, 11, colors.green)
-    book.ownershipDot = Widgets.fill(book.detailHeader, colors.green, 16, 126, 4, 4, "ARTWORK")
+    book.ownership = Widgets.text(api, book.detailHeader, "", 26, 92, 348, 11, colors.green)
+    book.ownershipDot = Widgets.fill(book.detailHeader, colors.green, 16, 96, 4, 4, "ARTWORK")
     local itemLink = api.CreateFrame("Button", nil, book.detailHeader)
     itemLink:SetPoint("TOPLEFT", 16, -12)
     itemLink:SetSize(368, 68)
@@ -1328,16 +1304,16 @@ local function create(api)
         return book.itemLink
     end)
     book.controls[#book.controls + 1] = itemLink
-    local function statistic(label, x)
-        Widgets.fill(book.detailHeader, colors.raised, x, 143, 116, 49)
-        Widgets.fill(book.detailHeader, colors.edge, x, 143, 116, 1, "ARTWORK")
-        local caption = Widgets.text(api, book.detailHeader, label, x + 10, 151, 96, 9, colors.muted)
-        return Widgets.text(api, book.detailHeader, "", x + 10, 168, 96, 18), caption
+    local function count(label, y)
+        local caption = Widgets.text(api, book.detailHeader, label, 18, y, 264, 10, colors.muted)
+        local value = Widgets.text(api, book.detailHeader, "Unknown", 292, y - 1, 88, 12, colors.text)
+        value:SetJustifyH("RIGHT")
+        return value, caption
     end
-    book.recorded, book.recordedLabel = statistic("TOTAL FOUND", 16)
-    book.gained = statistic("TOTAL GAINED", 142)
-    Widgets.tint(book.gained, colors.gold)
-    book.initial, book.initialLabel = statistic("ALREADY HAD", 268)
+    book.characterOverall = count("CHARACTER OVERALL", 116)
+    book.allCharactersOverall = count("ALL CHARACTERS OVERALL", 134)
+    book.characterCurrent = count("CHARACTER CURRENT", 152)
+    book.allCharactersCurrent = count("ALL CHARACTERS CURRENT", 170)
     book.detailScroll = api.CreateFrame("ScrollFrame", nil, detailPanel, "UIPanelScrollFrameTemplate")
     book.detailScroll:SetPoint("TOPLEFT", 16, -208)
     book.detailScroll:SetSize(344, DETAIL_HEIGHT)
@@ -1464,11 +1440,15 @@ local function create(api)
     end)
     local helpText = "The Ledger tracks characters after you log in on them. "
         .. "Open each character's bank to check its contents.\n\n"
-        .. "Total found counts items found on the first check and confirmed gains later. "
-        .. "It is not how many you have now.\n\n"
-        .. "A + means some bags, bank, or gear have an older or missing check.\n\n"
-        .. "Historical only: not found when all relevant bags, bank, and gear were checked. "
-        .. "Unknown means a needed check could not be completed."
+        .. "Character overall counts that character's first-seen units plus confirmed gains, after refunds. "
+        .. "All characters overall adds those character totals.\n\n"
+        .. "Current counts add the latest known quantities in bags, bank, and equipped gear "
+        .. "for every tracked character, including offline characters.\n\n"
+        .. "Character overall shows Unknown if saved history cannot separate a confirmed gain "
+        .. "from the first recorded stock.\n\n"
+        .. "Current counts use saved quantities, which can be from different times. "
+        .. "Areas with no saved check add no known quantity.\n\n"
+        .. "Historical only means the item was not found after all relevant bags, bank, and gear were checked."
     book.help = Widgets.panel(api, frame, 218, 146, 440, 500, colors.raised)
     book.help:SetFrameLevel(frame:GetFrameLevel() + 30)
     book.help:EnableMouse(true)
