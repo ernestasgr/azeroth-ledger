@@ -462,6 +462,112 @@ _G.AzerothLedgerToggle = function()
     end
 end
 
+local function createMinimapButton()
+    local minimap = rawget(_G, "Minimap")
+    local createFrame = rawget(_G, "CreateFrame")
+    if not minimap or type(createFrame) ~= "function" then
+        return
+    end
+
+    local database = rawget(_G, "AzerothLedgerMinimapButtonDB")
+    if type(database) ~= "table" then
+        database = {}
+        rawset(_G, "AzerothLedgerMinimapButtonDB", database)
+    end
+
+    local position = rawget(database, "minimapPos")
+    if type(position) ~= "number" or position ~= position or position == math.huge or position == -math.huge then
+        position = 315
+    end
+    position = position % 360
+
+    local button = createFrame("Button", nil, minimap)
+    button:SetSize(31, 31)
+    button:SetFrameStrata("MEDIUM")
+    button:SetFrameLevel(minimap:GetFrameLevel() + 1)
+    button:RegisterForClicks("LeftButtonUp")
+    button:RegisterForDrag("LeftButton")
+    button:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+
+    local border = button:CreateTexture(nil, "OVERLAY")
+    border:SetSize(53, 53)
+    border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+    border:SetPoint("TOPLEFT")
+
+    local background = button:CreateTexture(nil, "BACKGROUND")
+    background:SetSize(20, 20)
+    background:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
+    background:SetPoint("TOPLEFT", 7, -5)
+
+    local icon = button:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(20, 20)
+    icon:SetTexture("Interface\\Icons\\INV_Misc_Book_09")
+    icon:SetTexCoord(0.05, 0.95, 0.05, 0.95)
+    icon:SetPoint("TOPLEFT", 7, -5)
+
+    local function updatePosition()
+        button:ClearAllPoints()
+        local width = minimap:GetWidth()
+        local radius = type(width) == "number" and width > 0 and width / 2 + 10 or 80
+        local radians = math.rad(position)
+        button:SetPoint("CENTER", minimap, "CENTER", math.cos(radians) * radius, math.sin(radians) * radius)
+    end
+
+    local function updatePositionFromCursor()
+        local getCursorPosition = rawget(_G, "GetCursorPosition")
+        if type(getCursorPosition) ~= "function" then
+            return
+        end
+        local cursorX, cursorY = getCursorPosition()
+        local centerX, centerY = minimap:GetCenter()
+        local scale = minimap:GetEffectiveScale()
+        if
+            type(cursorX) ~= "number"
+            or type(cursorY) ~= "number"
+            or not centerX
+            or not centerY
+            or type(scale) ~= "number"
+            or scale <= 0
+        then
+            return
+        end
+        position = math.deg(math.atan2(cursorY / scale - centerY, cursorX / scale - centerX)) % 360
+        updatePosition()
+    end
+
+    button:SetScript("OnClick", function()
+        _G.AzerothLedgerToggle()
+    end)
+    button:SetScript("OnDragStart", function(self)
+        self:SetScript("OnUpdate", updatePositionFromCursor)
+    end)
+    button:SetScript("OnDragStop", function(self)
+        updatePositionFromCursor()
+        self:SetScript("OnUpdate", nil)
+        database.minimapPos = position
+    end)
+
+    local tooltip = rawget(_G, "GameTooltip")
+    if tooltip then
+        button:SetScript("OnEnter", function(self)
+            local centerX = self:GetCenter()
+            local parent = rawget(_G, "UIParent")
+            local anchor = parent and centerX and centerX > parent:GetWidth() / 2 and "ANCHOR_LEFT" or "ANCHOR_RIGHT"
+            tooltip:SetOwner(self, anchor)
+            tooltip:AddLine("Azeroth Ledger")
+            tooltip:AddLine("Left-click to open or close", 1, 1, 1)
+            tooltip:AddLine("Drag to move this button", 0.8, 0.8, 0.8)
+            tooltip:Show()
+        end)
+        button:SetScript("OnLeave", function()
+            tooltip:Hide()
+        end)
+    end
+
+    database.minimapPos = position
+    updatePosition()
+end
+
 SLASH_AZEROTHLEDGER1 = "/al"
 SlashCmdList.AZEROTHLEDGER = function(message)
     message = (message or ""):match("^%s*(.-)%s*$")
@@ -561,6 +667,7 @@ if client.frame then
             store:expireEvidence(eventAt)
         end
         if event == "PLAYER_LOGIN" then
+            createMinimapButton()
             inventory:check("all")
             printStatus()
         elseif

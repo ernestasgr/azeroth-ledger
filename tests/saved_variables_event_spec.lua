@@ -1,6 +1,56 @@
 local addon = {}
 local frame = { registered = {} }
 local link = "|Hitem:4540::::::::|h[Tough Hunk of Bread]|h"
+local minimapButton
+local minimapButtonDatabase = { minimapPos = 135 }
+local minimap = {
+    GetFrameLevel = function()
+        return 3
+    end,
+    GetWidth = function()
+        return 140
+    end,
+    GetCenter = function()
+        return 100, 100
+    end,
+    GetEffectiveScale = function()
+        return 1
+    end,
+}
+local function texture()
+    return {
+        SetSize = function() end,
+        SetTexture = function() end,
+        SetPoint = function() end,
+        SetTexCoord = function() end,
+    }
+end
+rawset(_G, "Minimap", minimap)
+rawset(_G, "AzerothLedgerMinimapButtonDB", minimapButtonDatabase)
+CreateFrame = function(frameType, _, parent)
+    assert(frameType == "Button" and parent == minimap)
+    minimapButton = { scripts = {} }
+    minimapButton.SetSize = function() end
+    minimapButton.SetFrameStrata = function() end
+    minimapButton.SetFrameLevel = function() end
+    minimapButton.RegisterForClicks = function() end
+    minimapButton.RegisterForDrag = function() end
+    minimapButton.SetHighlightTexture = function() end
+    minimapButton.CreateTexture = function()
+        return texture()
+    end
+    minimapButton.ClearAllPoints = function() end
+    function minimapButton:SetPoint(...)
+        self.position = { ... }
+    end
+    function minimapButton:SetScript(name, handler)
+        self.scripts[name] = handler
+    end
+    return minimapButton
+end
+rawset(_G, "GetCursorPosition", function()
+    return 150, 100
+end)
 
 function frame:RegisterEvent(event)
     self.registered[event] = true
@@ -80,6 +130,10 @@ local restored = assert(addon.store:find(key), "saved record must load when ADDO
 assert(restored.totalGained == 1)
 assert(restored.gains[1].source.name == "Dermot Johns")
 assert(AzerothLedgerDB.records[key].gains[1].source.name == "Dermot Johns")
+frame.onEvent(frame, "PLAYER_LOGIN")
+assert(minimapButton, "PLAYER_LOGIN must create the Ledger minimap button")
+assert(minimapButton.position, "minimap button must be positioned beside the minimap")
+assert(minimapButtonDatabase.minimapPos == 135, "existing minimap position must be retained")
 
 print("saved_variables_event_spec: passed")
 
@@ -106,6 +160,13 @@ _G.AzerothLedgerToggle()
 _G.AzerothLedgerToggle()
 SlashCmdList.AZEROTHLEDGER("")
 assert(toggles == 2 and slashOpens == 1)
+minimapButton.scripts.OnClick(minimapButton, "LeftButtonUp")
+assert(toggles == 3, "clicking the minimap button must toggle the Ledger")
+minimapButton.scripts.OnDragStart(minimapButton)
+assert(type(minimapButton.scripts.OnUpdate) == "function", "dragging must track the cursor")
+minimapButton.scripts.OnDragStop(minimapButton)
+assert(minimapButton.scripts.OnUpdate == nil, "dragging must stop cursor tracking")
+assert(minimapButtonDatabase.minimapPos == 0, "dragging must save the new minimap position")
 assert(_G.BINDING_NAME_AZEROTHLEDGER_TOGGLE == "Toggle Ledger")
 assert(frame.registered.PLAYER_LOGOUT)
 frame.onEvent(frame, "PLAYER_LOGOUT")

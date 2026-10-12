@@ -407,6 +407,7 @@ end
 
 function tests.LootAdapterPreservesEverySourcePair(_self)
     local store, scan = fixture()
+    local sourceMode = "complete"
     local api = {
         GetNumLootItems = function()
             return 1
@@ -418,6 +419,11 @@ function tests.LootAdapterPreservesEverySourcePair(_self)
             return nil, nil, 3
         end,
         GetLootSourceInfo = function()
+            if sourceMode == "mismatch" then
+                return "Creature-0-1-2-3-4-5", 1, "GameObject-0-1-2-3-6-7", 1
+            elseif sourceMode == "same-source" then
+                return "Creature-0-1-2-3-4-5", 1
+            end
             return "Creature-0-1-2-3-4-5", 1, "GameObject-0-1-2-3-6-7", 2
         end,
     }
@@ -441,13 +447,16 @@ function tests.LootAdapterPreservesEverySourcePair(_self)
     WoWUnit.AreEqual(8, store:breakdown(key).recorded)
     WoWUnit.IsTrue(not store:lootSourceProof(addon.Loot.open(api), 1014, actor))
     WoWUnit.AreEqual(2, #store:find(key).gains)
-    api.GetLootSourceInfo = function()
-        return "Creature-0-1-2-3-4-5", 1, "GameObject-0-1-2-3-6-7", 1
-    end
+    sourceMode = "mismatch"
     local mismatched = addon.Loot.open(api)
     WoWUnit.AreEqual(1, #mismatched)
     WoWUnit.AreEqual(nil, mismatched[1].source)
     WoWUnit.AreEqual(3, mismatched[1].quantity)
+    sourceMode = "same-source"
+    local sameSourceStack = addon.Loot.open(api)
+    WoWUnit.AreEqual(1, #sameSourceStack)
+    WoWUnit.AreEqual(3, sameSourceStack[1].quantity)
+    WoWUnit.AreEqual("Creature-0-1-2-3-4-5", sameSourceStack[1].source.guid)
 end
 
 function tests.LaterUnreadableContainerNameKeepsTheObservedName(_self)
