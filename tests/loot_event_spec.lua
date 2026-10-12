@@ -358,6 +358,63 @@ event("BAG_UPDATE_DELAYED")
 assert(addon.store:breakdown("6889:0").methods.Crafted == 3, "Older reward masked a newer confirmed craft")
 assert(addon.store:breakdown("6889:0").methods.Looted == 3, "Newest reward arbitration changed proven loot totals")
 event("LOOT_CLOSED")
+-- A stacked loot slot can report one source share even when the stack has
+-- multiple item units. Preserve the source when that is the only proven source.
+do
+    local clawLink = "|cnIQ0:|Hitem:7074::::::::1:1488:::::::::|h[Chipped Claw]|h|r"
+    local sourceGUID = "Creature-0-6783-1-118-1984-000040D7BC"
+    local original = {
+        container = C_Container,
+        numLootItems = _G.GetNumLootItems,
+        lootSlotLink = _G.GetLootSlotLink,
+        lootSlotInfo = _G.GetLootSlotInfo,
+        lootSourceInfo = _G.GetLootSourceInfo,
+    }
+    local clawUnits = 0
+    C_Container = {
+        GetContainerNumSlots = function(bag)
+            return bag == 0 and 1 or 0
+        end,
+        GetContainerItemInfo = function(bag)
+            return bag == 0 and clawUnits > 0 and { itemID = 7074, hyperlink = clawLink, stackCount = clawUnits } or nil
+        end,
+    }
+    rawset(_G, "GetNumLootItems", function()
+        return 1
+    end)
+    rawset(_G, "GetLootSlotLink", function()
+        return clawLink
+    end)
+    rawset(_G, "GetLootSlotInfo", function()
+        return nil, "Chipped Claw", 2
+    end)
+    rawset(_G, "GetLootSourceInfo", function()
+        return sourceGUID, 1
+    end)
+    local previous = addon.store:find("7074:0")
+    local previousTotal = previous and previous.totalGained or 0
+    clock = 1925
+    event("LOOT_READY", true, false)
+    event("CHAT_MSG_LOOT", "You receive loot: " .. clawLink .. "x2")
+    clawUnits = 2
+    event("LOOT_CLOSED")
+    event("BAG_UPDATE_DELAYED")
+    local clawRecord = assert(addon.store:find("7074:0"))
+    assert(clawRecord.totalGained == previousTotal + 2, "Chipped Claw: confirmed two-unit gain was lost")
+    local sourcedUnits = 0
+    for _, gain in ipairs(clawRecord.gains) do
+        if gain.at == clock and gain.source and gain.source.guid == sourceGUID then
+            sourcedUnits = sourcedUnits + gain.quantity
+        end
+    end
+    assert(sourcedUnits == 2, "A two-unit Chipped Claw stack from one source was recorded Unknown")
+    C_Container = original.container
+    rawset(_G, "GetNumLootItems", original.numLootItems)
+    rawset(_G, "GetLootSlotLink", original.lootSlotLink)
+    rawset(_G, "GetLootSlotInfo", original.lootSlotInfo)
+    rawset(_G, "GetLootSourceInfo", original.lootSourceInfo)
+end
+
 -- Native timer boundary: an event burst reads only its changed container once.
 local timers, reads = {}, {}
 _G.C_Timer = {
