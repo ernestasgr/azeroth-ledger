@@ -138,13 +138,24 @@ frame.scripts.OnKeyDown(frame, "PAGEUP")
 find("2 / 3")
 click("Collection")
 click("Meat")
-find("400")
+find("410")
+find("How you got it", "Button")
+local sourceBreakdownToggle = find("Where it came from", "Button")
+find("Already had at first check", "FontString")
+local initialStockSource = find("Already had before first check", "FontString")
+assert(initialStockSource.parent.right.text == "400", "the source breakdown must show the recorded initial stock total")
+sourceBreakdownToggle:Click()
+assert(
+    not pcall(find, "Already had before first check", "FontString"),
+    "collapsing the source breakdown must hide its counts"
+)
+click("Where it came from")
+find("Already had before first check", "FontString")
 local itemHistoryToggle = find("Item history", "Button")
 assert(
     itemHistoryToggle.parent.disclosureIcon.texture == "Interface\\Buttons\\UI-MinusButton-UP",
     "an expanded section must show the native minus icon"
 )
-find("How you got it", "Button")
 local firstSeenRow = find("First seen", "FontString")
 local openDetailsHeight = itemHistoryToggle.parent.parent:GetHeight()
 itemHistoryToggle:Click()
@@ -158,7 +169,6 @@ assert(
     collapsedHistoryToggle.parent.parent:GetHeight() < openDetailsHeight,
     "a collapsed item section must reduce the panel height"
 )
-find("How you got it", "Button")
 click("Item history")
 find("First seen", "FontString")
 local versionsToggle = find("Item versions", "Button")
@@ -281,27 +291,21 @@ assert(writes == before, "browsing must not write SavedVariables")
 click("All characters")
 click("Ben-B")
 click("Meat")
-find("Character", "Button")
-find("10")
-click("Account")
-find("400")
-click("Character")
-local stats = find("LATEST CHECK", "FontString").parent
-local detailFade = assert(stats.animationGroups[1])
+find("CHARACTER OVERALL", "FontString")
+find("ALL CHARACTERS OVERALL", "FontString")
+find("CHARACTER CURRENT", "FontString")
+find("ALL CHARACTERS CURRENT", "FontString")
+find("10", "FontString")
+find("410", "FontString")
+local detailHeader = find("CHARACTER OVERALL", "FontString").parent
+local detailFade = assert(detailHeader.animationGroups[1])
 local detailPlays = detailFade.plays
 addon.Collection.refresh(store, "Ada", "A")
 frame.scripts.OnUpdate(frame, 0.1)
 assert(detailFade.plays == detailPlays, "background refresh must not replay the detail transition")
 click("Meat")
 assert(detailFade.plays == detailPlays, "reselecting the same item must not restart its transition")
-local scopedRecorded = false
-for _, control in ipairs(controls) do
-    if control.parent == stats and control.text == "10+" then
-        scopedRecorded = true
-    end
-    assert(not (control.parent == stats and control.text == "400"), "character totals must not show account stock")
-end
-assert(scopedRecorded, "the detail statistic must show the selected character's initial stock")
+assert(detailHeader:IsVisible(), "the four requested counts should be shown together")
 click("Clear filters")
 click("All places")
 local menu = find("Next", "Button").parent
@@ -663,10 +667,10 @@ frame.scripts.OnKeyDown(frame, "ENTER")
 click("Collection")
 click("Clear filters")
 click("All sources")
-click("Boar • 5")
+click("Boar")
 find("Boar", "Button")
-find("GAINED")
-find("5")
+find("ALL CURRENT")
+find("Unknown")
 find("Shows items gained from this source, not everything it can drop.")
 local sourceSearch = find("", "EditBox")
 sourceSearch:SetText("Boar")
@@ -674,12 +678,12 @@ sourceSearch.scripts.OnEnterPressed(sourceSearch)
 find("Meat", "Button")
 click("All realms")
 click("A")
-find("GAINED")
+find("ALL CURRENT")
 click("Clear filters")
 find("All sources", "Button")
-find("TRACKED")
+find("ALL CURRENT")
 assert(sourceWrites == 0)
-print("book_ui_spec: source navigation, source search, contribution quantity and clearing passed")
+print("book_ui_spec: source navigation, source search and clearing passed")
 
 -- Hovering a historical item can complete an uncached item-info request. Keep
 -- the already-rendered Collection visible while that metadata refresh runs.
@@ -742,3 +746,45 @@ for _, control in ipairs(controls) do
     )
 end
 print("book_ui_spec: historical-item hover keeps the Collection visible")
+
+-- A current count is unknown until bags and equipped gear have complete checks
+-- at the same time.
+local partialStore = addon.Schema.open(nil, function() end)
+local bootsLink = "|Hitem:990010::::::::|h[Neophyte's Boots]|h"
+assert(partialStore:scan({
+    character = "Ada",
+    realm = "A",
+    area = "equipped",
+    complete = true,
+    seenAt = 3000,
+    items = { { itemID = 990010, link = bootsLink, quantity = 1 } },
+}))
+assert(partialStore:scan({
+    character = "Ada",
+    realm = "A",
+    area = "bags",
+    complete = true,
+    seenAt = 3001,
+    items = {},
+}))
+local partialFrame = assert(addon.Book.open(api, partialStore, "Ada", "A", "Ada", "A"))
+for _ = 1, 20 do
+    partialFrame.scripts.OnUpdate(partialFrame, 0.1)
+end
+local partialRow
+for _, control in ipairs(controls) do
+    if control.kind == "Button" and control.text == "Neophyte's Boots" and control:IsVisible() then
+        partialRow = control
+        break
+    end
+end
+assert(partialRow, "the previously seen item should remain in the scoped Collection")
+local partialCount
+for _, control in ipairs(controls) do
+    if control.parent == partialRow and control.text == "Unknown" and control:IsVisible() then
+        partialCount = control
+        break
+    end
+end
+assert(partialCount, "a partial storage check must not be presented as an exact count")
+print("book_ui_spec: item rows show exact current counts or Unknown")

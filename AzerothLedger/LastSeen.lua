@@ -8,7 +8,7 @@ end
 
 local function observationFor(record, character, realm, area)
     local latest
-    for _, observation in ipairs(record.observations) do
+    for _, observation in ipairs(record.observations or {}) do
         if observation.character == character and observation.realm == realm and observation.area == area then
             if not latest or observation.seenAt >= latest.seenAt then
                 latest = observation
@@ -32,10 +32,11 @@ end
 ---@field state 'present'|'unknown'|'historical'
 ---@field asOf? integer
 ---@field checks ALStorageCheck[]
----@field checkedUnits? integer
----@field checkedAt? integer
----@field uncheckedAreas integer
----@field firstChecked? integer
+---@field characterOverall? integer
+---@field allCharactersOverall? integer
+---@field characterCurrent? integer
+---@field allCharactersCurrent? integer
+---@field currentAt? integer
 ---@field latestCheck? {character: string, realm: string, area: string, quantity?: integer, at: integer}
 
 ---@param store ALStore
@@ -44,11 +45,18 @@ end
 ---@param realm string
 ---@param scope? AzerothLedgerCollectionFilter
 ---@return ALLastSeen
--- Project dated storage facts once. Display wording is deliberately outside this
--- module, and checked units never imply current ownership on an offline character.
+-- Project dated storage facts and counts once. Counts use each area's latest
+-- known quantity, even when that observation is stale or belongs to an offline character.
 function LastSeen.project(store, record, character, realm, scope)
     scope = scope or {}
-    local characters, selected = {}, {}
+    local characters, selected, allCharacters, allSelected = {}, {}, {}, {}
+    local function addAll(name, actorRealm)
+        local key = actorRealm .. ":" .. name
+        if not allSelected[key] then
+            allSelected[key] = true
+            allCharacters[#allCharacters + 1] = { name = name, realm = actorRealm }
+        end
+    end
     local function add(name, actorRealm)
         local key = actorRealm .. ":" .. name
         if matches(scope, name, actorRealm) and not selected[key] then
@@ -56,16 +64,22 @@ function LastSeen.project(store, record, character, realm, scope)
             characters[#characters + 1] = { name = name, realm = actorRealm }
         end
     end
-    add(character, realm)
+    addAll(character, realm)
     for _, actor in ipairs(store:characters()) do
-        add(actor.character, actor.realm)
+        addAll(actor.character, actor.realm)
     end
-    for _, seen in ipairs(record.characters) do
-        add(seen.name, seen.realm)
+    for _, seen in ipairs(record.characters or {}) do
+        addAll(seen.name, seen.realm)
+    end
+    for _, gain in ipairs(record.gains or {}) do
+        addAll(gain.character, gain.realm)
+    end
+    for _, actor in ipairs(allCharacters) do
+        add(actor.name, actor.realm)
     end
 
-    local result = { checks = {}, uncheckedAreas = 0 }
-    local present, unknown, earliestCheck = false, false, nil
+    local result = { checks = {} }
+    local present, unknown, earliestCheck, latestCheckAt = false, false, nil, nil
     for _, actor in ipairs(characters) do
         local online = actor.name == character and actor.realm == realm
         local characterCheck
@@ -117,8 +131,8 @@ function LastSeen.project(store, record, character, realm, scope)
                 check.observedAt = state.lastCompleteAt
             end
             result.checks[#result.checks + 1] = check
-            if check.at and (not result.checkedAt or check.at >= result.checkedAt) then
-                result.checkedAt = check.at
+            if check.at and (not latestCheckAt or check.at >= latestCheckAt) then
+                latestCheckAt = check.at
                 result.latestCheck = check
             end
         end
@@ -126,27 +140,115 @@ function LastSeen.project(store, record, character, realm, scope)
             earliestCheck = math.min(earliestCheck or characterCheck, characterCheck)
         end
     end
-    for _, check in ipairs(result.checks) do
-        if check.at == result.checkedAt and check.quantity ~= nil then
-            result.checkedUnits = (result.checkedUnits or 0) + check.quantity
-        else
-            result.uncheckedAreas = result.uncheckedAreas + 1
+    local targetName, targetRealm = scope.character, scope.realm
+    if not targetName then
+        targetName, targetRealm = character, realm
+    elseif not targetRealm then
+        local matchingRealm
+        for _, actor in ipairs(allCharacters) do
+            if actor.name == targetName then
+                if matchingRealm and matchingRealm ~= actor.realm then
+                    matchingRealm = nil
+                    break
+                end
+                matchingRealm = actor.realm
+            end
+        end
+        targetRealm = matchingRealm
+    end
+    if targetRealm and scope.realm and targetRealm ~= scope.realm then
+        targetName, targetRealm = nil, nil
+    end
+    local actorOveralls = {}
+    for _, seen in ipairs(record.characters or {}) do
+        local key = seen.realm .. ":" .. seen.name
+        local total = actorOveralls[key]
+        if not total then
+            total = { quantity = 0, firstSeenAt = seen.firstSeen }
+            actorOveralls[key] = total
+        elseif seen.firstSeen < total.firstSeenAt then
+            total.firstSeenAt = seen.firstSeen
+        end
+        total.quantity = total.quantity + seen.firstSeenUnits
+    end
+    for _, gain in ipairs(record.gains or {}) do
+        local key = gain.realm .. ":" .. gain.character
+        local total = actorOveralls[key]
+        if not total then
+            total = { quantity = 0 }
+            actorOveralls[key] = total
+        end
+        if
+            total.firstSeenAt
+            and gain.openedAt
+            and gain.openedAt <= total.firstSeenAt
+            and gain.baselinePossessionsComplete == false
+        then
+            total.ambiguous = true
+        elseif
+            not total.firstSeenAt
+            or (gain.openedAt and gain.openedAt <= total.firstSeenAt)
+            or gain.at > total.firstSeenAt
+        then
+            total.quantity = total.quantity + gain.quantity - (gain.refunded or 0)
         end
     end
-    for _, seen in ipairs(record.characters) do
-        if matches(scope, seen.name, seen.realm) then
-            for _, observation in ipairs(record.observations) do
-                if
-                    observation.character == seen.name
-                    and observation.realm == seen.realm
-                    and observation.quantity > 0
-                then
-                    result.firstChecked = (result.firstChecked or 0) + observation.quantity
-                    break
+    local function overallFor(actorName, actorRealm)
+        local total = actorOveralls[actorRealm .. ":" .. actorName]
+        if not total then
+            return 0
+        end
+        if total.ambiguous then
+            return nil
+        end
+        return total.quantity
+    end
+    if targetName and targetRealm then
+        result.characterOverall = overallFor(targetName, targetRealm)
+    end
+    local allCharactersOverall, allCharactersOverallKnown = 0, true
+    for _, actor in ipairs(allCharacters) do
+        local quantity = overallFor(actor.name, actor.realm)
+        if quantity == nil then
+            allCharactersOverallKnown = false
+        else
+            allCharactersOverall = allCharactersOverall + quantity
+        end
+    end
+    if allCharactersOverallKnown then
+        result.allCharactersOverall = allCharactersOverall
+    end
+
+    local function latestKnownQuantity(actor, area)
+        local state = store:area(actor.name, actor.realm, area)
+        local observation = observationFor(record, actor.name, actor.realm, area)
+        if state and state.lastCompleteAt and (not observation or state.lastCompleteAt >= observation.seenAt) then
+            -- A complete check proves zero when it found no copy of this item.
+            return observation and observation.quantity or 0, state.lastCompleteAt
+        end
+        if observation then
+            return observation.quantity, observation.seenAt
+        end
+        return nil
+    end
+    local function currentQuantity(actors)
+        local quantity, latestAt, found = 0, nil, false
+        for _, actor in ipairs(actors) do
+            for _, area in ipairs(areas) do
+                local areaQuantity, at = latestKnownQuantity(actor, area)
+                if areaQuantity ~= nil and at ~= nil then
+                    found = true
+                    quantity = quantity + areaQuantity
+                    latestAt = math.max(latestAt or at, at)
                 end
             end
         end
+        return found and quantity or nil, latestAt
     end
+    if targetName and targetRealm then
+        result.characterCurrent, result.currentAt = currentQuantity({ { name = targetName, realm = targetRealm } })
+    end
+    result.allCharactersCurrent = currentQuantity(allCharacters)
     result.state = present and "present" or ((unknown or #characters == 0) and "unknown" or "historical")
     result.asOf = earliestCheck
     return result

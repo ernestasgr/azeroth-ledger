@@ -609,6 +609,7 @@ if client.frame then
     for _, event in ipairs({
         "ADDON_LOADED",
         "PLAYER_LOGIN",
+        "PLAYER_ENTERING_WORLD",
         "BAG_UPDATE_DELAYED",
         "BAG_UPDATE",
         "PLAYER_EQUIPMENT_CHANGED",
@@ -670,6 +671,11 @@ if client.frame then
             createMinimapButton()
             inventory:check("all")
             printStatus()
+        elseif event == "PLAYER_ENTERING_WORLD" then
+            local isInitialLogin = ...
+            if isInitialLogin then
+                inventory:check("possessions")
+            end
         elseif
             event == "BAG_UPDATE"
             or event == "BAG_UPDATE_DELAYED"

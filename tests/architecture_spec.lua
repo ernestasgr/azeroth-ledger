@@ -186,9 +186,9 @@ scan("Ada", "bags", 1003, true, 0)
 scan("Ben", "bags", 1003, true, 1)
 agree("unknown")
 local offline = addon.Collection.inspect(ownershipStore, key, "Ada", "Realm", { character = "Ben" })
-assert(offline.checkedUnits == 1 and offline.ownershipState == "unknown")
+assert(offline.characterCurrent == 1 and offline.ownershipState == "unknown")
 local empty = addon.LastSeen.project(ownershipStore, ownershipStore:find(key), "Ada", "Realm", { realm = "Absent" })
-assert(empty.state == "unknown" and empty.checkedUnits == nil)
+assert(empty.state == "unknown" and empty.characterCurrent == nil)
 print("architecture_spec: list, details, text, tooltip, and historical filter agree")
 
 -- A failed check must retain the last readable bank fact with its own date.
@@ -228,25 +228,25 @@ assert(
 local restoredOwnership = addon.Schema.open(ownershipSaved, function() end)
 local restoredAbsent = addon.Collection.inspect(restoredOwnership, key, "Ada", "Realm", { character = "Ada" })
 assert(restoredAbsent.checks[2].observedQuantity == 0 and restoredAbsent.checks[2].observedAt == 4021)
-assert(restoredAbsent.checkedUnits == nil, "A saved stale zero must not become current stock")
+assert(restoredAbsent.characterCurrent == 0, "The last known complete zero should remain part of the count")
 scan("Ada", "bank", 4023, false, 3)
 local partial = addon.Collection.inspect(ownershipStore, key, "Ada", "Realm", { character = "Ada" })
 assert(partial.ownershipState == "present" and partial.checks[2].observedQuantity == 3)
 assert(partial.checks[2].observedAt == 4023)
 scan("Ada", "bank", 4024, false, 0)
 partial = addon.Collection.inspect(ownershipStore, key, "Ada", "Realm", { character = "Ada" })
-assert(partial.ownershipState == "unknown" and partial.checkedUnits == nil)
+assert(partial.ownershipState == "unknown" and partial.characterCurrent == 3)
 assert(partial.checks[2].observedQuantity == 3 and partial.checks[2].observedAt == 4023)
 local offlineBank = addon.Collection.inspect(ownershipStore, key, "Ben", "Realm", { character = "Ada" })
 assert(offlineBank.ownershipState == "unknown" and not offlineBank.checks[2].online)
 assert(offlineBank.checks[2].observedQuantity == 3 and offlineBank.checks[2].observedAt == 4023)
 local scopedRows = addon.Collection.query(ownershipStore, "Ada", "Realm", { character = "Ada" }).rows
-assert(scopedRows[1].ownershipState == partial.ownershipState and scopedRows[1].checkedUnits == nil)
+assert(scopedRows[1].ownershipState == partial.ownershipState and scopedRows[1].characterCurrent == 3)
 for _, area in ipairs({ "bags", "bank", "equipped" }) do
     scan("Ada", area, 4030, true, 0)
 end
 local completeAbsence = addon.Collection.inspect(ownershipStore, key, "Ada", "Realm", { character = "Ada" })
-assert(completeAbsence.ownershipState == "historical" and completeAbsence.checkedUnits == 0)
+assert(completeAbsence.ownershipState == "historical" and completeAbsence.characterCurrent == 0)
 for _, check in ipairs(completeAbsence.checks) do
     assert(check.observedQuantity == 0 and check.observedAt == 4030)
 end
@@ -353,3 +353,70 @@ inventory:event("PLAYER_EQUIPMENT_CHANGED", 16)
 assert(snapshots[#snapshots - 1].seenAt == snapshots[#snapshots].seenAt)
 assert(#flushSizes == 4 and flushSizes[4] == #snapshots, "Synchronous flushes must also signal completion")
 print("architecture_spec: mixed bursts, bank access, retries, and immediate baselines passed")
+
+local countsStore = addon.Schema.open(nil, function() end)
+local countsLink = "|Hitem:990020::::::::|h[Count Test Item]|h"
+for _, check in ipairs({ { "bags", 2 }, { "equipped", 1 } }) do
+    assert(countsStore:scan({
+        character = "Ada",
+        realm = "Realm",
+        area = check[1],
+        complete = true,
+        seenAt = 5000,
+        items = { { itemID = 990020, link = countsLink, quantity = check[2] } },
+    }))
+end
+local countsKey = addon.Item.key(countsLink, 990020)
+assert(countsStore:scan({
+    character = "Ada",
+    realm = "Realm",
+    area = "bank",
+    complete = true,
+    seenAt = 4990,
+    items = { { itemID = 990020, link = countsLink, quantity = 4 } },
+}))
+local counts = addon.Collection.inspect(countsStore, countsKey, "Ada", "Realm")
+assert(counts.characterOverall == 2 and counts.allCharactersOverall == 2)
+assert(counts.characterCurrent == 7 and counts.allCharactersCurrent == 7)
+assert(counts.currentAt == 5000)
+assert(countsStore:scan({
+    character = "Ada",
+    realm = "Realm",
+    area = "bank",
+    complete = false,
+    seenAt = 5001,
+    items = {},
+}))
+counts = addon.Collection.inspect(countsStore, countsKey, "Ada", "Realm")
+assert(counts.characterCurrent == 7, "A closed bank should keep contributing its latest known quantity")
+assert(countsStore:scan({
+    character = "Ben",
+    realm = "Realm",
+    area = "bags",
+    complete = true,
+    seenAt = 4801,
+    items = { { itemID = 990020, link = countsLink, quantity = 3 } },
+}))
+for _, check in ipairs({ { "bank", 4800, 2 }, { "equipped", 4802, 1 } }) do
+    assert(countsStore:scan({
+        character = "Ben",
+        realm = "Realm",
+        area = check[1],
+        complete = true,
+        seenAt = check[2],
+        items = { { itemID = 990020, link = countsLink, quantity = check[3] } },
+    }))
+end
+counts = addon.Collection.inspect(countsStore, countsKey, "Ada", "Realm")
+assert(counts.characterOverall == 2 and counts.allCharactersOverall == 5)
+assert(counts.characterCurrent == 7 and counts.allCharactersCurrent == 13)
+local countLines = table.concat(addon.Collection.details(countsStore, countsKey, "Ada", "Realm"), "\n")
+for _, expected in ipairs({
+    "Character overall: 2",
+    "All characters overall: 5",
+    "Character current: 7",
+    "All characters current: 13",
+}) do
+    assert(countLines:find(expected, 1, true), "Missing requested count: " .. expected)
+end
+print("architecture_spec: all four exact count scopes passed")
