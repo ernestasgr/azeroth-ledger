@@ -155,6 +155,8 @@ end
 ---@class AzerothLedgerGain
 ---@field id string
 ---@field at integer
+---@field openedAt? integer Loot session open time, used to avoid double counting a first snapshot
+---@field baselinePossessionsComplete? boolean
 ---@field quantity integer
 ---@field character string
 ---@field realm string
@@ -885,6 +887,8 @@ local function copyRecord(record, shareGains, pause)
         gains[index] = {
             id = gain.id,
             at = gain.at,
+            openedAt = gain.openedAt,
+            baselinePossessionsComplete = gain.baselinePossessionsComplete,
             quantity = gain.quantity,
             character = gain.character,
             realm = gain.realm,
@@ -999,6 +1003,8 @@ local function validRecord(key, record)
             type(gain) ~= "table"
             or type(gain.id) ~= "string"
             or not isInteger(gain.at)
+            or (gain.openedAt ~= nil and not isInteger(gain.openedAt))
+            or (gain.baselinePossessionsComplete ~= nil and type(gain.baselinePossessionsComplete) ~= "boolean")
             or not isInteger(gain.quantity)
             or gain.quantity < 1
             or not isName(gain.character)
@@ -3078,6 +3084,8 @@ function Schema.open(raw, save)
             gain = {
                 id = gainID,
                 at = receipt.at,
+                openedAt = session.openedAt,
+                baselinePossessionsComplete = session.baselinePossessions ~= nil,
                 quantity = quantity,
                 character = session.character,
                 realm = session.realm,
@@ -3094,7 +3102,9 @@ function Schema.open(raw, save)
         record.lastGained = record.lastGained and math.max(record.lastGained, gain.at) or gain.at
         if session.discoveries[key] then
             record.evidencedDiscovery = true
-            record.firstSeenUnits = math.max(0, record.firstSeenUnits - quantity)
+            if record.firstSeen >= session.openedAt then
+                record.firstSeenUnits = math.max(0, record.firstSeenUnits - quantity)
+            end
             for _, character in ipairs(record.characters) do
                 if character.name == session.character and character.realm == session.realm then
                     character.firstSeenUnits = math.max(0, character.firstSeenUnits - quantity)
@@ -4873,7 +4883,17 @@ function Schema.open(raw, save)
             session = nil
         end
         for key, group in pairs(grouped) do
-            if session and session.baselinePossessions and not valid[key] then
+            local characterWasKnown = false
+            local existingRecord = valid[key]
+            if existingRecord then
+                for _, seen in ipairs(existingRecord.characters) do
+                    if seen.name == snapshot.character and seen.realm == snapshot.realm then
+                        characterWasKnown = true
+                        break
+                    end
+                end
+            end
+            if session and session.baselinePossessions and not characterWasKnown then
                 session.discoveries[key] = true
             end
             if
@@ -4925,10 +4945,11 @@ function Schema.open(raw, save)
                 end
             end
             table.sort(record.links)
-            local characterFound = false
+            local characterFound, characterEntry = false, nil
             for _, character in ipairs(record.characters) do
                 if character.name == snapshot.character and character.realm == snapshot.realm then
                     characterFound = true
+                    characterEntry = character
                     if snapshot.seenAt > character.lastSeen then
                         character.lastSeen = snapshot.seenAt
                     end
@@ -4936,13 +4957,27 @@ function Schema.open(raw, save)
                 end
             end
             if not characterFound then
-                record.characters[#record.characters + 1] = {
+                characterEntry = {
                     name = snapshot.character,
                     realm = snapshot.realm,
                     firstSeen = snapshot.seenAt,
                     lastSeen = snapshot.seenAt,
                     firstSeenUnits = group.quantity,
                 }
+                record.characters[#record.characters + 1] = characterEntry
+            end
+            if session and session.discoveries[key] and not characterWasKnown then
+                local gainID = tostring(session.id) .. ":" .. key
+                for _, gain in ipairs(record.gains) do
+                    if gain.id == gainID then
+                        local firstSeenUnits = characterEntry and characterEntry.firstSeenUnits
+                        if firstSeenUnits ~= nil then
+                            characterEntry.firstSeenUnits =
+                                math.max(0, firstSeenUnits - gain.quantity + (gain.refunded or 0))
+                        end
+                        break
+                    end
+                end
             end
             local previous
             for _, observation in ipairs(record.observations) do

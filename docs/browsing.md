@@ -37,11 +37,14 @@ gain date sort newest first in the selected character/realm scope. An account
 view uses the account discovery date. An item without a confirmed gain date
 sorts after dated items.
 
-Quantity sorts largest first. Account views use Recorded (initial stock plus net
-lifetime gains), not current ownership. Character/realm views use checked stock
-at the latest check date. A `+` marks a known subtotal with older or unchecked
-storage; it sorts by that subtotal. Unknown quantities sort last, and readable
-zero sorts as zero. A stale observation never becomes checked stock.
+Quantity sorts largest first by the current count shown in the list. Character
+overall is that character's first-seen units plus confirmed gains after refunds.
+All characters overall sums those per-character totals; stock first found on
+multiple characters contributes to each character's total. Current counts add
+the latest known quantity in bags, bank, and equipped gear for every tracked
+character, including offline characters. An area without a saved check adds no
+known quantity. Different areas may have been checked at different times, so
+current counts can be stale.
 
 Every Collection sort breaks equal values by ascending retained name, then
 intrinsic item/variant key. Journal breaks equal event dates by descending commit
