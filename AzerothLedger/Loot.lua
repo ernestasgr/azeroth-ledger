@@ -78,6 +78,7 @@ local function sourceShares(api, slot, key, slotQuantity)
     end
     local result = {}
     local total = 0
+    local commonGUID, sameSource = nil, true
     for index = 1, values.n, 2 do
         local guid, quantity = values[index], values[index + 1]
         if
@@ -90,6 +91,11 @@ local function sourceShares(api, slot, key, slotQuantity)
             return nil
         end
         total = total + quantity
+        if commonGUID == nil then
+            commonGUID = guid
+        elseif commonGUID ~= guid then
+            sameSource = false
+        end
         result[#result + 1] = {
             key = key,
             quantity = quantity,
@@ -99,6 +105,20 @@ local function sourceShares(api, slot, key, slotQuantity)
         }
     end
     if slotQuantity and slotQuantity ~= total then
+        local onlySource = result[1] and result[1].source
+        -- A count mismatch cannot split the stack safely, but it can retain
+        -- provenance when every listed share names the same source.
+        if sameSource and onlySource then
+            return {
+                {
+                    key = key,
+                    quantity = slotQuantity,
+                    source = onlySource,
+                    slot = slot,
+                    sourceIndex = 1,
+                },
+            }
+        end
         return nil
     end
     return result
