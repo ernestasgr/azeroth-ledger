@@ -57,6 +57,7 @@ jobs:
           lua tests/late_equipment_spec.lua
           lua tests/performance_spec.lua
           lua tests/architecture_spec.lua
+          lua tests/event_routing_spec.lua
       - name: Format and lint
         run: |
           .tools/stylua/stylua --check AzerothLedger AzerothLedger_Tests tests
