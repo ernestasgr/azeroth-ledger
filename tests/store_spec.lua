@@ -1,7 +1,22 @@
 local addon = {}
 assert(loadfile("AzerothLedger/Item.lua"))("AzerothLedger", addon)
 assert(loadfile("AzerothLedger/Work.lua"))("AzerothLedger", addon)
-assert(loadfile("AzerothLedger/Schema.lua"))("AzerothLedger", addon)
+for _, name in ipairs({
+    "SchemaValidate",
+    "StoreKernel",
+    "StorePreferences",
+    "StoreJournal",
+    "StoreEvidence",
+    "StoreRecords",
+    "StoreLoot",
+    "StoreExchange",
+    "StoreVendor",
+    "StoreReward",
+    "StoreScan",
+    "Schema",
+}) do
+    assert(loadfile("AzerothLedger/" .. name .. ".lua"))("AzerothLedger", addon)
+end
 
 local saved
 local function open(raw)
