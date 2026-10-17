@@ -10,6 +10,9 @@ local function session(saved)
         "Journal",
         "BookWidgets",
         "BookQuery",
+        "BookState",
+        "BookFrame",
+        "BookRender",
         "Book",
         "Settings",
     }) do

@@ -21,6 +21,9 @@ Presentation.lua
 Journal.lua
 BookWidgets.lua
 BookQuery.lua
+BookState.lua
+BookFrame.lua
+BookRender.lua
 Book.lua
 Settings.lua
 Main.lua

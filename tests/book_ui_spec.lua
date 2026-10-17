@@ -10,6 +10,9 @@ for _, source in ipairs({
     "Journal",
     "BookWidgets",
     "BookQuery",
+    "BookState",
+    "BookFrame",
+    "BookRender",
     "Book",
 }) do
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)

@@ -77,6 +77,17 @@ function Widgets.stopMotion(book)
     end
 end
 
+-- Same contract as the client's Mixin: copy each mixin's fields onto object.
+-- Kept local so the book does not depend on a FrameXML global at load time.
+function Widgets.mixin(object, ...)
+    for index = 1, select("#", ...) do
+        for key, value in pairs((select(index, ...))) do
+            object[key] = value
+        end
+    end
+    return object
+end
+
 function Widgets.fill(parent, color, x, y, width, height, layer, subLevel)
     local texture = parent:CreateTexture(nil, layer or "BACKGROUND", nil, subLevel or 0)
     texture:SetPoint("TOPLEFT", x, -y)

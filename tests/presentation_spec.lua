@@ -10,6 +10,9 @@ for _, source in ipairs({
     "Presentation",
     "BookWidgets",
     "BookQuery",
+    "BookState",
+    "BookFrame",
+    "BookRender",
     "Book",
     "Settings",
 }) do

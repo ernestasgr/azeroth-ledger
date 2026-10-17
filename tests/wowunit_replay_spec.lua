@@ -15,6 +15,9 @@ for _, source in ipairs({
     "Journal",
     "BookWidgets",
     "BookQuery",
+    "BookState",
+    "BookFrame",
+    "BookRender",
     "Book",
     "Settings",
 }) do
