@@ -10,7 +10,7 @@ function Item.key(link, itemID)
     if type(link) ~= "string" or type(itemID) ~= "number" then
         return nil
     end
-    local payload = link:match("item:([%d:%-]+)|")
+    local payload = link:match("item:([^|]+)|")
     if not payload then
         return nil
     end
@@ -49,12 +49,14 @@ end
 function Item.linkGroups(links)
     local groups, byKey = {}, {}
     for _, link in ipairs(links) do
-        local payload = link:match("item:([%d:%-]+)|")
+        local payload = link:match("item:([^|]+)|")
         local key = link
         if payload then
             local fields = {}
             for field in (payload .. ":"):gmatch("([^:]*):") do
-                fields[#fields + 1] = tostring(tonumber(field) or 0)
+                -- Crafted items name their crafter by GUID; keep such text fields.
+                local number = tonumber(field)
+                fields[#fields + 1] = number and tostring(number) or (field == "" and "0" or field)
             end
             fields[8], fields[9], fields[10] = "0", "0", "0"
             -- Bonus order is not part of Item.key identity, but keep enchants,
