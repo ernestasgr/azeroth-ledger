@@ -20,7 +20,9 @@ def main() -> None:
     lua = LuaRuntime(unpack_returned_tuples=True)
     measurements = lua.execute(r'''
         local addon = {}
-        for _, name in ipairs({ "Item", "Work", "Schema", "Client", "LastSeen", "Collection", "Journal",
+        for _, name in ipairs({ "Item", "Work", "SchemaValidate", "StoreKernel", "StorePreferences", "StoreJournal",
+            "StoreEvidence", "StoreRecords", "StoreLoot", "StoreExchange", "StoreVendor",
+            "StoreReward", "StoreScan", "Schema", "Client", "LastSeen", "Collection", "Journal",
             "BookWidgets", "BookQuery", "BookState", "BookFrame", "BookRender", "Book" }) do
             assert(loadfile("AzerothLedger/" .. name .. ".lua"))("AzerothLedger", addon)
         end

@@ -21,12 +21,17 @@ def main() -> None:
 
     lua = LuaRuntime(unpack_returned_tuples=True)
     addon = lua.table()
-    for name in ("Item", "Work", "Schema", "Client", "LastSeen", "Collection", "Journal", "BookQuery", "Presentation"):
-        path = f"AzerothLedger/{name}.lua"
-        source = (
-            subprocess.check_output(["git", "show", f"{args.baseline}:{path}"], text=True, encoding="utf-8")
-            if args.baseline else Path(path).read_text(encoding="utf-8")
-        )
+    def read(path: str) -> str:
+        if args.baseline:
+            return subprocess.check_output(["git", "show", f"{args.baseline}:{path}"], text=True, encoding="utf-8")
+        return Path(path).read_text(encoding="utf-8")
+
+    # The store spans several files after the Schema split; take that ref's TOC order.
+    listed = [line.strip()[:-4] for line in read("AzerothLedger/AzerothLedger.toc").splitlines()
+              if line.strip().endswith(".lua")]
+    store = [name for name in listed[: listed.index("Schema") + 1] if name.startswith(("Schema", "Store"))]
+    for name in ("Item", "Work", *store, "Client", "LastSeen", "Collection", "Journal", "BookQuery", "Presentation"):
+        source = read(f"AzerothLedger/{name}.lua")
         lua.execute('assert(loadstring((...)))("AzerothLedger", select(2, ...))', source, addon)
     cases = lua.execute(r'''
         local addon, baseline = ...
