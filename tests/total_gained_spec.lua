@@ -291,7 +291,7 @@ local cases = {
             w.vendor(113, "refund", 3)
             w.bags(114, 0)
         end,
-        expect = "gained=0 first=110 last=110 firstSeenUnits=0 chars=[Ada=3] gains=[Vendor+3-3] discovery=true",
+        expect = "gained=0 first=110 last=110 firstSeenUnits=0 chars=[Ada=0] gains=[Vendor+3-3] discovery=true",
         found = "found=[Ada=0] all=0",
     },
     {
@@ -491,6 +491,163 @@ for _, channel in ipairs({ "quest", "craft", "vendor", "mail" }) do
                 .. account
                 .. ")"
         end
+    end
+end
+-- Saves written before the Total found fix took a discovered vendor purchase's
+-- units off the character's first-check units. This is the exact save that
+-- code wrote after buying three newly seen items; a refund, whether already
+-- saved or made after the update, must never leave a negative Total found.
+local function purchasedBeforeTheFix()
+    return {
+        areas = {
+            ["Realm:Ada:bags"] = {
+                character = "Ada",
+                checkID = 2,
+                complete = true,
+                lastCompleteAt = 112,
+                realm = "Realm",
+                seenAt = 112,
+            },
+        },
+        evidence = {
+            discarded = 0,
+            nextID = 1,
+            unresolved = {},
+        },
+        journal = {
+            gains = {
+                {
+                    at = 110,
+                    id = "vendor:1:4540:0",
+                    key = "4540:0",
+                    sequence = 1,
+                },
+            },
+            nextSequence = 2,
+        },
+        records = {
+            ["4540:0"] = {
+                characters = {
+                    {
+                        firstSeen = 112,
+                        firstSeenLater = true,
+                        firstSeenUnits = 0,
+                        lastSeen = 112,
+                        name = "Ada",
+                        realm = "Realm",
+                    },
+                },
+                evidencedDiscovery = true,
+                firstGained = 110,
+                firstSeen = 112,
+                firstSeenLater = true,
+                firstSeenUnits = 0,
+                gains = {
+                    {
+                        at = 110,
+                        character = "Ada",
+                        id = "vendor:1:4540:0",
+                        level = 12,
+                        method = "Vendor",
+                        place = "Elwynn Forest",
+                        quantity = 3,
+                        realm = "Realm",
+                        source = {
+                            kind = "vendor",
+                            name = "Dermot",
+                        },
+                    },
+                },
+                itemID = 4540,
+                key = "4540:0",
+                lastGained = 110,
+                lastSeen = 112,
+                links = {
+                    "|Hitem:4540::::::::|h[Tough Hunk of Bread]|h",
+                },
+                observations = {
+                    {
+                        area = "bags",
+                        character = "Ada",
+                        quantity = 3,
+                        realm = "Realm",
+                        seenAt = 112,
+                    },
+                },
+                totalGained = 3,
+            },
+        },
+        schema = 2,
+        vendor = {
+            actions = {
+                {
+                    area = "bags",
+                    at = 110,
+                    baseline = 0,
+                    baselineGained = 0,
+                    character = "Ada",
+                    id = 1,
+                    itemID = 4540,
+                    key = "4540:0",
+                    kind = "purchase",
+                    level = 12,
+                    link = "|Hitem:4540::::::::|h[Tough Hunk of Bread]|h",
+                    place = "Elwynn Forest",
+                    quantity = 3,
+                    realm = "Realm",
+                    receiptQuantity = 3,
+                    status = "confirmed",
+                    vendorName = "Dermot",
+                },
+            },
+            journal = {},
+            nextID = 2,
+        },
+    }
+end
+
+local function refundedBeforeTheFix()
+    local raw = purchasedBeforeTheFix()
+    local record = raw.records[key]
+    record.gains[1].refunded = 3
+    record.totalGained = 0
+    record.observations[2] = { area = "bags", character = "Ada", quantity = 0, realm = "Realm", seenAt = 114 }
+    raw.areas["Realm:Ada:bags"].seenAt, raw.areas["Realm:Ada:bags"].lastCompleteAt = 114, 114
+    raw.areas["Realm:Ada:bags"].checkID = 3
+    return raw
+end
+
+local function totalFound(store)
+    local projection = addon.LastSeen.project(store, store:find(key), "Ada", "Realm")
+    return projection.characterOverall, projection.allCharactersOverall
+end
+
+do
+    local store = addon.Schema.open(refundedBeforeTheFix(), function() end)
+    local character, account = totalFound(store)
+    if character ~= 0 or account ~= 0 then
+        failures[#failures + 1] = "an item bought and refunded before the update must show Total found 0, not "
+            .. tostring(character)
+            .. " / "
+            .. tostring(account)
+    end
+end
+do
+    local store = addon.Schema.open(purchasedBeforeTheFix(), function() end)
+    assert(
+        store:vendorAction(
+            { kind = "refund", key = key, itemID = 4540, link = link, quantity = 3 },
+            113,
+            { character = "Ada", realm = "Realm", level = 12, place = "Elwynn Forest", vendorName = "Dermot" }
+        )
+    )
+    assert(store:scan({ character = "Ada", realm = "Realm", area = "bags", seenAt = 114, complete = true, items = {} }))
+    local character, account = totalFound(store)
+    if store:find(key).totalGained ~= 0 or character ~= 0 or account ~= 0 then
+        failures[#failures + 1] = "a refund after the update of an item bought before it must show Total found 0, not "
+            .. tostring(character)
+            .. " / "
+            .. tostring(account)
     end
 end
 assert(#failures == 0, "\n" .. table.concat(failures, "\n"))

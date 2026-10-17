@@ -1,5 +1,6 @@
 local _, addon = ...
 local LastSeen = {}
+local countsAfterFirstCheck = addon.SchemaValidate.countsAfterFirstCheck
 local areas = { "bags", "bank", "equipped" }
 
 local function matches(scope, character, realm)
@@ -186,15 +187,8 @@ function LastSeen.project(store, record, character, realm, scope)
             and gain.baselinePossessionsComplete == false
         then
             total.ambiguous = true
-        elseif
-            not total.firstSeenAt
-            or (gain.openedAt and gain.openedAt <= total.firstSeenAt)
-            or gain.at > total.firstSeenAt
-        then
+        elseif countsAfterFirstCheck(gain, total.firstSeenAt) then
             total.quantity = total.quantity + gain.quantity - (gain.refunded or 0)
-        else
-            -- The first check already counted these units; a refund still removes them.
-            total.quantity = total.quantity - (gain.refunded or 0)
         end
     end
     -- Units moved in from another of your characters belong to this character's

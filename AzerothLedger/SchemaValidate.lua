@@ -634,6 +634,13 @@ local function validRetention(value)
     return true
 end
 
+-- Whether a character's Total found counts this gain on top of its first-check
+-- units. A gain before the character's first sighting is already in those
+-- units, unless loot measured it from a session that opened before the sighting.
+local function countsAfterFirstCheck(gain, firstSeen)
+    return firstSeen == nil or (gain.openedAt ~= nil and gain.openedAt <= firstSeen) or gain.at > firstSeen
+end
+
 local function gainRoot(id)
     return id:match("^(.-):share:") or id:match("^(.-):proof:") or id
 end
@@ -1111,6 +1118,7 @@ Validate.isInteger = isInteger
 Validate.validCheckID = validCheckID
 Validate.validRetention = validRetention
 Validate.gainRoot = gainRoot
+Validate.countsAfterFirstCheck = countsAfterFirstCheck
 Validate.chronological = chronological
 Validate.trimHistory = trimHistory
 Validate.isName = isName
