@@ -416,6 +416,10 @@ assert(#addon.store:exchangeActivity() == 1 and addon.store:exchangeActivity()[1
 local seen = addon.LastSeen.project(addon.store, addon.store:find("4540:0"), "Ben", "Realm")
 assert(seen.characterOverall == 2, "Ben received two by transfer")
 assert(seen.allCharactersOverall == 2, "a transfer must not count the same units twice")
+local received = addon.store:breakdown("4540:0", { character = "Ben", realm = "Realm" })
+assert(received.methods.Transfer == 2, "Ben's view must say how the transferred units arrived")
+assert(received.sources["Your characters"] == 2 and received.gained == 0)
+assert(not addon.store:breakdown("4540:0").methods.Transfer, "the account view counts them where they started")
 
 -- A character switch reads empty bags until the client loads them; that read proves nothing.
 addon, state = mailbox(nil, true)

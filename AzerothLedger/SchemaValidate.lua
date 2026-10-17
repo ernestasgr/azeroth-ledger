@@ -1521,7 +1521,7 @@ function Validate.sourceGroups(groups, pause)
     addon.Work.sort(rows, function(left, right)
         return left.key < right.key
     end, checkpoint)
-    local used = { ["Initial stock"] = true, ["Appeared later"] = true }
+    local used = { ["Initial stock"] = true, ["Appeared later"] = true, ["Your characters"] = true }
     for index, group in ipairs(rows) do
         if labels[group.label] > 1 or used[group.label] then
             local identity = group.key:match("^(%a+:%d+)$")

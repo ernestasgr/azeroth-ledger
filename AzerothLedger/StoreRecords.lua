@@ -31,6 +31,20 @@ function StoreRecords.install(store, kernel)
             methods = initial and { [later and "Appeared" or "Seen"] = initial } or {},
             sources = initial and { [later and "Appeared later" or "Initial stock"] = initial } or {},
         }
+        -- A character's view explains units moved in from your other characters;
+        -- the account view already counts them where they started.
+        if scoped then
+            local transferred = 0
+            for _, seen in ipairs(record.characters) do
+                if matches(seen.name, seen.realm) then
+                    transferred = transferred + (seen.transferredUnits or 0)
+                end
+            end
+            if transferred > 0 then
+                result.methods.Transfer = transferred
+                result.sources["Your characters"] = transferred
+            end
+        end
         local groups = {}
         for _, gain in ipairs(record.gains) do
             if matches(gain.character, gain.realm) then
