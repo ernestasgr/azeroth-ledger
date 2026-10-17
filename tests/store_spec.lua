@@ -49,6 +49,36 @@ local found = fresh:find(key)
 found.links[1] = "changed"
 assert(fresh:find(key).links[1] == link)
 
+-- Crafted items carry the crafter's GUID in their link.
+local crafted = "|cnIQ1:|Hitem:2853::::::::5:1491::::::::Player-4618-018D7859:|h[Copper Bracers]|h|r"
+assert(addon.Item.key(crafted, 2853) == "2853:0", "Crafter GUID made a crafted link unreadable")
+assert(
+    #addon.Item.linkGroups({ crafted, (crafted:gsub("018D7859", "018D785A")) }) == 2,
+    "Crafted links by different crafters were merged"
+)
+assert(fresh:rewardReceipt({
+    key = "2853:0",
+    quantity = 1,
+    method = "Crafted",
+    context = { kind = "recipe", id = 2663, name = "Copper Bracers" },
+}, 1240, { character = "Ada", realm = "Realm", level = 5, place = "Stormwind City", placeKind = "zone" }))
+assert(fresh:scan({
+    character = "Ada",
+    realm = "Realm",
+    area = "bags",
+    seenAt = 1241,
+    complete = true,
+    items = {
+        { itemID = 2672, link = link, quantity = 1, location = "0:1" },
+        { itemID = 2853, link = crafted, quantity = 1, location = "0:6" },
+    },
+}))
+assert(fresh:find("2853:0"), "Crafted item was not added to the collection")
+assert(fresh:breakdown("2853:0").methods.Crafted == 1, "Crafted item was not credited to its recipe")
+for _, entry in ipairs(fresh:unresolved()) do
+    assert(entry.kind ~= "identity", "Crafted item left unreadable identity evidence")
+end
+
 local damaged = open({ schema = 2, records = { bad = { itemID = -1 } }, areas = {} })
 assert(damaged:diagnostic().kind == "damaged")
 assert(#damaged:list() == 0)
