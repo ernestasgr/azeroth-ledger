@@ -118,6 +118,7 @@ end
 ---@field firstSeen integer
 ---@field lastSeen integer
 ---@field firstSeenUnits integer
+---@field transferredUnits? integer Units first seen here that arrived from another of your characters.
 
 ---@class AzerothLedgerAreaState
 ---@field seenAt integer
@@ -993,6 +994,7 @@ local function validRecord(key, record)
             or not isInteger(character.firstSeen)
             or not isInteger(character.lastSeen)
             or not isInteger(character.firstSeenUnits)
+            or (character.transferredUnits ~= nil and not isInteger(character.transferredUnits))
         then
             return false
         end

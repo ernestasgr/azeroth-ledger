@@ -1,7 +1,8 @@
 -- Synthetic production hooks/events; this does not certify native client behavior.
 local link = "|Hitem:4540::::::::|h[Bread]|h"
 
-local function mailbox(initial)
+-- switching leaves the client mid-load, before its first BAG_UPDATE_DELAYED.
+local function mailbox(initial, switching)
     local addon = {}
     local frame = { registered = {} }
     local state = { bags = initial or {}, messages = {}, clock = 1000, character = "Ada", outbox = {} }
@@ -168,6 +169,9 @@ local function mailbox(initial)
     end
     state:event("ADDON_LOADED", "AzerothLedger")
     state:event("PLAYER_LOGIN")
+    if not switching then
+        state:event("BAG_UPDATE_DELAYED")
+    end
     return addon, state
 end
 
@@ -408,6 +412,17 @@ state:event("MAIL_SUCCESS")
 state:event("BAG_UPDATE_DELAYED")
 assert(addon.store:find("4540:0").totalGained == 0, "surnamed alt mail must be a transfer")
 assert(#addon.store:exchangeActivity() == 1 and addon.store:exchangeActivity()[1].sender == "Ada")
+-- A transfer moves units between characters; the account still has only Ada's two.
+local seen = addon.LastSeen.project(addon.store, addon.store:find("4540:0"), "Ben", "Realm")
+assert(seen.characterOverall == 2, "Ben received two by transfer")
+assert(seen.allCharactersOverall == 2, "a transfer must not count the same units twice")
+
+-- A character switch reads empty bags until the client loads them; that read proves nothing.
+addon, state = mailbox(nil, true)
+state.bags = { { quantity = 3 } }
+state:event("BAG_UPDATE_DELAYED")
+record = addon.store:find("4540:0")
+assert(not record.firstSeenLater, "items present at login were already had, not appeared later")
 
 -- A same-realm sender has no realm suffix but is still a named player source.
 addon, state = mailbox()

@@ -12,6 +12,9 @@ function Inventory.new(api, publish, afterFlush)
     -- The client can fill equipment slots without PLAYER_EQUIPMENT_CHANGED, as
     -- with a new character's starting gear. Such updates re-read every slot.
     local allEquipment = false
+    -- After a character switch the client reports empty bags and gear until its
+    -- first BAG_UPDATE_DELAYED. An empty read before then proves nothing.
+    local loaded, distrusted = false, false
     local pendingBags, pendingEquipment = {}, {}
     local inventory = {}
 
@@ -21,6 +24,9 @@ function Inventory.new(api, publish, afterFlush)
 
     local function capture(area, at, affected)
         local snapshot = reader:capture(area, bankOpen, affected)
+        if snapshot and not loaded and area ~= "bank" and #snapshot.items == 0 then
+            snapshot.complete, distrusted = false, true
+        end
         if snapshot then
             snapshot.seenAt = at or snapshot.seenAt
             publish(snapshot)
@@ -87,6 +93,13 @@ function Inventory.new(api, publish, afterFlush)
                 pendingBags[value] = true
             end
         elseif event == "BAG_UPDATE_DELAYED" then
+            if not loaded then
+                loaded = true
+                if distrusted then
+                    -- Re-read every bag: the empty login reads are not a cache to trust.
+                    pendingBags = {}
+                end
+            end
             queue()
         elseif event == "PLAYER_EQUIPMENT_CHANGED" then
             if type(value) == "number" then

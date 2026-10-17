@@ -380,7 +380,7 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm,
                         .. ": first seen "
                         .. stamp(seen.firstSeen)
                         .. " • "
-                        .. seen.firstSeenUnits
+                        .. seen.firstSeenUnits + (seen.transferredUnits or 0)
                         .. " units"
                 end
             end
