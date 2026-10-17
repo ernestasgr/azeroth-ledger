@@ -92,6 +92,17 @@ local sources = {
     "LastSeen",
     "Collection",
     "Inventory",
+    "Events",
+    "Runtime",
+    "MerchantSession",
+    "MailSession",
+    "TradeSession",
+    "LootSession",
+    "QuestSession",
+    "CraftSession",
+    "Diagnostics",
+    "Commands",
+    "MinimapButton",
     "Main",
 }
 for _, source in ipairs(sources) do

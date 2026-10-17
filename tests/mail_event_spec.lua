@@ -144,6 +144,17 @@ local function mailbox(initial)
         "LastSeen",
         "Collection",
         "Journal",
+        "Events",
+        "Runtime",
+        "MerchantSession",
+        "MailSession",
+        "TradeSession",
+        "LootSession",
+        "QuestSession",
+        "CraftSession",
+        "Diagnostics",
+        "Commands",
+        "MinimapButton",
         "Main",
     }) do
         assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
