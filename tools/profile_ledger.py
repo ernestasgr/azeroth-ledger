@@ -23,7 +23,7 @@ def main() -> None:
         for _, name in ipairs({ "Item", "Work", "SchemaValidate", "StoreKernel", "StorePreferences", "StoreJournal",
             "StoreEvidence", "StoreRecords", "StoreLoot", "StoreExchange", "StoreVendor",
             "StoreReward", "StoreScan", "Schema", "Client", "LastSeen", "Collection", "Journal",
-            "BookWidgets", "BookQuery", "Book" }) do
+            "BookWidgets", "BookQuery", "BookState", "BookFrame", "BookRender", "Book" }) do
             assert(loadfile("AzerothLedger/" .. name .. ".lua"))("AzerothLedger", addon)
         end
         date = os.date

@@ -80,7 +80,7 @@ assert(restored:breakdown("20000:0").sources["Mob #10000"] == 2)
 assert(#restored:find("20000:0").links == 2)
 print("performance_spec: budgeted browsing and permanent facts passed")
 
-for _, name in ipairs({ "Journal", "BookWidgets", "BookQuery", "Book" }) do
+for _, name in ipairs({ "Journal", "BookWidgets", "BookQuery", "BookState", "BookFrame", "BookRender", "Book" }) do
     assert(loadfile("AzerothLedger/" .. name .. ".lua"))("AzerothLedger", addon)
 end
 local native = assert(loadfile("tests/support/native_ui.lua"))().create()
