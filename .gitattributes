@@ -1,0 +1,4 @@
+# LF everywhere so StyLua and scripted edits see the same bytes as CI.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.png binary

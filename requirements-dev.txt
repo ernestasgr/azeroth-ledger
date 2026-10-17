@@ -1,0 +1,2 @@
+# Local checks without a native Lua 5.1 (tools/verify.py falls back to lupa).
+lupa==2.8
