@@ -522,6 +522,8 @@ function StoreKernel.open(raw, save, slices)
             record.gains[#record.gains + 1] = entry
         end
         local quantity = entry.quantity
+        -- A check can credit one record twice before it saves, and the second
+        -- credit reads this total; kernel.save then derives the saved total.
         record.totalGained = record.totalGained + quantity
         -- The dates only widen; the book derives its dates from the gains themselves.
         record.firstGained = record.firstGained and math.min(record.firstGained, target.at) or target.at
@@ -881,8 +883,8 @@ function StoreKernel.open(raw, save, slices)
             return gainIndex[key] and gainIndex[key][root]
         end,
         heldKeys = heldKeys,
-        gain = recordGain,
-        refund = recordRefund,
+        recordGain = recordGain,
+        recordRefund = recordRefund,
         characterGained = characterGained,
         areaQuantity = priorQuantity,
         bagQuantity = bagQuantity,

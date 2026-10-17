@@ -243,6 +243,19 @@ local function lootSlots(entries)
     return slots
 end
 
+-- What a loot slot may still award (its limit, receipt or measured credit,
+-- whichever is largest) and its receipt, when the slot is not fully awarded.
+-- A slot with nothing measured yet counts as unsettled with quantity zero.
+local function unsettledSlot(session, key, slot)
+    local receipt = session.receipts and session.receipts[key]
+    local credit = session.credits and session.credits[key] or 0
+    local quantity = math.max(slot.limit or 0, receipt and receipt.quantity or 0, credit)
+    if quantity == 0 or quantity > (session.awarded[key] or 0) then
+        return quantity, receipt
+    end
+    return nil
+end
+
 local function competingLoot(session, key, actor)
     local slot = session.slots[key]
     return session.character == actor.character
@@ -273,7 +286,7 @@ StoreLoot.slice = {
 -- Returns the correlation engine a possessions check and evidence expiry use.
 ---@param rewards {confirmed: fun(key: string, at: integer, actor: table): table?}
 function StoreLoot.install(store, kernel, slice, correlation, rewards)
-    local valid, readable, saveFields, gainRecord = kernel.valid, kernel.readable, kernel.save, kernel.gain
+    local valid, readable, saveFields, recordGain = kernel.valid, kernel.readable, kernel.save, kernel.recordGain
     local heldKeys, possessionsQuantity = kernel.heldKeys, kernel.possessionsQuantity
     local checkedPossessions, validRecord, lootState = kernel.checkedPossessions, kernel.validRecord, slice.state
     local evidenceState, reserveCandidate = correlation.state, correlation.reserve
@@ -371,7 +384,7 @@ function StoreLoot.install(store, kernel, slice, correlation, rewards)
         if quantity <= 0 then
             return
         end
-        record = gainRecord(record, {
+        record = recordGain(record, {
             id = tostring(session.id) .. ":" .. key,
             at = receipt.at,
             openedAt = session.openedAt,
@@ -815,13 +828,8 @@ function StoreLoot.install(store, kernel, slice, correlation, rewards)
         local state = copyValue(original)
         local changed = Evidence.expireEntries(state.sessions, at, reason, nil, function(entry, openedAt)
             for key, slot in pairs(entry.slots or {}) do
-                local received = entry.receipts and entry.receipts[key]
-                local quantity = math.max(
-                    slot.limit or 0,
-                    received and received.quantity or 0,
-                    entry.credits and entry.credits[key] or 0
-                )
-                if quantity == 0 or quantity > (entry.awarded[key] or 0) then
+                local quantity, received = unsettledSlot(entry, key, slot)
+                if quantity then
                     retain("loot", reason, openedAt, entry, {
                         key = key,
                         slot = slot,
@@ -843,9 +851,8 @@ function StoreLoot.install(store, kernel, slice, correlation, rewards)
         for _, entry in ipairs(state.sessions) do
             local id = "loot:" .. entry.id
             for key, slot in pairs(entry.slots) do
-                local receipt = entry.receipts[key]
-                local quantity = math.max(slot.limit or 0, receipt and receipt.quantity or 0, entry.credits[key] or 0)
-                if quantity == 0 or quantity > (entry.awarded[key] or 0) then
+                local quantity = unsettledSlot(entry, key, slot)
+                if quantity then
                     emit(
                         id .. ":" .. key,
                         "loot",
@@ -929,14 +936,7 @@ function StoreLoot.install(store, kernel, slice, correlation, rewards)
             if not scan.paired or not session.baselinePossessions then
                 return
             end
-            local keys = {}
-            for key in pairs(heldKeys(snapshot.character, snapshot.realm, "bags")) do
-                keys[key] = true
-            end
-            for key in pairs(scan.grouped) do
-                keys[key] = true
-            end
-            for key in pairs(keys) do
+            for key in pairs(scan.pairedKeys()) do
                 local record = scan.records[key] or valid[key]
                 local gear = scan.grouped[key]
                 local quantity = checkedPossessions(record, snapshot.character, snapshot.realm, gear)

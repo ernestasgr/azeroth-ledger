@@ -130,8 +130,8 @@ end
 
 -- Returns the correlation engine a possessions check and evidence expiry use.
 function StoreVendor.install(store, kernel, slice)
-    local valid, readable, saveFields, gainRecord = kernel.valid, kernel.readable, kernel.save, kernel.gain
-    local refundRecord = kernel.refund
+    local valid, readable, saveFields, recordGain = kernel.valid, kernel.readable, kernel.save, kernel.recordGain
+    local recordRefund = kernel.recordRefund
     local recordHealthy, vendorHealthy, savedState = kernel.recordHealthy, slice.healthy, slice.state
     local areaQuantity, bagQuantity = kernel.areaQuantity, kernel.bagQuantity
 
@@ -266,7 +266,7 @@ function StoreVendor.install(store, kernel, slice)
                         local otherGains = math.max(0, record.totalGained - action.baselineGained)
                         local quantity = math.min(action.quantity, delta - otherGains)
                         if quantity > 0 then
-                            records[action.key] = gainRecord(record, {
+                            records[action.key] = recordGain(record, {
                                 id = "vendor:" .. action.id .. ":" .. action.key,
                                 at = action.at,
                                 quantity = quantity,
@@ -282,7 +282,7 @@ function StoreVendor.install(store, kernel, slice)
                         end
                     end
                 elseif action.kind == "refund" and delta == -action.quantity and record then
-                    local refunded = refundRecord(record, action.linkedGainID, action.quantity, "Vendor")
+                    local refunded = recordRefund(record, action.linkedGainID, action.quantity, "Vendor")
                     if refunded then
                         records[action.key] = refunded
                         vendorResult(state, action, "confirmed")

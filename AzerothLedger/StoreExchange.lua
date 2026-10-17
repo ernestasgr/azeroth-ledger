@@ -124,7 +124,7 @@ end
 
 -- Returns the correlation engine a possessions check and evidence expiry use.
 function StoreExchange.install(store, kernel, slice)
-    local valid, readable, saveFields, gainRecord = kernel.valid, kernel.readable, kernel.save, kernel.gain
+    local valid, readable, saveFields, recordGain = kernel.valid, kernel.readable, kernel.save, kernel.recordGain
     local bagQuantity, characterGained = kernel.bagQuantity, kernel.characterGained
     local exchangeHealthy, savedState = slice.healthy, slice.state
 
@@ -567,7 +567,7 @@ function StoreExchange.install(store, kernel, slice)
                         elseif senderKnown then
                             action.status = "unresolved"
                         else
-                            records[action.key] = gainRecord(record, {
+                            records[action.key] = recordGain(record, {
                                 id = "exchange:" .. action.id .. ":" .. action.key,
                                 at = action.at,
                                 quantity = quantity,

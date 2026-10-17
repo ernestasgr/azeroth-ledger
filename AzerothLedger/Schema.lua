@@ -56,15 +56,20 @@ function Schema.open(raw, save)
     local exchange = addon.StoreExchange.install(store, kernel, handles.exchange)
     local vendor = addon.StoreVendor.install(store, kernel, handles.vendor)
     -- Evidence expiry, evidence listing and check settlement all follow this order.
-    evidence.attach({
+    local engines = {
         { name = "loot", engine = loot.engine },
         { name = "rewards", engine = reward.engine },
         { name = "vendor", engine = vendor.engine },
         { name = "exchange", engine = exchange.engine },
-    })
+    }
+    evidence.attach(engines)
     -- A new store is a login/reload boundary, never a continuation of a match.
     evidence.endCorrelation(0, "reload")
-    addon.StoreScan.install(store, kernel, evidence, { loot.engine, reward.engine, vendor.engine, exchange.engine })
+    local checks = {}
+    for index, entry in ipairs(engines) do
+        checks[index] = entry.engine
+    end
+    addon.StoreScan.install(store, kernel, evidence, checks)
     addon.StoreEvidence.guardCandidates(store, kernel, evidence)
     return store
 end

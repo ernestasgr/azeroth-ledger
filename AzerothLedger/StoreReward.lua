@@ -159,7 +159,7 @@ StoreReward.slice = {
 
 -- Returns the correlation engine and the latest confirmed reward lookup.
 function StoreReward.install(store, kernel, slice)
-    local valid, readable, saveFields, gainRecord = kernel.valid, kernel.readable, kernel.save, kernel.gain
+    local valid, readable, saveFields, recordGain = kernel.valid, kernel.readable, kernel.save, kernel.recordGain
     local heldKeys, bagQuantity, possessionsQuantity = kernel.heldKeys, kernel.bagQuantity, kernel.possessionsQuantity
     local checkedPossessions, rewardState = kernel.checkedPossessions, slice.state
 
@@ -481,7 +481,7 @@ function StoreReward.install(store, kernel, slice)
         if quantity <= 0 then
             return
         end
-        record = gainRecord(record, {
+        record = recordGain(record, {
             id = "reward:" .. session.id .. ":" .. key,
             at = session.at,
             quantity = quantity,
@@ -671,13 +671,7 @@ function StoreReward.install(store, kernel, slice)
             end
             local records, grouped = scan.records, scan.grouped
             if pending then
-                local keys = {}
-                for key in pairs(heldKeys(snapshot.character, snapshot.realm, "bags")) do
-                    keys[key] = true
-                end
-                for key in pairs(grouped) do
-                    keys[key] = true
-                end
+                local keys = scan.pairedKeys()
                 for key in pairs(records) do
                     keys[key] = true
                 end

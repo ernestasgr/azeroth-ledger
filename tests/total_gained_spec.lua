@@ -395,7 +395,6 @@ local cases = {
             w.mail(110, "Ben", "in", 1, "Cara")
             w.bags(112, 1, "Ben")
         end,
-        -- Current behaviour: Ben's first-check units still count the mailed unit.
         expect = "gained=1 first=110 last=110 firstSeenUnits=2 chars=[Ada=2,Ben=0] gains=[Obtained+1] discovery=false",
         found = "found=[Ada=2/2,Ben=1/1] realms=[Realm=3] all=3/3",
     },
@@ -542,14 +541,14 @@ for _, benRealm in ipairs({ "Realm", "Other Realm" }) do
             local w = world()
             w.realms.Ben = benRealm
             ordering.run(w, channel)
-            local found = facts(w.store():find(key), w.store()):match("\n(.*)$")
+            local views = facts(w.store():find(key), w.store()):match("\n(.*)$")
             local expected = truth(ordering.holds, w.realms)
-            if found ~= expected then
+            if views ~= expected then
                 fail(
                     "every view shows what each character holds",
                     channel .. ", " .. ordering.name .. ", Ben on " .. benRealm,
                     expected,
-                    found
+                    views
                 )
             end
         end

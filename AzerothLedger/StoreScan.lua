@@ -15,6 +15,7 @@ local copyValue, copyRecord = V.copyValue, V.copyRecord
 ---@field oldScope table? The previous check of this area
 ---@field unresolvedIdentity boolean Whether this check resolved an unreadable item
 ---@field paired boolean Whether this equipped check completes a bag check of the same moment
+---@field pairedKeys fun(): table<string, true> Items a paired check measures: bag items and this check's items
 
 local StoreScan = {}
 
@@ -136,6 +137,16 @@ function StoreScan.install(store, kernel, correlation, engines)
             return false
         end
         local nextRecords = {}
+        local function pairedKeys()
+            local keys = {}
+            for key in pairs(heldKeys(snapshot.character, snapshot.realm, "bags")) do
+                keys[key] = true
+            end
+            for key in pairs(grouped) do
+                keys[key] = true
+            end
+            return keys
+        end
         ---@type AzerothLedgerCheck
         local scan = {
             snapshot = snapshot,
@@ -144,6 +155,7 @@ function StoreScan.install(store, kernel, correlation, engines)
             oldScope = oldScope,
             unresolvedIdentity = unresolvedIdentity,
             paired = false,
+            pairedKeys = pairedKeys,
         }
         local handlers = {}
         for index, engine in ipairs(engines) do
