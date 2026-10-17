@@ -424,6 +424,10 @@ assert(not received.methods.Seen, "Ben had none of his own")
 local sender = addon.store:breakdown("4540:0", { character = "Ada", realm = "Realm" })
 assert(sender.methods.Seen == 2, "Ada's view must show the units she already had")
 assert(sender.sources["Initial stock"] == 2)
+-- Across the realm both ends of the transfer are in view: each unit has one way.
+local realm = addon.store:breakdown("4540:0", { realm = "Realm" })
+assert(not realm.methods.Transfer and realm.methods.Seen == 2, "a realm view holds both ends of the transfer")
+assert(not realm.sources["Your characters"])
 
 -- A character's view also shows units that appeared after its earlier check with no known way.
 addon, state = mailbox()

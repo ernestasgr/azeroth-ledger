@@ -31,8 +31,9 @@ function StoreRecords.install(store, kernel)
             methods = initial and { [later and "Appeared" or "Seen"] = initial } or {},
             sources = initial and { [later and "Appeared later" or "Initial stock"] = initial } or {},
         }
-        -- A character's view explains its own first units and units moved in from
-        -- your other characters; the account view counts those where they started.
+        -- A scoped view explains its characters' own first units. Only a single
+        -- character's view lists units moved in from your other characters: wider
+        -- views hold both ends and count those units where they started.
         if scoped then
             local transferred = 0
             for _, seen in ipairs(record.characters) do
@@ -52,7 +53,7 @@ function StoreRecords.install(store, kernel)
                     end
                 end
             end
-            if transferred > 0 then
+            if transferred > 0 and scope.character then
                 result.methods.Transfer = transferred
                 result.sources["Your characters"] = transferred
             end
