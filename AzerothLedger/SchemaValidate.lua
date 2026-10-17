@@ -292,6 +292,12 @@ end
 ---@field at integer
 ---@field confirmed boolean
 ---@field baseline table<string, {quantity: integer, gained: integer, discovery?: boolean}>
+---@field stage? "accept"
+---@field acceptedAt? integer
+---@field level? integer
+---@field place? string
+---@field placeKind? "zone"|"dungeon"
+---@field name? string
 
 ---@class AzerothLedgerRewardState
 ---@field nextID integer
@@ -412,6 +418,7 @@ end
 ---@field firstSeen integer
 ---@field lastSeen integer
 ---@field firstSeenUnits integer
+---@field firstSeenLater? boolean
 ---@field totalGained integer
 ---@field evidencedDiscovery? boolean
 ---@field gains AzerothLedgerGain[]
@@ -535,6 +542,8 @@ end
 ---@field rewardReceipt fun(self: AzerothLedgerStore, receipt: ALReward, at: integer, actor: ALGainActor): boolean
 ---@field questPrepared fun(self: AzerothLedgerStore, questID: integer, at: integer, actor: ALActor): boolean
 ---@field questTurnedIn fun(self: AzerothLedgerStore, questID: integer, at: integer, actor: ALActor): boolean
+---@field questOffered fun(self: AzerothLedgerStore, questID: integer, at: integer, actor: ALActor): boolean
+---@field questAccepted fun(self: AzerothLedgerStore, questID: integer, at: integer, actor: table): boolean
 ---@field vendorAction fun(self: AzerothLedgerStore, action: ALVendorIntent, at: integer, actor: ALGainActor): boolean
 ---@field vendorReceipt fun(self: AzerothLedgerStore, receipt: ALClaim, at: integer, actor: ALActor): boolean
 ---@field vendorActivity fun(self: AzerothLedgerStore): AzerothLedgerVendorActivity[]
@@ -922,6 +931,7 @@ local function copyRecord(record, shareGains, pause)
         firstSeen = record.firstSeen,
         lastSeen = record.lastSeen,
         firstSeenUnits = record.firstSeenUnits,
+        firstSeenLater = record.firstSeenLater,
         totalGained = record.totalGained,
         evidencedDiscovery = record.evidencedDiscovery,
         gains = gains,
@@ -947,6 +957,7 @@ local function validRecord(key, record)
         or type(record) ~= "table"
         or record.key ~= key
         or (record.evidencedDiscovery ~= nil and type(record.evidencedDiscovery) ~= "boolean")
+        or (record.firstSeenLater ~= nil and type(record.firstSeenLater) ~= "boolean")
         or not isInteger(record.itemID)
         or record.itemID <= 0
         or not isInteger(record.firstSeen)
@@ -1169,6 +1180,18 @@ local function validRewardSession(session)
         )
 end
 
+-- A turn-in preparation lasts 60 seconds. An accept preparation waits up to
+-- ten minutes for QUEST_ACCEPTED, then 60 seconds for the handed-over items.
+local function preparationLive(preparation, at)
+    if preparation.stage == "accept" then
+        if isInteger(preparation.acceptedAt) then
+            return at >= preparation.acceptedAt and at - preparation.acceptedAt < 60
+        end
+        return at >= preparation.at and at - preparation.at < 600
+    end
+    return at >= preparation.at and at - preparation.at < 60
+end
+
 local function validRewardState(rewards)
     if
         type(rewards) ~= "table"
@@ -1195,6 +1218,12 @@ local function validRewardState(rewards)
             or not isInteger(preparation.at)
             or type(preparation.confirmed) ~= "boolean"
             or type(preparation.baseline) ~= "table"
+            or (preparation.stage ~= nil and preparation.stage ~= "accept")
+            or (preparation.acceptedAt ~= nil and not isInteger(preparation.acceptedAt))
+            or (preparation.level ~= nil and not isInteger(preparation.level))
+            or (preparation.place ~= nil and type(preparation.place) ~= "string")
+            or not validPlaceKind(preparation.placeKind)
+            or (preparation.name ~= nil and not isName(preparation.name))
         then
             return false
         end
@@ -1490,9 +1519,9 @@ function Validate.sourceGroups(groups, pause)
     addon.Work.sort(rows, function(left, right)
         return left.key < right.key
     end, checkpoint)
-    local used = { ["Initial stock"] = true }
+    local used = { ["Initial stock"] = true, ["Appeared later"] = true }
     for index, group in ipairs(rows) do
-        if labels[group.label] > 1 or group.label == "Initial stock" then
+        if labels[group.label] > 1 or used[group.label] then
             local identity = group.key:match("^(%a+:%d+)$")
             group.label = group.label
                 .. " ("
@@ -1536,6 +1565,7 @@ local bookChoices = {
     method = {
         { label = "Any method" },
         { label = "Already had", value = "Seen" },
+        { label = "Appeared later", value = "Appeared" },
         { label = "Looted", value = "Looted" },
         { label = "Quest reward", value = "Quest" },
         { label = "Crafted", value = "Crafted" },
@@ -1702,6 +1732,7 @@ Validate.validEnvironment = validEnvironment
 Validate.validRewardContext = validRewardContext
 Validate.validRewardSession = validRewardSession
 Validate.validRewardState = validRewardState
+Validate.preparationLive = preparationLive
 Validate.validVendorState = validVendorState
 Validate.validMailKind = validMailKind
 Validate.validExchangeState = validExchangeState

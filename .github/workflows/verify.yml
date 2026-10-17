@@ -46,6 +46,7 @@ jobs:
           lua tests/reward_spec.lua
           lua tests/quest_event_spec.lua
           lua tests/quest_delayed_event_spec.lua
+          lua tests/quest_accept_event_spec.lua
           lua tests/loot_event_spec.lua
           lua tests/scan_spec.lua
           lua tests/wowunit_replay_spec.lua
