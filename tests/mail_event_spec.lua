@@ -387,6 +387,41 @@ state:event("BAG_UPDATE_DELAYED")
 assert(addon.store:find("4540:0").totalGained == 0)
 assert(#addon.store:exchangeActivity() == 1 and addon.store:exchangeActivity()[1].quantity == 2)
 
+-- Forever shows surnames and omits the local realm: "Ada Quietfield" is still Ada on this realm.
+addon, state = mailbox({ { quantity = 2 } })
+state:event("MAIL_SHOW")
+state.outbox = { { quantity = 2 } }
+state:event("MAIL_SEND_INFO_UPDATE")
+_G.SendMail("Ben Truehammer")
+state.bags = {}
+state:event("MAIL_SEND_SUCCESS")
+state:event("BAG_UPDATE_DELAYED")
+state:event("MAIL_CLOSED")
+state.character = "Ben"
+state:event("PLAYER_LOGIN")
+state.messages = { { sender = "Ada Quietfield", items = { { quantity = 2 } } } }
+state:event("MAIL_SHOW")
+_G.AutoLootMailItem(1)
+state.messages = {}
+state.bags = { { quantity = 2 } }
+state:event("MAIL_SUCCESS")
+state:event("BAG_UPDATE_DELAYED")
+assert(addon.store:find("4540:0").totalGained == 0, "surnamed alt mail must be a transfer")
+assert(#addon.store:exchangeActivity() == 1 and addon.store:exchangeActivity()[1].sender == "Ada")
+
+-- A same-realm sender has no realm suffix but is still a named player source.
+addon, state = mailbox()
+state.messages = { { sender = "Cara Ironfoot", items = { { quantity = 1 } } } }
+state:event("MAIL_SHOW")
+_G.AutoLootMailItem(1)
+state.messages = {}
+state.bags = { { quantity = 1 } }
+state:event("MAIL_SUCCESS")
+state:event("BAG_UPDATE_DELAYED")
+record = addon.store:find("4540:0")
+assert(record.totalGained == 1 and record.gains[1].source, "same-realm mail must keep its sender")
+assert(record.gains[1].source.name == "Cara" and record.gains[1].source.realm == "Realm")
+
 -- A failed take ends its intent; a later successful retry can capture fresh proof.
 addon, state = mailbox()
 state.messages = { { sender = "Cara-Realm", items = { { quantity = 1 } } } }
