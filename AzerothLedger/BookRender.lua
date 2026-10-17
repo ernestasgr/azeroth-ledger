@@ -258,10 +258,10 @@ function Render.detailLines(view, result, model, key)
         end
     end
     breakdown("How you got it", model.breakdown.methods, "No confirmed gains in this view.", function(label)
-        return label == "Seen" and "Already had at first check" or label
+        return addon.Collection.methodLabel(label)
     end)
     breakdown("Where it came from", model.breakdown.sources, "No source details recorded in this view.", function(label)
-        return label == "Initial stock" and "Already had before first check" or label
+        return addon.Collection.sourceLabel(label)
     end)
     write("section", "Item history")
     write(

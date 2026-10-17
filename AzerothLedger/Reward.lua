@@ -29,6 +29,20 @@ end
 
 ---@param api AzerothLedgerRewardApi
 ---@param questID integer
+---@return string?
+function Reward.questName(api, questID)
+    local questLog = api.C_QuestLog
+    if type(questLog) == "table" and type(questLog.GetTitleForQuestID) == "function" then
+        local ok, title = pcall(questLog.GetTitleForQuestID, questID)
+        if ok and type(title) == "string" and title ~= "" then
+            return title
+        end
+    end
+    return nil
+end
+
+---@param api AzerothLedgerRewardApi
+---@param questID integer
 ---@param link string
 ---@param quantity integer
 ---@return AzerothLedgerRewardReceipt?
@@ -42,14 +56,7 @@ function Reward.quest(api, questID, link, quantity)
         return nil
     end
     reward.method = "Quest"
-    reward.context = { kind = "quest", id = questID }
-    local questLog = api.C_QuestLog
-    if type(questLog) == "table" and type(questLog.GetTitleForQuestID) == "function" then
-        local ok, title = pcall(questLog.GetTitleForQuestID, questID)
-        if ok and type(title) == "string" and title ~= "" then
-            reward.context.name = title
-        end
-    end
+    reward.context = { kind = "quest", id = questID, name = Reward.questName(api, questID) }
     return reward
 end
 

@@ -22,11 +22,14 @@ function StoreRecords.install(store, kernel)
             return (not scope.character or scope.character == character) and (not scope.realm or scope.realm == realm)
         end
         local initial = not scoped and record.firstSeenUnits or nil
+        -- Units that arrived after an earlier complete check, with no
+        -- confirmed way, are not stock the character already had.
+        local later = record.firstSeenLater
         local result = {
             initial = initial,
             gained = scoped and 0 or record.totalGained,
-            methods = initial and { Seen = initial } or {},
-            sources = initial and { ["Initial stock"] = initial } or {},
+            methods = initial and { [later and "Appeared" or "Seen"] = initial } or {},
+            sources = initial and { [later and "Appeared later" or "Initial stock"] = initial } or {},
         }
         local groups = {}
         for _, gain in ipairs(record.gains) do

@@ -1,10 +1,11 @@
 local _, addon = ...
 
--- Quest preparation and turn-in, quest reward and craft receipts.
+-- Quest preparation and turn-in, quest accept, quest reward and craft receipts.
 
 local V = addon.SchemaValidate
 local isInteger, isName, validPlaceKind = V.isInteger, V.isName, V.validPlaceKind
 local validRewardContext, validRewardSession = V.validRewardContext, V.validRewardSession
+local preparationLive = V.preparationLive
 
 local StoreReward = {}
 
@@ -63,14 +64,14 @@ function StoreReward.install(store, kernel)
         local rewards = kernel.raw().rewards
         local preparations = type(rewards) == "table" and rewards.preparations or nil
         for _, preparation in ipairs(type(preparations) == "table" and preparations or {}) do
-            if at >= preparation.at and at - preparation.at < 60 then
+            if preparationLive(preparation, at) then
                 result[#result + 1] = preparation
             end
         end
         return result
     end
 
-    local function questPreparation(questID, at, actor)
+    local function questPreparation(questID, at, actor, stage)
         local preparations = questPreparations(at)
         for index = #preparations, 1, -1 do
             local preparation = preparations[index]
@@ -78,6 +79,7 @@ function StoreReward.install(store, kernel)
                 preparation.questID == questID
                 and preparation.character == actor.character
                 and preparation.realm == actor.realm
+                and preparation.stage == stage
             then
                 return preparation
             end
@@ -85,7 +87,7 @@ function StoreReward.install(store, kernel)
         return nil
     end
 
-    function store.questPrepared(_self, questID, at, actor)
+    local function prepare(questID, at, actor, stage)
         if
             not readable
             or not isInteger(questID)
@@ -109,7 +111,7 @@ function StoreReward.install(store, kernel)
         then
             return false
         end
-        local existing = questPreparation(questID, at, actor)
+        local existing = questPreparation(questID, at, actor, stage)
         if existing and not existing.confirmed then
             return false
         end
@@ -135,6 +137,7 @@ function StoreReward.install(store, kernel)
                 preparation.questID ~= questID
                 or preparation.character ~= actor.character
                 or preparation.realm ~= actor.realm
+                or preparation.stage ~= stage
             then
                 preparations[#preparations + 1] = preparation
             end
@@ -147,8 +150,54 @@ function StoreReward.install(store, kernel)
             at = at,
             confirmed = false,
             baseline = baseline,
+            stage = stage,
         }
         saveFields({ rewards = { nextID = nextID, sessions = rewardSessions(at), preparations = preparations } })
+        return true
+    end
+
+    -- Possessions before the reward window opens; QUEST_TURNED_IN confirms them.
+    function store.questPrepared(_self, questID, at, actor)
+        return prepare(questID, at, actor, nil)
+    end
+
+    -- Possessions before a quest is accepted. Quest givers can hand over
+    -- items, such as a letter to deliver, that the offer never names.
+    function store.questOffered(_self, questID, at, actor)
+        return prepare(questID, at, actor, "accept")
+    end
+
+    -- QUEST_ACCEPTED confirms the offer. The next paired possessions check
+    -- credits each item that rose above the offer baseline to the quest.
+    function store.questAccepted(_self, questID, at, actor)
+        if
+            not readable
+            or not isInteger(questID)
+            or not isInteger(at)
+            or type(actor) ~= "table"
+            or not isName(actor.character)
+            or not isName(actor.realm)
+            or not isInteger(actor.level)
+            or type(actor.place) ~= "string"
+            or not validPlaceKind(actor.placeKind)
+            or (actor.questName ~= nil and not isName(actor.questName))
+        then
+            return false
+        end
+        local preparation = questPreparation(questID, at, actor, "accept")
+        if not preparation or preparation.confirmed then
+            return false
+        end
+        preparation.confirmed = true
+        preparation.acceptedAt = at
+        preparation.level = actor.level
+        preparation.place = actor.place
+        preparation.placeKind = actor.placeKind
+        preparation.name = actor.questName
+        local rewards = kernel.raw().rewards
+        saveFields({
+            rewards = { nextID = rewards.nextID, sessions = rewardSessions(at), preparations = questPreparations(at) },
+        })
         return true
     end
 
@@ -184,7 +233,8 @@ function StoreReward.install(store, kernel)
         if not validRewardContext(context, receipt.method) then
             return false
         end
-        local preparation = receipt.method == "Quest" and context and questPreparation(context.id, at, actor) or nil
+        local preparation = receipt.method == "Quest" and context and questPreparation(context.id, at, actor, nil)
+            or nil
         local sessions = rewardSessions(at)
         local session
         for _, existing in ipairs(sessions) do
@@ -268,7 +318,7 @@ function StoreReward.install(store, kernel)
             return false
         end
         local changed = false
-        local preparation = questPreparation(questID, at, actor)
+        local preparation = questPreparation(questID, at, actor, nil)
         if preparation and not preparation.confirmed then
             preparation.confirmed = true
             changed = true
@@ -353,7 +403,68 @@ function StoreReward.install(store, kernel)
         records[key] = record
     end
 
-    return { sessions = rewardSessions, award = awardReward, choiceIsProven = choiceIsProven }
+    -- Opens a confirmed Quest session for each item that rose above an
+    -- accepted offer's baseline, appending it to pending.sessions.
+    ---@param pending AzerothLedgerRewardState
+    ---@param at integer
+    ---@param character string
+    ---@param realm string
+    ---@param quantity fun(key: string): integer
+    ---@param keys table<string, true>
+    local function openAccepted(pending, at, character, realm, quantity, keys)
+        for _, preparation in ipairs(pending.preparations or {}) do
+            if
+                preparation.stage == "accept"
+                and preparation.confirmed
+                and preparation.character == character
+                and preparation.realm == realm
+                and preparationLive(preparation, at)
+            then
+                for key in pairs(keys) do
+                    local before = preparation.baseline[key]
+                    local increase = quantity(key) - (before and before.quantity or 0)
+                    local session
+                    for _, existing in ipairs(pending.sessions) do
+                        if existing.questPreparationID == preparation.id and existing.key == key then
+                            session = existing
+                        end
+                    end
+                    if session then
+                        session.quantity = math.max(session.quantity, increase)
+                    elseif increase > 0 then
+                        pending.nextID = pending.nextID + 1
+                        pending.sessions[#pending.sessions + 1] = {
+                            id = pending.nextID,
+                            key = key,
+                            method = "Quest",
+                            context = { kind = "quest", id = preparation.questID, name = preparation.name },
+                            character = character,
+                            realm = realm,
+                            level = preparation.level,
+                            place = preparation.place,
+                            placeKind = preparation.placeKind,
+                            at = preparation.acceptedAt,
+                            baseline = before and before.quantity or 0,
+                            baselineGained = before and before.gained or (valid[key] and valid[key].totalGained or 0),
+                            quantity = increase,
+                            awarded = 0,
+                            discovery = not before or before.discovery == true,
+                            confirmed = true,
+                            specific = true,
+                            questPreparationID = preparation.id,
+                        }
+                    end
+                end
+            end
+        end
+    end
+
+    return {
+        sessions = rewardSessions,
+        award = awardReward,
+        choiceIsProven = choiceIsProven,
+        openAccepted = openAccepted,
+    }
 end
 
 addon.StoreReward = StoreReward

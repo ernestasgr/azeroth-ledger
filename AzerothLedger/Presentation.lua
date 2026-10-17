@@ -30,7 +30,7 @@ function Presentation.line(store, link, character, realm)
     local lastSeen = addon.LastSeen.project(store, record, character, realm)
     local facts = {}
     if record.firstSeenUnits > 0 or not summary.hasGains then
-        facts[#facts + 1] = "Seen"
+        facts[#facts + 1] = record.firstSeenLater and record.firstSeenUnits > 0 and "Appeared later" or "Seen"
     end
     local methods = summary.methods
     if methods.Looted then

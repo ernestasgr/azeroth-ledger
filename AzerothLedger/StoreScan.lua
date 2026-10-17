@@ -16,7 +16,7 @@ function StoreScan.install(store, kernel, domains)
     local evidenceState, retain = domains.evidence.state, domains.evidence.retain
     local activeSession, award = domains.loot.activeSession, domains.loot.award
     local rewardSessions, awardReward = domains.reward.sessions, domains.reward.award
-    local choiceIsProven = domains.reward.choiceIsProven
+    local choiceIsProven, openAccepted = domains.reward.choiceIsProven, domains.reward.openAccepted
     local vendorState, settleVendor = domains.vendor.state, domains.vendor.settle
     local exchangeState, settleExchange = domains.exchange.state, domains.exchange.settle
 
@@ -190,6 +190,9 @@ function StoreScan.install(store, kernel, domains)
                     firstSeen = snapshot.seenAt,
                     lastSeen = snapshot.seenAt,
                     firstSeenUnits = group.quantity,
+                    -- An earlier complete check of this area proves these
+                    -- units arrived later, even when nothing explains how.
+                    firstSeenLater = type(oldScope) == "table" and oldScope.complete or nil,
                     totalGained = 0,
                     gains = {},
                     links = {},
@@ -335,6 +338,26 @@ function StoreScan.install(store, kernel, domains)
                     local increase = quantity - (session.baselinePossessions[key] or 0)
                     session.credits[key] = math.max(session.credits[key] or 0, increase)
                     award(session, key, nextRecords, snapshot.seenAt, true)
+                end
+            end
+            if pendingRewards then
+                local keys = {}
+                for key in pairs(heldKeys(snapshot.character, snapshot.realm, "bags")) do
+                    keys[key] = true
+                end
+                for key in pairs(grouped) do
+                    keys[key] = true
+                end
+                for key in pairs(nextRecords) do
+                    keys[key] = true
+                end
+                local opened = #pendingRewards.sessions
+                local character, realm = snapshot.character, snapshot.realm
+                openAccepted(pendingRewards, snapshot.seenAt, character, realm, function(key)
+                    return checkedPossessions(nextRecords[key] or valid[key], character, realm, grouped[key])
+                end, keys)
+                for index = opened + 1, #pendingRewards.sessions do
+                    activeRewards[#activeRewards + 1] = pendingRewards.sessions[index]
                 end
             end
             local quantities = {}

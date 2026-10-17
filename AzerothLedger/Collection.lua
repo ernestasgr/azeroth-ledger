@@ -191,6 +191,23 @@ end
 
 local storageAreas = { "bags", "bank", "equipped" }
 local storageLabels = { bags = "Bags", bank = "Bank", equipped = "Equipped" }
+local methodNames = { Seen = "Already had at first check", Appeared = "Appeared after an earlier check" }
+local sourceNames = {
+    ["Initial stock"] = "Already had before first check",
+    ["Appeared later"] = "Unknown, appeared after an earlier check",
+}
+
+---@param method string
+---@return string
+function Collection.methodLabel(method)
+    return methodNames[method] or method
+end
+
+---@param source string
+---@return string
+function Collection.sourceLabel(source)
+    return sourceNames[source] or source
+end
 
 ---@param check ALStorageCheck
 ---@return string
@@ -338,7 +355,7 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm,
                 for _, method in ipairs(methodLabels) do
                     if methods[method] > 0 then
                         lines[#lines + 1] = "  How you got it: "
-                            .. (method == "Seen" and "Already had at first check" or method)
+                            .. Collection.methodLabel(method)
                             .. " "
                             .. methods[method]
                     end
@@ -350,10 +367,7 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm,
                 table.sort(labels)
                 for _, label in ipairs(labels) do
                     if sources[label] > 0 then
-                        lines[#lines + 1] = "  From "
-                            .. (label == "Initial stock" and "Already had before first check" or label)
-                            .. " "
-                            .. sources[label]
+                        lines[#lines + 1] = "  From " .. Collection.sourceLabel(label) .. " " .. sources[label]
                     end
                 end
             end
@@ -568,7 +582,8 @@ local function query(store, character, realm, filter, metadata, pause)
                 discoveredAt = math.min(discoveredAt or seen.firstSeen, seen.firstSeen)
             end
         end
-        local methodMatches = not filter.method or (filter.method == "Seen" and record.firstSeenUnits > 0)
+        local methodMatches = not filter.method
+            or (record.firstSeenUnits > 0 and filter.method == (record.firstSeenLater and "Appeared" or "Seen"))
         local lastGained
         local sourceQuantity, recordSources = 0, {}
         for _, gain in ipairs(record.gains) do
