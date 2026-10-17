@@ -2,6 +2,10 @@ std = "lua51"
 max_line_length = 120
 globals = {
     "AzerothLedgerDB",
+    "AzerothLedgerTraceDB",
+    "GetTime",
+    "GetInventoryItemID",
+    "C_Item",
     "SLASH_AZEROTHLEDGER1",
     "SLASH_AZEROTHLEDGERPERFORMANCE1",
     "SlashCmdList",

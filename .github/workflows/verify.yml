@@ -52,6 +52,9 @@ jobs:
           lua tests/mail_event_spec.lua
           lua tests/saved_variables_event_spec.lua
           lua tests/new_character_equipment_spec.lua
+          lua tests/uncached_equipment_spec.lua
+          lua tests/trace_spec.lua
+          lua tests/late_equipment_spec.lua
           lua tests/performance_spec.lua
           lua tests/architecture_spec.lua
       - name: Format and lint

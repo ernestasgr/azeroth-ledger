@@ -23,6 +23,7 @@ local mailTakeAmbiguous = false
 local mailAwaitingIDs
 local mailSendIDs
 local inventory
+local Trace = addon.Trace
 
 local function updateMailProgress()
     if mailAwaitingIDs and store:mailProgress(mailAwaitingIDs) ~= "waiting" then
@@ -75,8 +76,37 @@ local function readMerchantName()
     return ok and type(name) == "string" and name ~= "" and name or nil
 end
 
+local function traceStored(snapshot, accepted)
+    local state = store:area(snapshot.character, snapshot.realm, snapshot.area)
+    Trace.log(
+        "stored",
+        "area=" .. snapshot.area,
+        "accepted=" .. tostring(accepted),
+        "complete=" .. tostring(snapshot.complete),
+        "items=" .. #snapshot.items,
+        "saved-complete=" .. tostring(state and state.complete),
+        "saved-at=" .. tostring(state and state.seenAt)
+    )
+    if snapshot.area == "equipped" then
+        for _, item in ipairs(snapshot.items) do
+            local key = addon.Item.key(item.link, item.itemID)
+            local record = key and store:find(key)
+            Trace.log(
+                "stored-item",
+                "slot=" .. tostring(item.location),
+                "key=" .. tostring(key),
+                "record=" .. tostring(record ~= nil),
+                item.link
+            )
+        end
+    end
+end
+
 inventory = addon.Inventory.new(_G, function(snapshot)
-    store:scan(snapshot)
+    local accepted = store:scan(snapshot)
+    if Trace.enabled then
+        traceStored(snapshot, accepted)
+    end
     if snapshot.area == "bags" and merchantOpen then
         merchantSlots = addon.Vendor.slots(_G)
     elseif snapshot.area == "equipped" and merchantOpen then
@@ -452,6 +482,76 @@ local function printStatus()
     end
 end
 
+local function traceState()
+    local character, realm = identity()
+    Trace.log(
+        "state",
+        "character=" .. tostring(character),
+        "realm=" .. tostring(realm),
+        "level=" .. tostring(type(UnitLevel) == "function" and UnitLevel("player") or nil),
+        "revision=" .. REVISION,
+        "client=" .. client.build,
+        "records=" .. store:count()
+    )
+    local cachedCheck = C_Item and C_Item.IsItemDataCachedByID
+    for slot = 1, 19 do
+        local id = type(GetInventoryItemID) == "function" and GetInventoryItemID("player", slot) or nil
+        local link = type(GetInventoryItemLink) == "function" and GetInventoryItemLink("player", slot) or nil
+        if id or link then
+            local cached = id and type(cachedCheck) == "function" and cachedCheck(id)
+            local key = link and addon.Item.key(link, tonumber(link:match("item:(%d+)")) or -1)
+            Trace.log(
+                "state-slot",
+                "slot=" .. slot,
+                "id=" .. tostring(id),
+                "cached=" .. tostring(cached),
+                "key=" .. tostring(key),
+                "record=" .. tostring(key and store:find(key) ~= nil),
+                tostring(link)
+            )
+        end
+    end
+    for _, area in ipairs({ "bags", "equipped", "bank" }) do
+        local state = character and store:area(character, realm, area)
+        Trace.log(
+            "state-area",
+            "area=" .. area,
+            "complete=" .. tostring(state and state.complete),
+            "seenAt=" .. tostring(state and state.seenAt),
+            "lastCompleteAt=" .. tostring(state and state.lastCompleteAt)
+        )
+    end
+    local filter = store:book().filter or {}
+    local filterParts = {}
+    for field, value in pairs(filter) do
+        filterParts[#filterParts + 1] = field .. "=" .. tostring(value)
+    end
+    table.sort(filterParts)
+    Trace.log("state-filter", table.concat(filterParts, " "))
+    for _, record in ipairs(store:list()) do
+        for _, seen in ipairs(record.characters) do
+            if seen.name == character and seen.realm == realm then
+                local metadata = addon.Client.itemMetadata(_G, record)
+                local areaParts = {}
+                for _, observation in ipairs(record.observations or {}) do
+                    if observation.character == character and observation.realm == realm then
+                        areaParts[#areaParts + 1] = tostring(observation.area) .. ":" .. tostring(observation.quantity)
+                    end
+                end
+                Trace.log(
+                    "state-record",
+                    "key=" .. record.key,
+                    "first=" .. tostring(seen.firstSeenUnits),
+                    "gained=" .. tostring(record.totalGained),
+                    "category=" .. tostring(metadata.category),
+                    "seen=" .. table.concat(areaParts, ","),
+                    tostring(record.links[1])
+                )
+            end
+        end
+    end
+end
+
 _G.BINDING_HEADER_AZEROTHLEDGER = "Azeroth Ledger"
 _G.BINDING_NAME_AZEROTHLEDGER_TOGGLE = "Toggle Ledger"
 _G.AzerothLedgerToggle = function()
@@ -588,6 +688,30 @@ SlashCmdList.AZEROTHLEDGER = function(message)
         for label, timing in pairs(addon.Work.timings) do
             print(label, "samples", timing.frames, "total", timing.total, "maximum", timing.maximum)
         end
+    elseif message == "trace" or message:match("^trace%s") then
+        local action = message:match("^trace%s+(%S+)") or "status"
+        if action == "on" then
+            Trace.setEnabled(true)
+            Trace.log("trace-on", "revision=" .. REVISION, "client=" .. client.build, "locale=" .. client.locale)
+            print("Azeroth Ledger: trace on; it stays on for every character until /al trace off")
+        elseif action == "off" then
+            Trace.log("trace-off")
+            Trace.setEnabled(false)
+            print("Azeroth Ledger: trace off")
+        elseif action == "clear" then
+            Trace.clear()
+            print("Azeroth Ledger: trace cleared")
+        elseif action == "dump" then
+            if not Trace.enabled then
+                print("Azeroth Ledger: trace is off; /al trace on first")
+            else
+                traceState()
+                print("Azeroth Ledger: state written to the trace;", Trace.count(), "lines. /reload to save it to disk")
+            end
+        else
+            print("Azeroth Ledger: trace", Trace.enabled and "on" or "off", "with", Trace.count(), "lines")
+            print("Azeroth Ledger: /al trace on, /al trace off, /al trace dump, /al trace clear")
+        end
     elseif message == "scan" then
         inventory:check("all")
         print("Azeroth Ledger: readable storage checked")
@@ -600,7 +724,7 @@ SlashCmdList.AZEROTHLEDGER = function(message)
             )
         else
             print("Azeroth Ledger: /al collection [character realm], /al collection realm <realm>")
-            print("Azeroth Ledger: /al status, /al scan, /al mark <token>")
+            print("Azeroth Ledger: /al status, /al scan, /al mark <token>, /al trace")
         end
     end
 end
@@ -613,6 +737,7 @@ if client.frame then
         "BAG_UPDATE_DELAYED",
         "BAG_UPDATE",
         "PLAYER_EQUIPMENT_CHANGED",
+        "UNIT_INVENTORY_CHANGED",
         "BANKFRAME_OPENED",
         "BANKFRAME_CLOSED",
         "MERCHANT_SHOW",
@@ -624,6 +749,7 @@ if client.frame then
         "LOOT_SLOT_CHANGED",
         "CHAT_MSG_LOOT",
         "GET_ITEM_INFO_RECEIVED",
+        "ITEM_DATA_LOAD_RESULT",
         "QUEST_LOOT_RECEIVED",
         "QUEST_COMPLETE",
         "QUEST_TURNED_IN",
@@ -656,12 +782,24 @@ if client.frame then
             addon.Book.save()
         elseif event == "ADDON_LOADED" then
             if ... == addonName then
+                Trace.attach(AzerothLedgerTraceDB, function(value)
+                    AzerothLedgerTraceDB = value
+                end)
+                Trace.log(
+                    "addon-loaded",
+                    "revision=" .. REVISION,
+                    "client=" .. client.build,
+                    "features=pending-gear,trace"
+                )
                 initializeStore()
             end
             return
         end
         if not store then
             return
+        end
+        if Trace.enabled then
+            Trace.log("event", event, ...)
         end
         local eventAt = now()
         if eventAt then
@@ -675,11 +813,13 @@ if client.frame then
             local isInitialLogin = ...
             if isInitialLogin then
                 inventory:check("possessions")
+                inventory:event(event)
             end
         elseif
             event == "BAG_UPDATE"
             or event == "BAG_UPDATE_DELAYED"
             or event == "PLAYER_EQUIPMENT_CHANGED"
+            or event == "UNIT_INVENTORY_CHANGED"
             or event == "BANKFRAME_OPENED"
             or event == "BANKFRAME_CLOSED"
         then
@@ -789,7 +929,7 @@ if client.frame then
             end
         elseif event == "CHAT_MSG_LOOT" then
             lootMessage(...)
-        elseif event == "GET_ITEM_INFO_RECEIVED" then
+        elseif event == "GET_ITEM_INFO_RECEIVED" or event == "ITEM_DATA_LOAD_RESULT" then
             local _, success = ...
             inventory:event(event, success)
         elseif event == "QUEST_LOOT_RECEIVED" then

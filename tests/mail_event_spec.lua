@@ -121,6 +121,7 @@ local function mailbox(initial)
     for _, source in ipairs({
         "Item",
         "Work",
+        "Trace",
         "Schema",
         "Client",
         "Scan",

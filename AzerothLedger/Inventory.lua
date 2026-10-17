@@ -9,6 +9,9 @@ local Inventory = {}
 function Inventory.new(api, publish, afterFlush)
     local reader = addon.Scan.reader(api)
     local bankOpen, queued = false, false
+    -- The client can fill equipment slots without PLAYER_EQUIPMENT_CHANGED, as
+    -- with a new character's starting gear. Such updates re-read every slot.
+    local allEquipment = false
     local pendingBags, pendingEquipment = {}, {}
     local inventory = {}
 
@@ -44,7 +47,10 @@ function Inventory.new(api, publish, afterFlush)
         addon.Work.measure(api, "Inventory update", function()
             queued = false
             local bags, equipment = pendingBags, pendingEquipment
-            pendingBags, pendingEquipment = {}, {}
+            if allEquipment then
+                equipment = nil
+            end
+            pendingBags, pendingEquipment, allEquipment = {}, {}, false
             local at = now()
             local affected = next(bags) and bags or nil
             capture("bags", at, affected)
@@ -74,7 +80,7 @@ function Inventory.new(api, publish, afterFlush)
     end
 
     ---@param event string
-    ---@param value? number|boolean
+    ---@param value? number|boolean|string
     function inventory.event(_self, event, value)
         if event == "BAG_UPDATE" then
             if type(value) == "number" then
@@ -87,17 +93,32 @@ function Inventory.new(api, publish, afterFlush)
                 pendingEquipment[value] = true
             end
             queue()
+        elseif event == "PLAYER_ENTERING_WORLD" then
+            -- Initial world entry can precede the inventory; read all gear on the next update.
+            allEquipment = true
+        elseif event == "UNIT_INVENTORY_CHANGED" then
+            if value == "player" then
+                allEquipment = true
+                queue()
+            end
         elseif event == "BANKFRAME_OPENED" then
             bankOpen = true
             inventory:check("all")
         elseif event == "BANKFRAME_CLOSED" then
             bankOpen = false
             inventory:check("bank")
-        elseif event == "GET_ITEM_INFO_RECEIVED" and value then
+        elseif (event == "GET_ITEM_INFO_RECEIVED" or event == "ITEM_DATA_LOAD_RESULT") and value then
             local at = now()
             for _, area in ipairs({ "bags", "equipped", "bank" }) do
                 local unreadable = reader:unreadable(area)
                 if unreadable and (area ~= "bank" or bankOpen) then
+                    if addon.Trace and addon.Trace.enabled then
+                        local ids = {}
+                        for id in pairs(unreadable) do
+                            ids[#ids + 1] = tostring(id)
+                        end
+                        addon.Trace.log("retry", "area=" .. area, "ids=" .. table.concat(ids, ","))
+                    end
                     capture(area, at, unreadable)
                 end
             end
