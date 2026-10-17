@@ -10,7 +10,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 ROOT = Path(__file__).resolve().parents[1]
 ADDON = ROOT / "AzerothLedger"
 TESTS = ROOT / "AzerothLedger_Tests"
-SOURCE_ORDER = ("Item.lua", "Work.lua", "Trace.lua", "Schema.lua", "Client.lua", "Scan.lua", "Inventory.lua", "Loot.lua", "Reward.lua", "Vendor.lua", "Exchange.lua", "LastSeen.lua", "Collection.lua", "Presentation.lua", "Journal.lua", "BookWidgets.lua", "BookQuery.lua", "Book.lua", "Settings.lua", "Events.lua", "Runtime.lua", "MerchantSession.lua", "MailSession.lua", "TradeSession.lua", "LootSession.lua", "QuestSession.lua", "CraftSession.lua", "Diagnostics.lua", "Commands.lua", "MinimapButton.lua", "Main.lua")
+SOURCE_ORDER = ("Item.lua", "Work.lua", "Trace.lua", "SchemaValidate.lua", "StoreKernel.lua", "StorePreferences.lua", "StoreJournal.lua", "StoreEvidence.lua", "StoreRecords.lua", "StoreLoot.lua", "StoreExchange.lua", "StoreVendor.lua", "StoreReward.lua", "StoreScan.lua", "Schema.lua", "Client.lua", "Scan.lua", "Inventory.lua", "Loot.lua", "Reward.lua", "Vendor.lua", "Exchange.lua", "LastSeen.lua", "Collection.lua", "Presentation.lua", "Journal.lua", "BookWidgets.lua", "BookQuery.lua", "Book.lua", "Settings.lua", "Events.lua", "Runtime.lua", "MerchantSession.lua", "MailSession.lua", "TradeSession.lua", "LootSession.lua", "QuestSession.lua", "CraftSession.lua", "Diagnostics.lua", "Commands.lua", "MinimapButton.lua", "Main.lua")
 
 AUTO_LOADED_FILES = ("Bindings.xml",)
 
