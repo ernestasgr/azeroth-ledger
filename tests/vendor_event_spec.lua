@@ -110,6 +110,17 @@ for _, source in ipairs({
     "LastSeen",
     "Collection",
     "Inventory",
+    "Events",
+    "Runtime",
+    "MerchantSession",
+    "MailSession",
+    "TradeSession",
+    "LootSession",
+    "QuestSession",
+    "CraftSession",
+    "Diagnostics",
+    "Commands",
+    "MinimapButton",
     "Main",
 }) do
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)

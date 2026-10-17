@@ -118,6 +118,21 @@ local saved = {
 
 AzerothLedgerDB = nil
 assert(loadfile("AzerothLedger/Inventory.lua"))("AzerothLedger", addon)
+for _, source in ipairs({
+    "Events",
+    "Runtime",
+    "MerchantSession",
+    "MailSession",
+    "TradeSession",
+    "LootSession",
+    "QuestSession",
+    "CraftSession",
+    "Diagnostics",
+    "Commands",
+    "MinimapButton",
+}) do
+    assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
+end
 assert(loadfile("AzerothLedger/Main.lua"))("AzerothLedger", addon)
 assert(frame.registered.ADDON_LOADED)
 assert(AzerothLedgerDB == nil, "addon must not initialize SavedVariables while Lua files load")

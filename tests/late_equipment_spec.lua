@@ -71,7 +71,29 @@ setGlobal("C_Container", {
 })
 setGlobal("SlashCmdList", {})
 
-local sources = { "Item", "Work", "Trace", "Schema", "Client", "Scan", "LastSeen", "Collection", "Inventory", "Main" }
+local sources = {
+    "Item",
+    "Work",
+    "Trace",
+    "Schema",
+    "Client",
+    "Scan",
+    "LastSeen",
+    "Collection",
+    "Inventory",
+    "Events",
+    "Runtime",
+    "MerchantSession",
+    "MailSession",
+    "TradeSession",
+    "LootSession",
+    "QuestSession",
+    "CraftSession",
+    "Diagnostics",
+    "Commands",
+    "MinimapButton",
+    "Main",
+}
 
 local function event(name, ...)
     if frame.registered[name] then
