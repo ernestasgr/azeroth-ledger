@@ -62,7 +62,7 @@ function frame:SetScript(script, handler)
     end
 end
 
-for _, source in ipairs({ "Item", "Work", "Schema" }) do
+for _, source in ipairs({ "Item", "Work", "Trace", "Schema" }) do
     assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
 end
 

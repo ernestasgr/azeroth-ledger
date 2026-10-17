@@ -3,6 +3,10 @@
   "workspace.ignoreDir": ["validation", ".vscode", ".tools", "dist"],
   "diagnostics.globals": [
     "AzerothLedgerDB",
+    "AzerothLedgerTraceDB",
+    "GetTime",
+    "GetInventoryItemID",
+    "C_Item",
     "SLASH_AZEROTHLEDGER1",
     "SLASH_AZEROTHLEDGERPERFORMANCE1",
     "SlashCmdList",

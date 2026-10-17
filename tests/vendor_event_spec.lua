@@ -100,6 +100,7 @@ end
 for _, source in ipairs({
     "Item",
     "Work", -- Frame work and profiling precede consumers.
+    "Trace",
     "Schema",
     "Client",
     "Scan",

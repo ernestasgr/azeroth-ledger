@@ -20,7 +20,40 @@ local containerIDs = {
 ---@field GetRealmName? fun(): string?
 ---@field GetServerTime? fun(): integer
 ---@field GetInventoryItemLink? fun(unit: string, slot: integer): string?
+---@field GetInventoryItemID? fun(unit: string, slot: integer): integer?
+---@field C_Item? {RequestLoadItemDataByID?: fun(itemID: integer)}
 ---@field C_Container? AzerothLedgerContainerApi
+
+local requestedItems = {}
+
+-- Trace only reads of the live client; the test companion scans mock APIs.
+local tracedApi
+
+local function trace(...)
+    if tracedApi and addon.Trace and addon.Trace.enabled then
+        addon.Trace.log(...)
+    end
+end
+
+-- A slot can hold an item whose data is not cached yet, as with a new
+-- character's starting gear. It has an ID but no link until the data loads.
+local function equippedPending(api, slot)
+    if type(api.GetInventoryItemID) ~= "function" then
+        return false
+    end
+    local itemID = api.GetInventoryItemID("player", slot)
+    if type(itemID) ~= "number" then
+        return false
+    end
+    local request = api.C_Item and api.C_Item.RequestLoadItemDataByID
+    local requested = false
+    if type(request) == "function" and not requestedItems[itemID] then
+        requestedItems[itemID] = true
+        requested = pcall(request, itemID)
+    end
+    trace("slot-pending", "slot=" .. slot, "id=" .. itemID, "requested=" .. tostring(requested))
+    return true
+end
 
 local function add(items, itemID, link, quantity, location)
     if type(itemID) ~= "number" or type(quantity) ~= "number" or quantity < 1 then
@@ -61,6 +94,7 @@ function Scan.capture(api, area, bankOpen, cache, affected)
     then
         return nil
     end
+    tracedApi = api == _G
     local identityOK, character = pcall(api.UnitName, "player")
     local realmOK, realm = pcall(api.GetRealmName)
     local timeOK, seenAt = pcall(api.GetServerTime)
@@ -72,6 +106,12 @@ function Scan.capture(api, area, bankOpen, cache, affected)
         or type(realm) ~= "string"
         or type(seenAt) ~= "number"
     then
+        trace(
+            "capture-skipped",
+            "area=" .. tostring(area),
+            "character=" .. tostring(character),
+            "realm=" .. tostring(realm)
+        )
         return nil
     end
     local snapshot = {
@@ -88,22 +128,31 @@ function Scan.capture(api, area, bankOpen, cache, affected)
     end
     if area == "equipped" then
         if type(api.GetInventoryItemLink) ~= "function" then
+            trace("capture", "area=equipped", "GetInventoryItemLink unavailable")
             snapshot.complete = false
             return snapshot
         end
         for slot = 1, 19 do
             local cached = cache and cache[slot]
-            if cached and affected and not affected[slot] then
+            if cached and cached.complete and affected and not affected[slot] then
                 appendCached(snapshot, cached)
+                if #cached.items > 0 then
+                    trace("slot-cached", "slot=" .. slot, cached.items[1].link)
+                end
             else
                 local first = #snapshot.items
                 local ok, readable = pcall(function()
                     local link = api.GetInventoryItemLink("player", slot)
                     if not link then
-                        return true
+                        return not equippedPending(api, slot)
                     end
-                    return add(snapshot.items, tonumber(link:match("item:(%d+)")), link, 1, tostring(slot))
+                    local added = add(snapshot.items, tonumber(link:match("item:(%d+)")), link, 1, tostring(slot))
+                    trace("slot", "slot=" .. slot, "added=" .. tostring(added), link)
+                    return added
                 end)
+                if not ok then
+                    trace("slot-error", "slot=" .. slot, readable)
+                end
                 if not ok then
                     snapshot.complete = false
                 elseif not readable then
@@ -112,6 +161,7 @@ function Scan.capture(api, area, bankOpen, cache, affected)
                 retainCapture(cache, slot, snapshot, first, ok and readable == true)
             end
         end
+        trace("capture", "area=equipped", "complete=" .. tostring(snapshot.complete), "items=" .. #snapshot.items)
         return snapshot
     end
     local containers = api.C_Container
@@ -125,7 +175,7 @@ function Scan.capture(api, area, bankOpen, cache, affected)
     end
     for _, bag in ipairs(containerIDs[area] or {}) do
         local cached = cache and cache[bag]
-        if cached and affected and not affected[bag] then
+        if cached and cached.complete and affected and not affected[bag] then
             appendCached(snapshot, cached)
         else
             local first, complete = #snapshot.items, true
@@ -155,13 +205,17 @@ function Scan.capture(api, area, bankOpen, cache, affected)
                 end
             end
             retainCapture(cache, bag, snapshot, first, complete)
+            if not complete then
+                trace("container-incomplete", "area=" .. area, "bag=" .. bag)
+            end
         end
     end
+    trace("capture", "area=" .. area, "complete=" .. tostring(snapshot.complete), "items=" .. #snapshot.items)
     return snapshot
 end
 
 -- Cache container snapshots, never item facts. Every returned area is assembled
--- from all its containers; an unreadable container still makes it incomplete.
+-- from all its containers; unreadable containers and slots are read again.
 function Scan.reader(api)
     local caches = { bags = {}, bank = {}, equipped = {} }
     local reader = {}

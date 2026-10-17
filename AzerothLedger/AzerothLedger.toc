@@ -2,10 +2,11 @@
 ## Title: Azeroth Ledger
 ## Notes: Account Collection and item history for WoW Forever
 ## Version: 0.11.7
-## SavedVariables: AzerothLedgerDB, AzerothLedgerMinimapButtonDB
+## SavedVariables: AzerothLedgerDB, AzerothLedgerMinimapButtonDB, AzerothLedgerTraceDB
 
 Item.lua
 Work.lua
+Trace.lua
 Schema.lua
 Client.lua
 Scan.lua
