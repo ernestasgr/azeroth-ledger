@@ -46,8 +46,9 @@ from before the split.
 On this workstation (Python 3.12 with Lupa Lua 5.1, StyLua 2.5.2, Luacheck
 1.2.0, LuaLS 3.19.1), every check in `.github/workflows/verify.yml` passed:
 
-- Lua 5.1 syntax for all 67 addon, companion, and test files.
-- All 26 `tests/*.lua` behavior specs. Their assertions did not change; only the
+- Lua 5.1 syntax for all 79 addon, companion, and test files.
+- All 27 `tests/*.lua` behavior specs, including `event_routing_spec` from the
+  merged event-sessions split (#78). Their assertions did not change; only the
   source lists did.
 - StyLua `--check` (LF staging), Luacheck, and LuaLS: no diagnostics.
 - `tools/package.py` load order and archive contents, plus the installer unit
@@ -57,8 +58,8 @@ A one-off differential replay ran each spec against both versions at once. Every
 `Schema.open` opened the original monolith (from `adb203d`) and the split store
 on copies of the same input. Each public call ran on both, and the replay
 compared results, callback arguments, cursor rows, and every saved payload, in
-order. Across 25 specs that was 387 opens, about 80,000 store calls, and about
-4,650 saves, with no differences. Two specs passed only when both stores got
+order. Across 26 specs that was 387 opens, about 80,000 store calls, and about
+4,650 saves, with no differences. This was re-run after merging #78. Two specs passed only when both stores got
 identically built copies, because the cursor's record order follows table
 iteration order. Two others passed only when the original got the spec's own
 table, because they check its identity. `performance_spec` was left out because
@@ -69,7 +70,7 @@ the split store.
 
 The account SavedVariables (`414268473#1`) were schema 2 before installation.
 `.flavor.info` reports `wow_classic_beta`. `tools/install_local.py` copied the
-43 TOC-listed and auto-loaded files for `AzerothLedger` and
+54 TOC-listed and auto-loaded files for `AzerothLedger` and
 `AzerothLedger_Tests`. A separate `--verify-only` run matched every installed
 hash. WoWUnit was not touched. No WoW client was running.
 
