@@ -230,6 +230,7 @@ function StoreScan.install(store, kernel, domains)
                     firstSeen = snapshot.seenAt,
                     lastSeen = snapshot.seenAt,
                     firstSeenUnits = group.quantity,
+                    firstSeenLater = type(oldScope) == "table" and oldScope.complete or nil,
                 }
                 record.characters[#record.characters + 1] = characterEntry
             end

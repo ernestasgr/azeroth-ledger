@@ -420,6 +420,17 @@ local received = addon.store:breakdown("4540:0", { character = "Ben", realm = "R
 assert(received.methods.Transfer == 2, "Ben's view must say how the transferred units arrived")
 assert(received.sources["Your characters"] == 2 and received.gained == 0)
 assert(not addon.store:breakdown("4540:0").methods.Transfer, "the account view counts them where they started")
+assert(not received.methods.Seen, "Ben had none of his own")
+local sender = addon.store:breakdown("4540:0", { character = "Ada", realm = "Realm" })
+assert(sender.methods.Seen == 2, "Ada's view must show the units she already had")
+assert(sender.sources["Initial stock"] == 2)
+
+-- A character's view also shows units that appeared after its earlier check with no known way.
+addon, state = mailbox()
+state.bags = { { quantity = 1 } }
+state:event("BAG_UPDATE_DELAYED")
+local appeared = addon.store:breakdown("4540:0", { character = "Ada", realm = "Realm" })
+assert(appeared.methods.Appeared == 1 and appeared.sources["Appeared later"] == 1)
 
 -- A character switch reads empty bags until the client loads them; that read proves nothing.
 addon, state = mailbox(nil, true)
