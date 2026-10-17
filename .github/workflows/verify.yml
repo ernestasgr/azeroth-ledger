@@ -28,49 +28,5 @@ jobs:
           echo 'e9235d2d72ef55bc41cf8c99cda2ed64777682024b4bb81f5dea425060c5cbb8  luals.tar.gz' | sha256sum -c -
           mkdir -p .tools/luals
           tar -xzf luals.tar.gz -C .tools/luals
-      - name: Lua 5.1 syntax and behavior
-        run: |
-          find AzerothLedger AzerothLedger_Tests tests -name '*.lua' -print0 | xargs -0 -n1 luac -p
-          lua tests/store_spec.lua
-          lua tests/client_spec.lua
-          lua tests/collection_spec.lua
-          lua tests/book_query_spec.lua
-          lua tests/evidence_query_spec.lua
-          lua tests/book_preferences_spec.lua
-          lua tests/book_state_spec.lua
-          lua tests/settings_spec.lua
-          lua tests/book_ui_spec.lua
-          lua tests/gallery_ui_spec.lua
-          lua tests/journal_spec.lua
-          lua tests/presentation_spec.lua
-          lua tests/reward_spec.lua
-          lua tests/quest_event_spec.lua
-          lua tests/quest_delayed_event_spec.lua
-          lua tests/quest_accept_event_spec.lua
-          lua tests/loot_event_spec.lua
-          lua tests/scan_spec.lua
-          lua tests/wowunit_replay_spec.lua
-          lua tests/vendor_event_spec.lua
-          lua tests/mail_event_spec.lua
-          lua tests/saved_variables_event_spec.lua
-          lua tests/new_character_equipment_spec.lua
-          lua tests/uncached_equipment_spec.lua
-          lua tests/trace_spec.lua
-          lua tests/late_equipment_spec.lua
-          lua tests/performance_spec.lua
-          lua tests/architecture_spec.lua
-          lua tests/event_routing_spec.lua
-      - name: Format and lint
-        run: |
-          .tools/stylua/stylua --check AzerothLedger AzerothLedger_Tests tests
-          luacheck AzerothLedger AzerothLedger_Tests tests
-      - name: LuaLS diagnostics
-        run: |
-          status=0
-          .tools/luals/bin/lua-language-server --check="${PWD}" --checklevel=Warning --check_format=json --check_out_path="${PWD}/check.json" --logpath="${PWD}" || status=$?
-          python3 tools/check_luals.py
-          exit "$status"
-      - name: Package contents and order
-        run: python3 tools/package.py --output dist/AzerothLedger.zip
-      - name: Local installer behavior
-        run: python3 -m unittest discover -s tests -p 'test_*.py'
+      - name: Syntax, specs, format, lint, LuaLS, package and installer
+        run: python3 tools/verify.py

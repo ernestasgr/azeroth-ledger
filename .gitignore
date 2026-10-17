@@ -6,3 +6,4 @@ check.json
 .luarocks/
 *.log
 __pycache__/
+.venv/

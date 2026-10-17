@@ -16,17 +16,21 @@ Use the single-context layout. See `docs/agents/domain.md`.
 
 Use the [generated Blizzard API documentation](https://github.com/Gethe/wow-ui-source/tree/live/Interface/AddOns/Blizzard_APIDocumentationGenerated) as a general reference. For Forever beta behavior, check the installed client's `BlizzardInterfaceCode` export and confirm event order in-client; the `live` branch may differ from this build.
 
+## Checks and in-game data
+
+Run checks with `.venv/Scripts/python tools/verify.py`: it runs all of CI's checks, and passing spec paths runs only those specs (fast red/green). CI runs the same script. If `.venv` is missing, run `py -3.14 -m venv .venv` and then `.venv/Scripts/python -m pip install -r requirements-dev.txt`.
+
+For a bug seen in-game, start with `.venv/Scripts/python tools/inspect_saved.py --item <id or name>`. It prints the newest account save's record, the journal entries for the item, and its event trace lines.
+
 ## Finish addon implementations
 
-Before finishing an implementation, run the checks in `.github/workflows/verify.yml`: Lua 5.1 syntax and all `tests/*.lua` behavior tests, StyLua, Luacheck, LuaLS diagnostics, and package validation. If a tool is unavailable locally, wait for the PR's `verify` check and report which checks ran only in CI. Fix failures before calling the work done.
-
-On this workstation, update the installed Forever beta addon after the checks pass:
+Before finishing an implementation, make `tools/verify.py` pass. Then update the installed Forever beta addon:
 
 ```text
-python tools/install_local.py --wow-root "C:/Program Files (x86)/World of Warcraft/_classic_beta_"
-python tools/install_local.py --wow-root "C:/Program Files (x86)/World of Warcraft/_classic_beta_" --verify-only
+.venv/Scripts/python tools/install_local.py
+.venv/Scripts/python tools/install_local.py --verify-only
 ```
 
-The installer copies only TOC-listed files and the native auto-loaded `Bindings.xml` for `AzerothLedger` and `AzerothLedger_Tests`. Keep `WoWUnit` and other addons untouched. Check the account SavedVariables schema before installing; if it is incompatible, back up the file and resolve the data change explicitly instead of silently discarding records. Confirm the beta flavor and installed-file hashes; a file copy alone is not an in-client test.
+If the installer refuses because a SavedVariables schema is incompatible, back up the file and resolve the data change explicitly instead of discarding records. A file copy alone is not an in-client test.
 
 For changes that require in-client behavior, reload or restart the Forever client and run the relevant WoWUnit group, including `AzerothLedgerCollection` for Collection changes. Record the build, locale, test result, and any Lua errors. If the client cannot be exercised from this environment, say that the in-client check is pending rather than claiming it passed.
