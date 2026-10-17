@@ -10,7 +10,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 ROOT = Path(__file__).resolve().parents[1]
 ADDON = ROOT / "AzerothLedger"
 TESTS = ROOT / "AzerothLedger_Tests"
-SOURCE_ORDER = ("Item.lua", "Work.lua", "Schema.lua", "Client.lua", "Scan.lua", "Inventory.lua", "Loot.lua", "Reward.lua", "Vendor.lua", "Exchange.lua", "LastSeen.lua", "Collection.lua", "Presentation.lua", "Journal.lua", "BookWidgets.lua", "BookQuery.lua", "Book.lua", "Settings.lua", "Main.lua")
+SOURCE_ORDER = ("Item.lua", "Work.lua", "Trace.lua", "Schema.lua", "Client.lua", "Scan.lua", "Inventory.lua", "Loot.lua", "Reward.lua", "Vendor.lua", "Exchange.lua", "LastSeen.lua", "Collection.lua", "Presentation.lua", "Journal.lua", "BookWidgets.lua", "BookQuery.lua", "Book.lua", "Settings.lua", "Main.lua")
 
 AUTO_LOADED_FILES = ("Bindings.xml",)
 
@@ -29,7 +29,7 @@ def check() -> list[Path]:
 
     main = toc.read_text(encoding="utf-8")
     companion = (TESTS / "AzerothLedger_Tests.toc").read_text(encoding="utf-8")
-    assert "## SavedVariables: AzerothLedgerDB, AzerothLedgerMinimapButtonDB" in main
+    assert "## SavedVariables: AzerothLedgerDB, AzerothLedgerMinimapButtonDB, AzerothLedgerTraceDB" in main
     assert "## Dependencies: AzerothLedger, WoWUnit" in companion
 
     files = [toc, *(ADDON / name for name in (*SOURCE_ORDER, *AUTO_LOADED_FILES))]
