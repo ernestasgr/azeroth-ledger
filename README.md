@@ -18,7 +18,7 @@ AddOns Settings → Azeroth Ledger includes an optional **Developer mode** setti
 
 Use Ctrl+F to search, Up/Down to select items, Page Up/Page Down or the mouse wheel to browse results, and Tab/Shift+Tab then Enter to activate controls. Character, realm and place menus show named choices. Escape dismisses an open menu, then closes the book. Scale buttons fit the book to your screen. The [book preview](docs/validation/collection-redesign.md) shows the layout and interaction checks; [Collection validation](docs/validation/issue-23-collection.md) records semantic checks and pending in-client checks.
 
-See [CONTEXT.md](CONTEXT.md) for the player-facing glossary. Client compatibility and saved data must be checked on the intended Forever release build.
+See [GLOSSARY.md](GLOSSARY.md) for the player-facing glossary. Client compatibility and saved data must be checked on the intended Forever release build.
 
 Customize the Ledger in **AddOns Settings → Azeroth Ledger**:
 

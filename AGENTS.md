@@ -10,7 +10,7 @@ Use the default labels `needs-triage`, `needs-info`, `ready-for-agent`, `ready-f
 
 ### Domain docs
 
-Use the single-context layout. See `docs/agents/domain.md`.
+Player-facing terms live in `GLOSSARY.md`. See `docs/agents/domain.md`.
 
 ### WoW API reference
 

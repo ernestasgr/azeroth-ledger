@@ -20,7 +20,7 @@ Every view counts each unit once, under one way it was obtained.
 
 ## Domain language
 
-Code, tests, comments and player-facing text use the terms in `CONTEXT.md` (Collection, Journal, Seen, Looted, Obtained, Transfer, Source, Unknown...). A new player-facing label either matches an existing term or comes with a `CONTEXT.md` entry. Labels never contradict the glossary: "Total gained" never counts a Transfer.
+Code, tests, comments and player-facing text use the terms in `GLOSSARY.md` (Collection, Journal, Seen, Looted, Obtained, Transfer, Source, Unknown...). A new player-facing label either matches an existing term or comes with a `GLOSSARY.md` entry. Labels never contradict the glossary: "Total gained" never counts a Transfer.
 
 ## Module boundaries
 
