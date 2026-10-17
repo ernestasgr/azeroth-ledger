@@ -8,7 +8,7 @@ local gainMethods, vendorKinds, isInteger, isName = V.gainMethods, V.vendorKinds
 local copyValue, validEvidence, validLootSource = V.copyValue, V.validEvidence, V.validLootSource
 local validLootState, copyRecord, validPlaceKind = V.validLootState, V.copyRecord, V.validPlaceKind
 local validRecord, validRewardContext, validRewardState = V.validRecord, V.validRewardContext, V.validRewardState
-local sameSource = V.sameSource
+local sameSource, preparationLive = V.sameSource, V.preparationLive
 
 local StoreEvidence = {}
 
@@ -143,7 +143,7 @@ function StoreEvidence.install(store, kernel)
                     end
                 end
                 for _, entry in ipairs(name == "rewards" and state and state.preparations or {}) do
-                    if at - entry.at >= 60 then
+                    if at >= entry.at and not preparationLive(entry, at) then
                         stale = true
                         break
                     end
@@ -210,8 +210,9 @@ function StoreEvidence.install(store, kernel)
                 if name == "rewards" then
                     for index = #(state.preparations or {}), 1, -1 do
                         local entry = state.preparations[index]
-                        if reason == "reload" or at - entry.at >= 60 then
-                            if not entry.confirmed then
+                        if reason == "reload" or (at >= entry.at and not preparationLive(entry, at)) then
+                            -- Declining an offered quest is ordinary, not evidence.
+                            if not entry.confirmed and entry.stage ~= "accept" then
                                 retain(evidence, "quest", reason, entry.at, entry, entry)
                             end
                             table.remove(state.preparations, index)

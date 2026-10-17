@@ -1,8 +1,10 @@
 local _, addon = ...
 addon.Sessions = addon.Sessions or {}
 
--- Quest reward offers, delayed quest loot, and turn-ins. Offered rewards are
--- stored as previews; a choice group ties the choosable rewards of one offer.
+-- Quest offers and accepts, reward offers, delayed quest loot, and turn-ins.
+-- Offered rewards are stored as previews; a choice group ties the choosable
+-- rewards of one offer. Items a quest giver hands over on accept are measured
+-- against the possessions checked when the quest was offered.
 local QuestSession = {}
 
 local function questID(api, offer)
@@ -55,8 +57,30 @@ function QuestSession.new(runtime)
         end
     end
 
+    local function detail()
+        runtime.inventory:check("possessions")
+        local context = runtime.player()
+        local id = questID(api)
+        if context and id then
+            runtime.store():questOffered(id, context.at, context)
+        end
+    end
+
+    local function accepted(id)
+        local context = runtime.player()
+        if not context or type(id) ~= "number" then
+            return
+        end
+        context.questName = addon.Reward.questName(api, id)
+        if runtime.store():questAccepted(id, context.at, context) then
+            runtime.inventory:check("possessions")
+        end
+    end
+
     return {
         events = {
+            QUEST_DETAIL = detail,
+            QUEST_ACCEPTED = accepted,
             QUEST_COMPLETE = offered,
             QUEST_LOOT_RECEIVED = function(...)
                 runtime.reward(addon.Reward.quest(api, ...))
