@@ -118,6 +118,8 @@ end
 ---@field firstSeen integer
 ---@field lastSeen integer
 ---@field firstSeenUnits integer
+---@field transferredUnits? integer Units first seen here that arrived from another of your characters.
+---@field firstSeenLater? boolean This character's first units arrived after its earlier complete check.
 
 ---@class AzerothLedgerAreaState
 ---@field seenAt integer
@@ -993,6 +995,8 @@ local function validRecord(key, record)
             or not isInteger(character.firstSeen)
             or not isInteger(character.lastSeen)
             or not isInteger(character.firstSeenUnits)
+            or (character.transferredUnits ~= nil and not isInteger(character.transferredUnits))
+            or (character.firstSeenLater ~= nil and type(character.firstSeenLater) ~= "boolean")
         then
             return false
         end
@@ -1519,7 +1523,7 @@ function Validate.sourceGroups(groups, pause)
     addon.Work.sort(rows, function(left, right)
         return left.key < right.key
     end, checkpoint)
-    local used = { ["Initial stock"] = true, ["Appeared later"] = true }
+    local used = { ["Initial stock"] = true, ["Appeared later"] = true, ["Your characters"] = true }
     for index, group in ipairs(rows) do
         if labels[group.label] > 1 or used[group.label] then
             local identity = group.key:match("^(%a+:%d+)$")

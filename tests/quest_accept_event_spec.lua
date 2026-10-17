@@ -103,6 +103,7 @@ local function boot(present)
     end
     frame.onEvent(frame, "ADDON_LOADED", "AzerothLedger")
     frame.onEvent(frame, "PLAYER_LOGIN")
+    frame.onEvent(frame, "BAG_UPDATE_DELAYED")
 end
 
 local function event(name, ...)

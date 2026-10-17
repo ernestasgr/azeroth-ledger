@@ -128,6 +128,7 @@ end
 
 event("ADDON_LOADED", "AzerothLedger")
 event("PLAYER_LOGIN")
+event("BAG_UPDATE_DELAYED")
 clock = 1010
 event("QUEST_COMPLETE")
 clock = 1011

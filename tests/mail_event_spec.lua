@@ -1,7 +1,8 @@
 -- Synthetic production hooks/events; this does not certify native client behavior.
 local link = "|Hitem:4540::::::::|h[Bread]|h"
 
-local function mailbox(initial)
+-- switching leaves the client mid-load, before its first BAG_UPDATE_DELAYED.
+local function mailbox(initial, switching)
     local addon = {}
     local frame = { registered = {} }
     local state = { bags = initial or {}, messages = {}, clock = 1000, character = "Ada", outbox = {} }
@@ -168,6 +169,9 @@ local function mailbox(initial)
     end
     state:event("ADDON_LOADED", "AzerothLedger")
     state:event("PLAYER_LOGIN")
+    if not switching then
+        state:event("BAG_UPDATE_DELAYED")
+    end
     return addon, state
 end
 
@@ -386,6 +390,71 @@ state:event("MAIL_SUCCESS")
 state:event("BAG_UPDATE_DELAYED")
 assert(addon.store:find("4540:0").totalGained == 0)
 assert(#addon.store:exchangeActivity() == 1 and addon.store:exchangeActivity()[1].quantity == 2)
+
+-- Forever shows surnames and omits the local realm: "Ada Quietfield" is still Ada on this realm.
+addon, state = mailbox({ { quantity = 2 } })
+state:event("MAIL_SHOW")
+state.outbox = { { quantity = 2 } }
+state:event("MAIL_SEND_INFO_UPDATE")
+_G.SendMail("Ben Truehammer")
+state.bags = {}
+state:event("MAIL_SEND_SUCCESS")
+state:event("BAG_UPDATE_DELAYED")
+state:event("MAIL_CLOSED")
+state.character = "Ben"
+state:event("PLAYER_LOGIN")
+state.messages = { { sender = "Ada Quietfield", items = { { quantity = 2 } } } }
+state:event("MAIL_SHOW")
+_G.AutoLootMailItem(1)
+state.messages = {}
+state.bags = { { quantity = 2 } }
+state:event("MAIL_SUCCESS")
+state:event("BAG_UPDATE_DELAYED")
+assert(addon.store:find("4540:0").totalGained == 0, "surnamed alt mail must be a transfer")
+assert(#addon.store:exchangeActivity() == 1 and addon.store:exchangeActivity()[1].sender == "Ada")
+-- A transfer moves units between characters; the account still has only Ada's two.
+local seen = addon.LastSeen.project(addon.store, addon.store:find("4540:0"), "Ben", "Realm")
+assert(seen.characterOverall == 2, "Ben received two by transfer")
+assert(seen.allCharactersOverall == 2, "a transfer must not count the same units twice")
+local received = addon.store:breakdown("4540:0", { character = "Ben", realm = "Realm" })
+assert(received.methods.Transfer == 2, "Ben's view must say how the transferred units arrived")
+assert(received.sources["Your characters"] == 2 and received.gained == 0)
+assert(not addon.store:breakdown("4540:0").methods.Transfer, "the account view counts them where they started")
+assert(not received.methods.Seen, "Ben had none of his own")
+local sender = addon.store:breakdown("4540:0", { character = "Ada", realm = "Realm" })
+assert(sender.methods.Seen == 2, "Ada's view must show the units she already had")
+assert(sender.sources["Initial stock"] == 2)
+-- Across the realm both ends of the transfer are in view: each unit has one way.
+local realm = addon.store:breakdown("4540:0", { realm = "Realm" })
+assert(not realm.methods.Transfer and realm.methods.Seen == 2, "a realm view holds both ends of the transfer")
+assert(not realm.sources["Your characters"])
+
+-- A character's view also shows units that appeared after its earlier check with no known way.
+addon, state = mailbox()
+state.bags = { { quantity = 1 } }
+state:event("BAG_UPDATE_DELAYED")
+local appeared = addon.store:breakdown("4540:0", { character = "Ada", realm = "Realm" })
+assert(appeared.methods.Appeared == 1 and appeared.sources["Appeared later"] == 1)
+
+-- A character switch reads empty bags until the client loads them; that read proves nothing.
+addon, state = mailbox(nil, true)
+state.bags = { { quantity = 3 } }
+state:event("BAG_UPDATE_DELAYED")
+record = addon.store:find("4540:0")
+assert(not record.firstSeenLater, "items present at login were already had, not appeared later")
+
+-- A same-realm sender has no realm suffix but is still a named player source.
+addon, state = mailbox()
+state.messages = { { sender = "Cara Ironfoot", items = { { quantity = 1 } } } }
+state:event("MAIL_SHOW")
+_G.AutoLootMailItem(1)
+state.messages = {}
+state.bags = { { quantity = 1 } }
+state:event("MAIL_SUCCESS")
+state:event("BAG_UPDATE_DELAYED")
+record = addon.store:find("4540:0")
+assert(record.totalGained == 1 and record.gains[1].source, "same-realm mail must keep its sender")
+assert(record.gains[1].source.name == "Cara" and record.gains[1].source.realm == "Realm")
 
 -- A failed take ends its intent; a later successful retry can capture fresh proof.
 addon, state = mailbox()
