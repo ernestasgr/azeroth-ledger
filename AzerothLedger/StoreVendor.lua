@@ -277,7 +277,7 @@ function StoreVendor.install(store, kernel, slice)
                                 placeKind = action.placeKind,
                                 method = "Vendor",
                                 source = action.vendorName and { kind = "vendor", name = action.vendorName } or nil,
-                            }, not valid[action.key])
+                            }, { discovery = not valid[action.key] })
                             vendorResult(state, action, "confirmed")
                         end
                     end

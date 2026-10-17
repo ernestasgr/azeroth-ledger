@@ -476,16 +476,35 @@ function StoreKernel.open(raw, save, slices)
         return result
     end
 
+    -- Whether the gain's character made the item's earliest sighting. Another
+    -- character's earlier or concurrent sighting keeps its own first-check units.
+    local function firstFound(record, entry)
+        for _, seen in ipairs(record.characters) do
+            if seen.firstSeen == record.firstSeen and seen.name == entry.character and seen.realm == entry.realm then
+                return true
+            end
+        end
+        return false
+    end
+
     -- Records one confirmed gain on a copy of record, merging by gain id. The
     -- kernel alone writes Total gained, gain dates and discovered first-check
-    -- units. A discovery may carry `since`: the record's first-check units then
-    -- change only when the record was first seen at or after that time.
+    -- units.
+    --
+    -- `discovery` says the item was unknown when the action began; `since` is
+    -- loot's opening time. Loot measures its discoveries itself and its gains
+    -- carry `openedAt`, so Last seen counts them even before their character's
+    -- first sighting: their units leave that character's first-check units.
+    -- Another channel's gain discovers the item only when its character also
+    -- made the earliest sighting. Last seen counts such a gain only after its
+    -- character's first sighting, so that character's first-check units keep it.
     ---@param record AzerothLedgerRecord
     ---@param entry table
-    ---@param discovery? boolean|{since: integer}
-    ---@param options? {full?: boolean}
-    local function recordGain(record, entry, discovery, options)
-        record = options and options.full and copyRecord(record) or editGainRoot(record, entry.id)
+    ---@param options? {discovery?: boolean, since?: integer, full?: boolean}
+    local function recordGain(record, entry, options)
+        options = options or {}
+        local discovered = options.discovery and (entry.openedAt ~= nil or firstFound(record, entry))
+        record = options.full and copyRecord(record) or editGainRoot(record, entry.id)
         local target
         for _, existing in ipairs(record.gains) do
             if existing.id == entry.id then
@@ -501,14 +520,15 @@ function StoreKernel.open(raw, save, slices)
         end
         local quantity = entry.quantity
         record.totalGained = record.totalGained + quantity
+        -- The dates only widen; the book derives its dates from the gains themselves.
         record.firstGained = record.firstGained and math.min(record.firstGained, target.at) or target.at
         record.lastGained = record.lastGained and math.max(record.lastGained, target.at) or target.at
-        if discovery then
+        if discovered then
             record.evidencedDiscovery = true
-            if type(discovery) ~= "table" or record.firstSeen >= discovery.since then
+            if not options.since or record.firstSeen >= options.since then
                 record.firstSeenUnits = math.max(0, record.firstSeenUnits - quantity)
             end
-            for _, seen in ipairs(record.characters) do
+            for _, seen in ipairs(entry.openedAt and record.characters or {}) do
                 if seen.name == entry.character and seen.realm == entry.realm then
                     seen.firstSeenUnits = math.max(0, seen.firstSeenUnits - quantity)
                     break

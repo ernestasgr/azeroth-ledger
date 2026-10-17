@@ -584,7 +584,7 @@ function StoreExchange.install(store, kernel, slice)
                                     name = action.peerName,
                                     realm = action.peerRealm,
                                 } or nil,
-                            }, action.discovery)
+                            }, { discovery = action.discovery })
                             action.quantity = quantity
                             action.status = "settled"
                         end

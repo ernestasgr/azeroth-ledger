@@ -492,7 +492,7 @@ function StoreReward.install(store, kernel, slice)
             placeKind = session.placeKind,
             method = session.method,
             context = session.context,
-        }, session.discovery)
+        }, { discovery = session.discovery })
         session.awarded = target
         records[key] = record
     end

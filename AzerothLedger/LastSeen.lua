@@ -192,6 +192,9 @@ function LastSeen.project(store, record, character, realm, scope)
             or gain.at > total.firstSeenAt
         then
             total.quantity = total.quantity + gain.quantity - (gain.refunded or 0)
+        else
+            -- The first check already counted these units; a refund still removes them.
+            total.quantity = total.quantity - (gain.refunded or 0)
         end
     end
     -- Units moved in from another of your characters belong to this character's

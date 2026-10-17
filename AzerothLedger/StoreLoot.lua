@@ -339,6 +339,8 @@ function StoreLoot.install(store, kernel, slice, correlation, rewards)
         return false, current
     end
 
+    -- A late source proof edits gain shares before awarding, so it passes no
+    -- `incremental` and the kernel copies the whole record.
     local function award(session, key, records, at, incremental)
         if session.baselineEquipmentUncertain then
             return
@@ -382,7 +384,7 @@ function StoreLoot.install(store, kernel, slice, correlation, rewards)
             placeKind = session.placeKind,
             method = "Looted",
             source = type(session.slots[key]) == "table" and session.slots[key].source or nil,
-        }, session.discoveries[key] and { since = session.openedAt }, { full = not incremental })
+        }, { discovery = session.discoveries[key] == true, since = session.openedAt, full = not incremental })
         session.awarded[key] = target
         attributeLoot(session, key, record)
         records[key] = record
