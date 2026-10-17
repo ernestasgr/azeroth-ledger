@@ -129,9 +129,9 @@ local function world()
     function w.vendorReceipt(at, quantity)
         assert(store:vendorReceipt({ key = key, quantity = quantity }, at, { character = "Ada", realm = "Realm" }))
     end
-    function w.mail(at, character, direction, quantity, peer)
+    function w.exchange(channel, at, character, direction, quantity, peer)
         assert(store:exchangeIntent({
-            channel = "mail",
+            channel = channel,
             direction = direction,
             key = key,
             itemID = 4540,
@@ -140,7 +140,10 @@ local function world()
             peerName = peer,
             peerRealm = peer and "Realm" or nil,
         }, at, w.actor(character, at)))
-        assert(store:exchangeConfirm("mail", direction, at + 1, w.actor(character, at + 1)))
+        assert(store:exchangeConfirm(channel, direction, at + 1, w.actor(character, at + 1)))
+    end
+    function w.mail(at, character, direction, quantity, peer)
+        w.exchange("mail", at, character, direction, quantity, peer)
     end
     function w.store()
         return store
@@ -469,7 +472,7 @@ local function act(w, channel, at, character)
             )
         )
     else
-        w.mail(at, character, "in", 1, "Cara")
+        w.exchange(channel, at, character, "in", 1, "Cara")
     end
 end
 local orderings = {
@@ -536,7 +539,7 @@ local function truth(holds, realmOf)
         .. total
 end
 for _, benRealm in ipairs({ "Realm", "Other Realm" }) do
-    for _, channel in ipairs({ "quest", "craft", "vendor", "mail" }) do
+    for _, channel in ipairs({ "quest", "craft", "vendor", "mail", "trade" }) do
         for _, ordering in ipairs(orderings) do
             local w = world()
             w.realms.Ben = benRealm
