@@ -164,18 +164,19 @@ function LastSeen.project(store, record, character, realm, scope)
         local key = seen.realm .. ":" .. seen.name
         local total = actorOveralls[key]
         if not total then
-            total = { quantity = 0, firstSeenAt = seen.firstSeen }
+            total = { quantity = 0, transferred = 0, firstSeenAt = seen.firstSeen }
             actorOveralls[key] = total
         elseif seen.firstSeen < total.firstSeenAt then
             total.firstSeenAt = seen.firstSeen
         end
         total.quantity = total.quantity + seen.firstSeenUnits
+        total.transferred = total.transferred + (seen.transferredUnits or 0)
     end
     for _, gain in ipairs(record.gains or {}) do
         local key = gain.realm .. ":" .. gain.character
         local total = actorOveralls[key]
         if not total then
-            total = { quantity = 0 }
+            total = { quantity = 0, transferred = 0 }
             actorOveralls[key] = total
         end
         if
@@ -193,7 +194,9 @@ function LastSeen.project(store, record, character, realm, scope)
             total.quantity = total.quantity + gain.quantity - (gain.refunded or 0)
         end
     end
-    local function overallFor(actorName, actorRealm)
+    -- Units moved in from another of your characters belong to this character's
+    -- overall, but the account already counted them where they started.
+    local function overallFor(actorName, actorRealm, withTransfers)
         local total = actorOveralls[actorRealm .. ":" .. actorName]
         if not total then
             return 0
@@ -201,10 +204,10 @@ function LastSeen.project(store, record, character, realm, scope)
         if total.ambiguous then
             return nil
         end
-        return total.quantity
+        return total.quantity + (withTransfers and total.transferred or 0)
     end
     if targetName and targetRealm then
-        result.characterOverall = overallFor(targetName, targetRealm)
+        result.characterOverall = overallFor(targetName, targetRealm, true)
     end
     local allCharactersOverall, allCharactersOverallKnown = 0, true
     for _, actor in ipairs(allCharacters) do

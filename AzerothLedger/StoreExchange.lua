@@ -452,6 +452,24 @@ function StoreExchange.install(store, kernel)
                                 place = action.place,
                                 placeKind = action.placeKind,
                             }
+                            -- The delivering check may have counted these units as the
+                            -- recipient's first sighting; they came from the sender.
+                            local received = records[action.key]
+                            for index, seen in ipairs(received and received.characters or {}) do
+                                if seen.name == action.character and seen.realm == action.realm then
+                                    if seen.firstSeen >= action.at and seen.firstSeenUnits > 0 then
+                                        local moved = math.min(seen.firstSeenUnits, quantity)
+                                        local copy = {}
+                                        for field, value in pairs(seen) do
+                                            copy[field] = value
+                                        end
+                                        copy.firstSeenUnits = seen.firstSeenUnits - moved
+                                        copy.transferredUnits = (seen.transferredUnits or 0) + moved
+                                        received.characters[index] = copy
+                                    end
+                                    break
+                                end
+                            end
                             action.quantity = quantity
                             action.status = "settled"
                         elseif senderKnown then

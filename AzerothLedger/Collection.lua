@@ -191,10 +191,15 @@ end
 
 local storageAreas = { "bags", "bank", "equipped" }
 local storageLabels = { bags = "Bags", bank = "Bank", equipped = "Equipped" }
-local methodNames = { Seen = "Already had at first check", Appeared = "Appeared after an earlier check" }
+local methodNames = {
+    Seen = "Already had at first check",
+    Appeared = "Appeared after an earlier check",
+    Transfer = "Transfer from another character",
+}
 local sourceNames = {
     ["Initial stock"] = "Already had before first check",
     ["Appeared later"] = "Unknown, appeared after an earlier check",
+    ["Your characters"] = "Your other characters",
 }
 
 ---@param method string
@@ -380,7 +385,7 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm,
                         .. ": first seen "
                         .. stamp(seen.firstSeen)
                         .. " • "
-                        .. seen.firstSeenUnits
+                        .. seen.firstSeenUnits + (seen.transferredUnits or 0)
                         .. " units"
                 end
             end

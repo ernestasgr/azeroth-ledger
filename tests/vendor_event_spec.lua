@@ -146,6 +146,7 @@ end
 local key = addon.Item.key(bread, 4540)
 event("ADDON_LOADED", "AzerothLedger")
 event("PLAYER_LOGIN")
+event("BAG_UPDATE_DELAYED")
 event("MERCHANT_SHOW")
 PickupMerchantItem(1)
 assert(#AzerothLedgerDB.vendor.actions == 1, "merchant pickup must record item-specific action")

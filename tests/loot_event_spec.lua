@@ -127,6 +127,7 @@ local function event(name, ...)
 end
 event("ADDON_LOADED", "AzerothLedger")
 event("PLAYER_LOGIN")
+event("BAG_UPDATE_DELAYED")
 clock = 1010
 event("LOOT_READY", true, false)
 event("CHAT_MSG_LOOT", "You receive loot: " .. link)
@@ -555,6 +556,12 @@ do
             assert(loadfile("AzerothLedger/Main.lua"))("AzerothLedger", addon)
             event("ADDON_LOADED", "AzerothLedger")
             event("PLAYER_LOGIN")
+            event("BAG_UPDATE_DELAYED")
+            local loaded = callbacks
+            callbacks = {}
+            for _, callback in ipairs(loaded) do
+                callback()
+            end
         end
         local function check()
             clock = clock + 1

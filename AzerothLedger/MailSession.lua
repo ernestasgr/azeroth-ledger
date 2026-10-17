@@ -40,6 +40,12 @@ function MailSession.new(runtime)
     local awaiting
     local sending
 
+    -- Same-realm senders carry no realm suffix.
+    local function readInbox()
+        local _, realm = runtime.identity()
+        return addon.Exchange.inbox(api, realm)
+    end
+
     local function updateProgress()
         if awaiting and runtime.store():mailProgress(awaiting) ~= "waiting" then
             awaiting = nil
@@ -114,7 +120,7 @@ function MailSession.new(runtime)
         if not take or not take.succeeded or ambiguous then
             return
         end
-        local after = addon.Exchange.inbox(api)
+        local after = readInbox()
         local ids = addon.Exchange.taken(take.before, after, take.selected)
         if not next(ids) then
             return
@@ -189,7 +195,7 @@ function MailSession.new(runtime)
             take, ambiguous, sending = nil, false, nil
             runtime.inventory:check("bags")
             updateProgress()
-            inbox = addon.Exchange.inbox(api)
+            inbox = readInbox()
             outbox = addon.Exchange.outbox(api)
         end,
         MAIL_CLOSED = function()
@@ -200,7 +206,7 @@ function MailSession.new(runtime)
         end,
         MAIL_INBOX_UPDATE = function()
             finishTake()
-            inbox = addon.Exchange.inbox(api)
+            inbox = readInbox()
         end,
         MAIL_SEND_INFO_UPDATE = function()
             outbox = addon.Exchange.outbox(api)
@@ -221,7 +227,7 @@ function MailSession.new(runtime)
             abandonTake()
             abandonAwaiting()
             ambiguous = false
-            inbox = addon.Exchange.inbox(api)
+            inbox = readInbox()
         end,
     }
 

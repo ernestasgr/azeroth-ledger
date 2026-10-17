@@ -30,13 +30,15 @@ function Exchange.player(name, realm, localRealm)
     elseif type(realm) ~= "string" or realm == "" then
         realm = localRealm
     end
+    -- Forever shows a surname after the character name, which never contains a space.
+    name = name:match("^(%S+)") or name
     if type(realm) ~= "string" or realm == "" then
         return { name = name }
     end
     return { name = name, realm = realm }
 end
 
-function Exchange.inbox(api)
+function Exchange.inbox(api, localRealm)
     if
         type(api.GetInboxNumItems) ~= "function"
         or type(api.GetInboxHeaderInfo) ~= "function"
@@ -60,10 +62,11 @@ function Exchange.inbox(api)
                 local invoiceOK, value = pcall(api.GetInboxInvoiceInfo, index)
                 invoice = invoiceOK and value or nil
             end
+            local peer = Exchange.player(sender, nil, localRealm)
             for attachment = 1, 12 do
                 local linkOK, link = pcall(api.GetInboxItemLink, index, attachment)
                 local infoOK, name, itemID, _, quantity = pcall(api.GetInboxItem, index, attachment)
-                local intent = linkOK and infoOK and item(link, quantity, "mail", "in", Exchange.player(sender)) or nil
+                local intent = linkOK and infoOK and item(link, quantity, "mail", "in", peer) or nil
                 if intent then
                     readableCount = readableCount + 1
                     intent.mailKind = returned and "return"

@@ -31,6 +31,33 @@ function StoreRecords.install(store, kernel)
             methods = initial and { [later and "Appeared" or "Seen"] = initial } or {},
             sources = initial and { [later and "Appeared later" or "Initial stock"] = initial } or {},
         }
+        -- A scoped view explains its characters' own first units. Only a single
+        -- character's view lists units moved in from your other characters: wider
+        -- views hold both ends and count those units where they started.
+        if scoped then
+            local transferred = 0
+            for _, seen in ipairs(record.characters) do
+                if matches(seen.name, seen.realm) then
+                    transferred = transferred + (seen.transferredUnits or 0)
+                    if seen.firstSeenUnits > 0 then
+                        -- Entries saved before the per-character flag share the item's
+                        -- flag only when they were its first sighting.
+                        local appeared = seen.firstSeenLater
+                        if appeared == nil and seen.firstSeen == record.firstSeen then
+                            appeared = later
+                        end
+                        local method = appeared and "Appeared" or "Seen"
+                        local source = appeared and "Appeared later" or "Initial stock"
+                        result.methods[method] = (result.methods[method] or 0) + seen.firstSeenUnits
+                        result.sources[source] = (result.sources[source] or 0) + seen.firstSeenUnits
+                    end
+                end
+            end
+            if transferred > 0 and scope.character then
+                result.methods.Transfer = transferred
+                result.sources["Your characters"] = transferred
+            end
+        end
         local groups = {}
         for _, gain in ipairs(record.gains) do
             if matches(gain.character, gain.realm) then

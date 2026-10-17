@@ -7,13 +7,13 @@ addon.Sessions = addon.Sessions or {}
 local TradeSession = {}
 
 -- The trade partner, read when the window opens.
-local function partner(api)
+local function partner(api, localRealm)
     local read = rawget(api, "GetUnitName")
     if type(read) ~= "function" then
         return nil
     end
     local ok, name = pcall(read, "NPC", true)
-    return ok and addon.Exchange.player(name) or nil
+    return ok and addon.Exchange.player(name, nil, localRealm) or nil
 end
 
 local function isTradeComplete(api, messageID, message)
@@ -63,7 +63,8 @@ function TradeSession.new(runtime)
                 open, prepared, preparedIDs = true, false, nil
                 cancel()
                 runtime.inventory:check("bags")
-                peer = partner(api)
+                local _, realm = runtime.identity()
+                peer = partner(api, realm)
             end,
             TRADE_PLAYER_ITEM_CHANGED = itemChanged,
             TRADE_TARGET_ITEM_CHANGED = itemChanged,
