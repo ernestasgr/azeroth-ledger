@@ -4,11 +4,94 @@ local _, addon = ...
 
 local V = addon.SchemaValidate
 local isInteger, isName, copyValue, validLootSource = V.isInteger, V.isName, V.copyValue, V.validLootSource
-local copyRecord, validPlaceKind, validRecord = V.copyRecord, V.validPlaceKind, V.validRecord
-local validRewardSession, sameSource = V.validRewardSession, V.sameSource
+local copyRecord, validPlaceKind = V.copyRecord, V.validPlaceKind
+local sameSource = V.sameSource
 local canEnrichLootSource = V.canEnrichLootSource
+local Evidence = addon.StoreEvidence
 
 local StoreLoot = {}
+
+local function validLootState(state)
+    if type(state) ~= "table" or not isInteger(state.nextID) or state.nextID < 0 or type(state.sessions) ~= "table" then
+        return false
+    end
+    for _, session in ipairs(state.sessions) do
+        if
+            type(session) ~= "table"
+            or not isInteger(session.id)
+            or not isInteger(session.openedAt)
+            or session.openedAt < 0
+            or not isName(session.character)
+            or not isName(session.realm)
+            or not isInteger(session.level)
+            or type(session.place) ~= "string"
+            or type(session.slots) ~= "table"
+            or type(session.receipts) ~= "table"
+            or type(session.discoveries) ~= "table"
+            or (session.baselineEquipmentUncertain ~= nil and type(session.baselineEquipmentUncertain) ~= "boolean")
+            or (session.closedAt ~= nil and not isInteger(session.closedAt))
+            or (session.endedAt ~= nil and not isInteger(session.endedAt))
+        then
+            return false
+        end
+        for _, name in ipairs({ "credits", "awarded", "baselineQuantities", "baselineGains" }) do
+            if type(session[name]) ~= "table" then
+                return false
+            end
+            for key, quantity in pairs(session[name]) do
+                if type(key) ~= "string" or not isInteger(quantity) or quantity < 0 then
+                    return false
+                end
+            end
+        end
+        if session.baselinePossessions ~= nil then
+            if type(session.baselinePossessions) ~= "table" then
+                return false
+            end
+            for key, quantity in pairs(session.baselinePossessions) do
+                if type(key) ~= "string" or not isInteger(quantity) or quantity < 0 then
+                    return false
+                end
+            end
+        end
+        for key, slot in pairs(session.slots) do
+            if
+                type(key) ~= "string"
+                or type(slot) ~= "table"
+                or not validLootSource(slot.source)
+                or (slot.limit ~= nil and (not isInteger(slot.limit) or slot.limit < 1))
+            then
+                return false
+            end
+            if slot.shares ~= nil then
+                if type(slot.shares) ~= "table" then
+                    return false
+                end
+                for _, share in ipairs(slot.shares) do
+                    if
+                        type(share) ~= "table"
+                        or not validLootSource(share.source)
+                        or (share.quantity ~= nil and (not isInteger(share.quantity) or share.quantity < 1))
+                    then
+                        return false
+                    end
+                end
+            end
+        end
+        for key, receipt in pairs(session.receipts) do
+            if
+                type(key) ~= "string"
+                or type(receipt) ~= "table"
+                or not isInteger(receipt.at)
+                or not isInteger(receipt.quantity)
+                or receipt.quantity < 1
+            then
+                return false
+            end
+        end
+    end
+    return true
+end
 
 local function sessionIsLive(session, at)
     return type(session) == "table"
@@ -168,14 +251,35 @@ local function competingLoot(session, key, actor)
         and (not slot.limit or (session.awarded[key] or 0) < slot.limit)
 end
 
--- Returns the session hooks a possessions scan settles.
-function StoreLoot.install(store, kernel, correlation)
+---@type AzerothLedgerSlice
+StoreLoot.slice = {
+    name = "loot",
+    validate = validLootState,
+    -- Capture previously unheld items lazily before their first change during
+    -- an open loot session. Late item identification keeps the pre-loot totals.
+    beforeChange = function(state, key, possessions, before)
+        for _, session in ipairs(state and state.sessions or {}) do
+            if session.baselinePossessions and session.baselinePossessions[key] == nil then
+                session.baselinePossessions[key] = possessions(session.character, session.realm)
+            end
+            if session.baselineGains[key] == nil then
+                session.baselineGains[key] = before and before.totalGained or 0
+                session.baselineQuantities[key] = possessions(session.character, session.realm)
+            end
+        end
+    end,
+}
+
+-- Returns the correlation engine a possessions check and evidence expiry use.
+---@param rewards {confirmed: fun(key: string, at: integer, actor: table): table?}
+function StoreLoot.install(store, kernel, slice, correlation, rewards)
     local valid, readable, saveFields, gainRecord = kernel.valid, kernel.readable, kernel.save, kernel.gain
     local heldKeys, possessionsQuantity = kernel.heldKeys, kernel.possessionsQuantity
+    local checkedPossessions, validRecord, lootState = kernel.checkedPossessions, kernel.validRecord, slice.state
     local evidenceState, reserveCandidate = correlation.state, correlation.reserve
 
     local function activeSession(at, pending)
-        local loot = pending or kernel.raw().loot
+        local loot = pending or lootState()
         local sessions = type(loot) == "table" and loot.sessions or nil
         if type(sessions) == "table" then
             for index = #sessions, 1, -1 do
@@ -189,7 +293,7 @@ function StoreLoot.install(store, kernel, correlation)
     end
 
     local function receiptSession(key, at, actor)
-        local loot = kernel.raw().loot
+        local loot = lootState()
         local sessions = type(loot) == "table" and loot.sessions or nil
         if type(sessions) ~= "table" then
             return nil
@@ -218,23 +322,7 @@ function StoreLoot.install(store, kernel, correlation)
     -- Craft/quest receipts can share the chat channel with loot. A newer,
     -- item-specific loot cycle is required to override a confirmed reward.
     local function lootRewardSession(key, at, actor, context)
-        local rewards = type(kernel.raw().rewards) == "table" and kernel.raw().rewards.sessions or nil
-        local latest
-        for _, reward in ipairs(type(rewards) == "table" and rewards or {}) do
-            if
-                validRewardSession(reward)
-                and reward.confirmed
-                and reward.key == key
-                and reward.character == actor.character
-                and reward.realm == actor.realm
-                and at >= reward.at
-                and at - reward.at < 60
-            then
-                if not latest or reward.at > latest.at then
-                    latest = reward
-                end
-            end
-        end
+        local latest = rewards.confirmed(key, at, actor)
         if not latest then
             return false
         end
@@ -342,7 +430,7 @@ function StoreLoot.install(store, kernel, correlation)
         for key in pairs(slots) do
             baselineGains[key] = baselineGains[key] or (valid[key] and valid[key].totalGained or 0)
         end
-        local loot = type(kernel.raw().loot) == "table" and kernel.raw().loot or nil
+        local loot = type(lootState()) == "table" and lootState() or nil
         local previousID = loot and loot.nextID or nil
         local nextID = (isInteger(previousID) and previousID or 0) + 1
         local sessions = {}
@@ -524,7 +612,7 @@ function StoreLoot.install(store, kernel, correlation)
         if not next(keys) then
             return false
         end
-        local loot = copyValue(kernel.raw().loot)
+        local loot = copyValue(lootState())
         for index, entry in ipairs(loot.sessions) do
             if entry.id == session.id then
                 loot.sessions[index] = session
@@ -634,7 +722,7 @@ function StoreLoot.install(store, kernel, correlation)
             return true
         end
         session = preferred or session
-        local pendingLoot = copyValue(kernel.raw().loot)
+        local pendingLoot = copyValue(lootState())
         local selectedID = session and session.id
         session = nil
         for _, entry in ipairs(pendingLoot and pendingLoot.sessions or {}) do
@@ -707,7 +795,158 @@ function StoreLoot.install(store, kernel, correlation)
         return true
     end
 
-    return { activeSession = activeSession, award = award }
+    local function healthyState()
+        local state = lootState()
+        return state and validLootState(state) and state or nil
+    end
+
+    local function stale(at)
+        local state = healthyState()
+        return Evidence.staleEntries(state and state.sessions, at)
+    end
+
+    local function expire(at, reason, retain)
+        local original = healthyState()
+        if type(original) ~= "table" then
+            return nil, false
+        end
+        local state = copyValue(original)
+        local changed = Evidence.expireEntries(state.sessions, at, reason, nil, function(entry, openedAt)
+            for key, slot in pairs(entry.slots or {}) do
+                local received = entry.receipts and entry.receipts[key]
+                local quantity = math.max(
+                    slot.limit or 0,
+                    received and received.quantity or 0,
+                    entry.credits and entry.credits[key] or 0
+                )
+                if quantity == 0 or quantity > (entry.awarded[key] or 0) then
+                    retain("loot", reason, openedAt, entry, {
+                        key = key,
+                        slot = slot,
+                        receipt = received,
+                        measured = entry.credits[key],
+                        awarded = entry.awarded[key],
+                    })
+                end
+            end
+        end)
+        return state, changed
+    end
+
+    local function visit(emit, pause)
+        local state = healthyState()
+        if not readable or not state then
+            return
+        end
+        for _, entry in ipairs(state.sessions) do
+            local id = "loot:" .. entry.id
+            for key, slot in pairs(entry.slots) do
+                local receipt = entry.receipts[key]
+                local quantity = math.max(slot.limit or 0, receipt and receipt.quantity or 0, entry.credits[key] or 0)
+                if quantity == 0 or quantity > (entry.awarded[key] or 0) then
+                    emit(
+                        id .. ":" .. key,
+                        "loot",
+                        "active",
+                        entry.openedAt,
+                        entry,
+                        { key = key, slot = slot, quantity = quantity > 0 and quantity or nil }
+                    )
+                end
+                pause()
+            end
+            pause()
+        end
+    end
+
+    -- Measures the active loot session against one possessions check.
+    ---@param scan AzerothLedgerCheck
+    local function check(scan)
+        local snapshot, oldScope = scan.snapshot, scan.oldScope
+        local pending = healthyState() and copyValue(lootState()) or nil
+        local session = (snapshot.area == "bags" or snapshot.area == "equipped")
+                and activeSession(snapshot.seenAt, pending)
+            or nil
+        if session and (session.character ~= snapshot.character or session.realm ~= snapshot.realm) then
+            session = nil
+        end
+        local handler = {}
+        function handler.commit(fields)
+            fields.loot = pending
+        end
+        if not session then
+            return handler
+        end
+        function handler.item(key, group, known)
+            if session.baselinePossessions and not known then
+                session.discoveries[key] = true
+            end
+            if
+                not session.baselineEquipmentUncertain
+                and snapshot.area == "bags"
+                and snapshot.complete
+                and type(oldScope) == "table"
+                and oldScope.complete
+                and not scan.unresolvedIdentity
+            then
+                -- Bags alone prove a lower bound when they exceed all pre-loot
+                -- possessions, even if every previously equipped unit moved in.
+                local baselineQuantity = session.baselinePossessions and (session.baselinePossessions[key] or 0)
+                    or session.baselineQuantities[key]
+                    or 0
+                local increase = group.quantity - baselineQuantity
+                if increase > 0 then
+                    local credit = isInteger(session.credits[key]) and session.credits[key] or 0
+                    session.credits[key] = math.max(credit, increase)
+                    if not valid[key] then
+                        session.discoveries[key] = true
+                    end
+                end
+            end
+        end
+        function handler.record(key, _group, record, seen, known)
+            if session.discoveries[key] and not known then
+                local gainID = tostring(session.id) .. ":" .. key
+                for _, gain in ipairs(record.gains) do
+                    if gain.id == gainID then
+                        local firstSeenUnits = seen and seen.firstSeenUnits
+                        if firstSeenUnits ~= nil then
+                            seen.firstSeenUnits = math.max(0, firstSeenUnits - gain.quantity + (gain.refunded or 0))
+                        end
+                        break
+                    end
+                end
+            end
+            if snapshot.area == "bags" and snapshot.complete then
+                award(session, key, scan.records, snapshot.seenAt, true)
+            end
+        end
+        -- The paired check follows the bag commit. Measure the whole
+        -- possession change so equipping cannot hide or invent a gain.
+        function handler.finish()
+            if not scan.paired or not session.baselinePossessions then
+                return
+            end
+            local keys = {}
+            for key in pairs(heldKeys(snapshot.character, snapshot.realm, "bags")) do
+                keys[key] = true
+            end
+            for key in pairs(scan.grouped) do
+                keys[key] = true
+            end
+            for key in pairs(keys) do
+                local record = scan.records[key] or valid[key]
+                local gear = scan.grouped[key]
+                local quantity = checkedPossessions(record, snapshot.character, snapshot.realm, gear)
+                local increase = quantity - (session.baselinePossessions[key] or 0)
+                session.credits[key] = math.max(session.credits[key] or 0, increase)
+                award(session, key, scan.records, snapshot.seenAt, true)
+            end
+        end
+        return handler
+    end
+
+    return { engine = { stale = stale, expire = expire, visit = visit, check = check } }
 end
 
 addon.StoreLoot = StoreLoot

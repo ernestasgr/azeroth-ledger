@@ -4,12 +4,30 @@ local _, addon = ...
 
 local V = addon.SchemaValidate
 local CURRENT_SCHEMA, areas, isInteger, isName = V.CURRENT_SCHEMA, V.areas, V.isInteger, V.isName
-local areaKey, copyRecord, validEnvironment = V.areaKey, V.copyRecord, V.validEnvironment
+local areaKey, copyRecord = V.areaKey, V.copyRecord
 
 local StoreRecords = {}
 
-function StoreRecords.install(store, kernel)
+local function validEnvironment(environment)
+    return type(environment) == "table"
+        and isName(environment.build)
+        and #environment.build <= 64
+        and isName(environment.interface)
+        and #environment.interface <= 32
+        and isName(environment.locale)
+        and #environment.locale <= 16
+        and isName(environment.revision)
+        and #environment.revision <= 64
+end
+
+-- The save marker and the client environment that wrote the save.
+---@type AzerothLedgerSlice[]
+StoreRecords.slices = { { name = "marker" }, { name = "environment", validate = validEnvironment } }
+
+---@param slices table<string, table> Handles for this file's slices, by name
+function StoreRecords.install(store, kernel, slices)
     local valid, readable, supported, saveFields = kernel.valid, kernel.readable, kernel.supported, kernel.save
+    local savedMarker, savedEnvironment = slices.marker.state, slices.environment.state
 
     function store.breakdown(_self, key, scope, pause)
         local record = valid[key]
@@ -86,11 +104,10 @@ function StoreRecords.install(store, kernel)
             return {
                 kind = "unsupported",
                 damagedCount = 0,
-                schema = type(kernel.raw()) == "table" and kernel.raw().schema or nil,
+                schema = kernel.schema(),
             }
         end
-        local markerDamaged = kernel.raw().marker ~= nil
-            and (not isName(kernel.raw().marker) or #kernel.raw().marker > 64)
+        local markerDamaged = savedMarker() ~= nil and (not isName(savedMarker()) or #savedMarker() > 64)
         return {
             kind = (kernel.damagedCount > 0 or markerDamaged) and "damaged" or "healthy",
             damagedCount = kernel.damagedCount + (markerDamaged and 1 or 0),
@@ -99,15 +116,15 @@ function StoreRecords.install(store, kernel)
     end
 
     function store.marker(_self)
-        return supported and isName(kernel.raw().marker) and #kernel.raw().marker <= 64 and kernel.raw().marker or nil
+        return supported and isName(savedMarker()) and #savedMarker() <= 64 and savedMarker() or nil
     end
 
     function store.environment(_self)
-        if not supported or not validEnvironment(kernel.raw().environment) then
+        if not supported or not validEnvironment(savedEnvironment()) then
             return nil
         end
         local result = {}
-        for key, value in pairs(kernel.raw().environment) do
+        for key, value in pairs(savedEnvironment()) do
             result[key] = value
         end
         return result
@@ -197,7 +214,7 @@ function StoreRecords.install(store, kernel)
         if not readable or not isName(character) or not isName(realm) or not areas[area] then
             return nil
         end
-        local state = kernel.raw().areas[areaKey(character, realm, area)]
+        local state = kernel.area(areaKey(character, realm, area))
         if type(state) ~= "table" or not isInteger(state.seenAt) or type(state.complete) ~= "boolean" then
             return nil
         end
@@ -221,7 +238,7 @@ function StoreRecords.install(store, kernel)
             end
         end
         if readable then
-            for _, state in pairs(kernel.raw().areas) do
+            for _, state in pairs(kernel.areas()) do
                 if type(state) == "table" and isName(state.character) and isName(state.realm) then
                     add(state.character, state.realm)
                 end

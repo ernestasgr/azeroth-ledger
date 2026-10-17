@@ -1,7 +1,8 @@
 local _, addon = ...
 
 -- The public Schema API. Pure helpers live in SchemaValidate; Schema.open composes
--- one store from the kernel and the domain files, keeping one method table.
+-- one store from the kernel and the domain files, keeping one method table. Each
+-- domain file declares the saved slices it owns and receives only their handles.
 local V = addon.SchemaValidate
 
 local Schema = {
@@ -19,22 +20,51 @@ local Schema = {
 ---@param save fun(value: AzerothLedgerData)
 ---@return AzerothLedgerStore
 function Schema.open(raw, save)
-    local kernel = addon.StoreKernel.open(raw, save)
+    local Records, Preferences = addon.StoreRecords, addon.StorePreferences
+    -- Exchange precedes vendor: their Journal entries take sequence numbers in this order.
+    local slices = {}
+    for _, list in ipairs({
+        Records.slices,
+        Preferences.slices,
+        {
+            addon.StoreEvidence.slice,
+            addon.StoreLoot.slice,
+            addon.StoreReward.slice,
+            addon.StoreExchange.slice,
+            addon.StoreVendor.slice,
+        },
+    }) do
+        for _, slice in ipairs(list) do
+            slices[#slices + 1] = slice
+        end
+    end
+    local kernel, handles = addon.StoreKernel.open(raw, save, slices)
+    local function own(list)
+        local result = {}
+        for _, slice in ipairs(list) do
+            result[slice.name] = handles[slice.name]
+        end
+        return result
+    end
     local store = {}
-    addon.StorePreferences.install(store, kernel)
+    Preferences.install(store, kernel, own(Preferences.slices))
     addon.StoreJournal.install(store, kernel)
-    local evidence = addon.StoreEvidence.install(store, kernel)
-    addon.StoreRecords.install(store, kernel)
+    local evidence = addon.StoreEvidence.install(store, kernel, handles.evidence)
+    Records.install(store, kernel, own(Records.slices))
+    local reward = addon.StoreReward.install(store, kernel, handles.rewards)
+    local loot = addon.StoreLoot.install(store, kernel, handles.loot, evidence, reward)
+    local exchange = addon.StoreExchange.install(store, kernel, handles.exchange)
+    local vendor = addon.StoreVendor.install(store, kernel, handles.vendor)
+    -- Evidence expiry, evidence listing and check settlement all follow this order.
+    evidence.attach({
+        { name = "loot", engine = loot.engine },
+        { name = "rewards", engine = reward.engine },
+        { name = "vendor", engine = vendor.engine },
+        { name = "exchange", engine = exchange.engine },
+    })
     -- A new store is a login/reload boundary, never a continuation of a match.
     evidence.endCorrelation(0, "reload")
-    local domains = {
-        evidence = evidence,
-        loot = addon.StoreLoot.install(store, kernel, evidence),
-        exchange = addon.StoreExchange.install(store, kernel),
-        vendor = addon.StoreVendor.install(store, kernel),
-        reward = addon.StoreReward.install(store, kernel),
-    }
-    addon.StoreScan.install(store, kernel, domains)
+    addon.StoreScan.install(store, kernel, evidence, { loot.engine, reward.engine, vendor.engine, exchange.engine })
     addon.StoreEvidence.guardCandidates(store, kernel, evidence)
     return store
 end

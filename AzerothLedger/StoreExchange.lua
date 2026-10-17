@@ -4,9 +4,94 @@ local _, addon = ...
 
 local V = addon.SchemaValidate
 local isInteger, validCheckID, isName, areaKey = V.isInteger, V.validCheckID, V.isName, V.areaKey
-local copyArray, validPlaceKind, validMailKind = V.copyArray, V.validPlaceKind, V.validMailKind
+local copyArray, copyValue, validPlaceKind = V.copyArray, V.copyValue, V.validPlaceKind
+local Evidence = addon.StoreEvidence
 
 local StoreExchange = {}
+
+local exchangeStatuses = { pending = true, unresolved = true, settled = true, canceled = true }
+local mailKinds = { ["return"] = true, ["auction-purchase"] = true, unresolved = true }
+
+local function validMailKind(intent)
+    return intent.mailKind == nil
+        or (intent.channel == "mail" and intent.direction == "in" and mailKinds[intent.mailKind] == true)
+end
+
+local function validTransferred(action)
+    local transferred = action.transferred
+    return transferred == nil or (isInteger(transferred) and transferred >= 0 and transferred <= action.quantity)
+end
+
+local function validExchangeState(exchange)
+    if
+        type(exchange) ~= "table"
+        or not isInteger(exchange.nextID)
+        or type(exchange.actions) ~= "table"
+        or type(exchange.journal) ~= "table"
+    then
+        return false
+    end
+    local ids = {}
+    for _, action in ipairs(exchange.actions) do
+        if
+            type(action) ~= "table"
+            or not isInteger(action.id)
+            or action.id < 1
+            or action.id >= exchange.nextID
+            or ids[action.id]
+            or (action.channel ~= "mail" and action.channel ~= "trade")
+            or (action.direction ~= "in" and action.direction ~= "out")
+            or type(action.key) ~= "string"
+            or not isInteger(action.itemID)
+            or addon.Item.key(action.link, action.itemID) ~= action.key
+            or not isInteger(action.quantity)
+            or action.quantity < 1
+            or not isInteger(action.at)
+            or not isName(action.character)
+            or not isName(action.realm)
+            or not isInteger(action.level)
+            or type(action.place) ~= "string"
+            or not isInteger(action.baseline)
+            or action.baseline < 0
+            or not isInteger(action.baselineGained)
+            or action.baselineGained < 0
+            or type(action.discovery) ~= "boolean"
+            or type(action.confirmed) ~= "boolean"
+            or not exchangeStatuses[action.status]
+            or (action.peerName ~= nil and not isName(action.peerName))
+            or (action.peerRealm ~= nil and not isName(action.peerRealm))
+            or not validTransferred(action)
+            or not validCheckID(action.baselineCheckID)
+            or (action.isTransfer ~= nil and type(action.isTransfer) ~= "boolean")
+            or (action.isReturn ~= nil and type(action.isReturn) ~= "boolean")
+            or not validMailKind(action)
+        then
+            return false
+        end
+        ids[action.id] = true
+    end
+    for _, activity in ipairs(exchange.journal) do
+        if
+            type(activity) ~= "table"
+            or not isInteger(activity.id)
+            or type(activity.key) ~= "string"
+            or (activity.channel ~= "mail" and activity.channel ~= "trade")
+            or not isInteger(activity.quantity)
+            or activity.quantity < 1
+            or not isInteger(activity.at)
+            or not isName(activity.sender)
+            or not isName(activity.senderRealm)
+            or not isName(activity.recipient)
+            or not isName(activity.recipientRealm)
+            or (activity.level ~= nil and not isInteger(activity.level))
+            or (activity.place ~= nil and type(activity.place) ~= "string")
+            or not validPlaceKind(activity.placeKind)
+        then
+            return false
+        end
+    end
+    return true
+end
 
 local function pruneExchange(state, at)
     for index = #state.actions, 1, -1 do
@@ -30,17 +115,24 @@ local function pruneExchange(state, at)
     end
 end
 
--- Returns the state accessor and settlement a possessions scan uses.
-function StoreExchange.install(store, kernel)
+---@type AzerothLedgerSlice
+StoreExchange.slice = { name = "exchange", validate = validExchangeState, journal = "transfers" }
+
+local function activeAction(action)
+    return action.status == "pending" or action.status == "unresolved"
+end
+
+-- Returns the correlation engine a possessions check and evidence expiry use.
+function StoreExchange.install(store, kernel, slice)
     local valid, readable, saveFields, gainRecord = kernel.valid, kernel.readable, kernel.save, kernel.gain
     local bagQuantity, characterGained = kernel.bagQuantity, kernel.characterGained
-    local exchangeHealthy = kernel.exchangeHealthy
+    local exchangeHealthy, savedState = slice.healthy, slice.state
 
     local function exchangeState()
-        if kernel.raw().exchange == nil then
+        if savedState() == nil then
             return { nextID = 1, actions = {}, journal = {} }
         end
-        return exchangeHealthy and kernel.raw().exchange or nil
+        return exchangeHealthy and savedState() or nil
     end
 
     function store.exchangeIntent(_self, intent, at, actor)
@@ -67,7 +159,7 @@ function StoreExchange.install(store, kernel)
         then
             return false
         end
-        local scope = kernel.raw().areas[areaKey(actor.character, actor.realm, "bags")]
+        local scope = kernel.area(areaKey(actor.character, actor.realm, "bags"))
         local state = exchangeState()
         if not state or type(scope) ~= "table" or not scope.complete or not validCheckID(scope.checkID) then
             return false
@@ -270,7 +362,7 @@ function StoreExchange.install(store, kernel)
                     group.quantity = group.quantity + action.quantity
                 end
             end
-            local scope = kernel.raw().areas[group.scopeKey]
+            local scope = kernel.area(group.scopeKey)
             if
                 not scope
                 or not scope.complete
@@ -506,7 +598,64 @@ function StoreExchange.install(store, kernel)
         end
     end
 
-    return { state = exchangeState, settle = settleExchange }
+    local function healthyState()
+        return savedState() and exchangeHealthy and savedState() or nil
+    end
+
+    local function stale(at)
+        local state = healthyState()
+        return Evidence.staleEntries(state and state.actions, at, activeAction)
+    end
+
+    local function expire(at, reason, retain)
+        local original = healthyState()
+        if type(original) ~= "table" then
+            return nil, false
+        end
+        local state = copyValue(original)
+        local changed = Evidence.expireEntries(state.actions, at, reason, activeAction, function(entry, openedAt)
+            retain("exchange", reason, openedAt, entry, entry)
+        end)
+        return state, changed
+    end
+
+    local function visit(emit, pause)
+        local state = healthyState()
+        if not readable or not state then
+            return
+        end
+        for _, entry in ipairs(state.actions) do
+            if activeAction(entry) then
+                local stopped = entry.status == "unresolved" and not entry.confirmed
+                emit("exchange:" .. entry.id, "exchange", stopped and "stopped" or "active", entry.at, entry, entry)
+            end
+            pause()
+        end
+    end
+
+    -- Settles mail and trade against a complete bag check after a complete one.
+    ---@param scan AzerothLedgerCheck
+    local function check(scan)
+        local snapshot, oldScope = scan.snapshot, scan.oldScope
+        local handler, exchange = {}, nil
+        function handler.finish()
+            exchange = exchangeState()
+            if exchange and #exchange.actions == 0 then
+                exchange = nil
+            elseif exchange then
+                exchange = copyValue(exchange)
+            end
+            if snapshot.area == "bags" and snapshot.complete and type(oldScope) == "table" and oldScope.complete then
+                settleExchange(exchange, snapshot, scan.grouped, scan.records)
+            end
+        end
+        function handler.commit(fields)
+            fields.exchange = exchange
+        end
+        return handler
+    end
+
+    return { engine = { stale = stale, expire = expire, visit = visit, check = check } }
 end
 
 addon.StoreExchange = StoreExchange

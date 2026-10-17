@@ -4,10 +4,106 @@ local _, addon = ...
 
 local V = addon.SchemaValidate
 local isInteger, isName, validPlaceKind = V.isInteger, V.isName, V.validPlaceKind
-local validRewardContext, validRewardSession = V.validRewardContext, V.validRewardSession
-local preparationLive = V.preparationLive
+local validRewardContext, copyValue = V.validRewardContext, V.copyValue
+local Evidence = addon.StoreEvidence
 
 local StoreReward = {}
+
+local function validRewardSession(session)
+    return type(session) == "table"
+        and isInteger(session.id)
+        and session.id > 0
+        and type(session.key) == "string"
+        and (session.method == "Quest" or session.method == "Crafted")
+        and validRewardContext(session.context, session.method)
+        and isName(session.character)
+        and isName(session.realm)
+        and isInteger(session.level)
+        and type(session.place) == "string"
+        and isInteger(session.at)
+        and isInteger(session.baseline)
+        and session.baseline >= 0
+        and isInteger(session.baselineGained)
+        and session.baselineGained >= 0
+        and isInteger(session.quantity)
+        and session.quantity > 0
+        and isInteger(session.awarded)
+        and session.awarded >= 0
+        and session.awarded <= session.quantity
+        and type(session.discovery) == "boolean"
+        and type(session.confirmed) == "boolean"
+        and (session.choiceGroup == nil or (type(session.choiceGroup) == "string" and session.choiceGroup ~= ""))
+        and (session.specific == nil or type(session.specific) == "boolean")
+        and (session.ambiguous == nil or type(session.ambiguous) == "boolean")
+        and (
+            session.questPreparationID == nil
+            or (isInteger(session.questPreparationID) and session.questPreparationID > 0)
+        )
+end
+
+-- A turn-in preparation lasts 60 seconds. An accept preparation waits up to
+-- ten minutes for QUEST_ACCEPTED, then 60 seconds for the handed-over items.
+local function preparationLive(preparation, at)
+    if preparation.stage == "accept" then
+        if isInteger(preparation.acceptedAt) then
+            return at >= preparation.acceptedAt and at - preparation.acceptedAt < 60
+        end
+        return at >= preparation.at and at - preparation.at < 600
+    end
+    return at >= preparation.at and at - preparation.at < 60
+end
+
+local function validRewardState(rewards)
+    if
+        type(rewards) ~= "table"
+        or not isInteger(rewards.nextID)
+        or type(rewards.sessions) ~= "table"
+        or (rewards.preparations ~= nil and type(rewards.preparations) ~= "table")
+    then
+        return false
+    end
+    for _, session in ipairs(rewards.sessions) do
+        if not validRewardSession(session) then
+            return false
+        end
+    end
+    for _, preparation in ipairs(rewards.preparations or {}) do
+        if
+            type(preparation) ~= "table"
+            or not isInteger(preparation.id)
+            or preparation.id < 1
+            or not isInteger(preparation.questID)
+            or preparation.questID < 1
+            or not isName(preparation.character)
+            or not isName(preparation.realm)
+            or not isInteger(preparation.at)
+            or type(preparation.confirmed) ~= "boolean"
+            or type(preparation.baseline) ~= "table"
+            or (preparation.stage ~= nil and preparation.stage ~= "accept")
+            or (preparation.acceptedAt ~= nil and not isInteger(preparation.acceptedAt))
+            or (preparation.level ~= nil and not isInteger(preparation.level))
+            or (preparation.place ~= nil and type(preparation.place) ~= "string")
+            or not validPlaceKind(preparation.placeKind)
+            or (preparation.name ~= nil and not isName(preparation.name))
+        then
+            return false
+        end
+        for key, item in pairs(preparation.baseline) do
+            if
+                type(key) ~= "string"
+                or type(item) ~= "table"
+                or not isInteger(item.quantity)
+                or item.quantity < 0
+                or not isInteger(item.gained)
+                or item.gained < 0
+                or (item.discovery ~= nil and type(item.discovery) ~= "boolean")
+            then
+                return false
+            end
+        end
+    end
+    return true
+end
 
 local function choiceIsProven(session, sessions, grouped)
     if not session.choiceGroup then
@@ -42,14 +138,39 @@ local function choiceIsProven(session, sessions, grouped)
     return increasedCount == 1 and increased == session and not session.ambiguous
 end
 
--- Returns the reward sessions and award a possessions scan settles.
-function StoreReward.install(store, kernel)
+---@type AzerothLedgerSlice
+StoreReward.slice = {
+    name = "rewards",
+    validate = validRewardState,
+    -- Capture previously unheld items lazily before their first change during
+    -- a quest preparation. Late item identification keeps the pre-action totals.
+    beforeChange = function(state, key, possessions, before)
+        for _, preparation in ipairs(state and state.preparations or {}) do
+            if not preparation.baseline[key] then
+                preparation.baseline[key] = {
+                    quantity = possessions(preparation.character, preparation.realm),
+                    gained = before and before.totalGained or 0,
+                    discovery = before == nil,
+                }
+            end
+        end
+    end,
+}
+
+-- Returns the correlation engine and the latest confirmed reward lookup.
+function StoreReward.install(store, kernel, slice)
     local valid, readable, saveFields, gainRecord = kernel.valid, kernel.readable, kernel.save, kernel.gain
     local heldKeys, bagQuantity, possessionsQuantity = kernel.heldKeys, kernel.bagQuantity, kernel.possessionsQuantity
+    local checkedPossessions, rewardState = kernel.checkedPossessions, slice.state
+
+    local function healthyState()
+        local state = rewardState()
+        return state and validRewardState(state) and state or nil
+    end
 
     local function rewardSessions(at, pending)
         local result = {}
-        local rewards = pending or kernel.raw().rewards
+        local rewards = pending or rewardState()
         local sessions = type(rewards) == "table" and rewards.sessions or nil
         for _, session in ipairs(type(sessions) == "table" and sessions or {}) do
             if validRewardSession(session) and at >= session.at and at - session.at < 60 then
@@ -61,7 +182,7 @@ function StoreReward.install(store, kernel)
 
     local function questPreparations(at)
         local result = {}
-        local rewards = kernel.raw().rewards
+        local rewards = rewardState()
         local preparations = type(rewards) == "table" and rewards.preparations or nil
         for _, preparation in ipairs(type(preparations) == "table" and preparations or {}) do
             if preparationLive(preparation, at) then
@@ -115,7 +236,7 @@ function StoreReward.install(store, kernel)
         if existing and not existing.confirmed then
             return false
         end
-        local rewards = type(kernel.raw().rewards) == "table" and kernel.raw().rewards or nil
+        local rewards = type(rewardState()) == "table" and rewardState() or nil
         local nextID = (rewards and isInteger(rewards.nextID) and rewards.nextID or 0) + 1
         local baseline = {}
         local possessions = {}
@@ -194,7 +315,7 @@ function StoreReward.install(store, kernel)
         preparation.place = actor.place
         preparation.placeKind = actor.placeKind
         preparation.name = actor.questName
-        local rewards = kernel.raw().rewards
+        local rewards = rewardState()
         saveFields({
             rewards = { nextID = rewards.nextID, sessions = rewardSessions(at), preparations = questPreparations(at) },
         })
@@ -256,7 +377,7 @@ function StoreReward.install(store, kernel)
                 break
             end
         end
-        local rewards = type(kernel.raw().rewards) == "table" and kernel.raw().rewards or nil
+        local rewards = type(rewardState()) == "table" and rewardState() or nil
         local nextID = rewards and rewards.nextID or 0
         if not session then
             nextID = (isInteger(nextID) and nextID or 0) + 1
@@ -337,7 +458,7 @@ function StoreReward.install(store, kernel)
             end
         end
         if changed then
-            local rewards = kernel.raw().rewards
+            local rewards = rewardState()
             saveFields({
                 rewards = {
                     nextID = rewards.nextID,
@@ -432,11 +553,173 @@ function StoreReward.install(store, kernel)
         end
     end
 
+    -- A craft or quest receipt can share the chat channel with loot: the latest
+    -- confirmed reward for this item and character within its window.
+    local function confirmedReward(key, at, actor)
+        local state = rewardState()
+        local sessions = type(state) == "table" and state.sessions or nil
+        local latest
+        for _, reward in ipairs(type(sessions) == "table" and sessions or {}) do
+            if
+                validRewardSession(reward)
+                and reward.confirmed
+                and reward.key == key
+                and reward.character == actor.character
+                and reward.realm == actor.realm
+                and at >= reward.at
+                and at - reward.at < 60
+            then
+                if not latest or reward.at > latest.at then
+                    latest = reward
+                end
+            end
+        end
+        return latest
+    end
+
+    local function stale(at)
+        local state = healthyState()
+        if Evidence.staleEntries(state and state.sessions, at) then
+            return true
+        end
+        for _, entry in ipairs(state and state.preparations or {}) do
+            if at >= entry.at and not preparationLive(entry, at) then
+                return true
+            end
+        end
+        return false
+    end
+
+    local function expire(at, reason, retain)
+        local original = healthyState()
+        if type(original) ~= "table" then
+            return nil, false
+        end
+        local state = copyValue(original)
+        local changed = Evidence.expireEntries(state.sessions, at, reason, nil, function(entry, openedAt)
+            if entry.awarded < entry.quantity or not entry.confirmed then
+                retain("rewards", reason, openedAt, entry, entry)
+            end
+        end)
+        for index = #(state.preparations or {}), 1, -1 do
+            local entry = state.preparations[index]
+            if reason == "reload" or (at >= entry.at and not preparationLive(entry, at)) then
+                -- Declining an offered quest is ordinary, not evidence.
+                if not entry.confirmed and entry.stage ~= "accept" then
+                    retain("quest", reason, entry.at, entry, entry)
+                end
+                table.remove(state.preparations, index)
+                changed = true
+            end
+        end
+        return state, changed
+    end
+
+    local function visit(emit, pause)
+        local state = healthyState()
+        if not readable or not state then
+            return
+        end
+        for _, entry in ipairs(state.sessions) do
+            if entry.awarded < entry.quantity or not entry.confirmed then
+                emit("rewards:" .. entry.id, "rewards", "active", entry.at, entry, entry)
+            end
+            pause()
+        end
+        for _, entry in ipairs(state.preparations or {}) do
+            if not entry.confirmed then
+                emit("quest:" .. entry.questID .. ":" .. entry.at, "quest", "active", entry.at, entry, entry)
+            end
+            pause()
+        end
+    end
+
+    -- Settles confirmed rewards against one possessions check.
+    ---@param scan AzerothLedgerCheck
+    local function check(scan)
+        local snapshot = scan.snapshot
+        local pending = healthyState() and copyValue(rewardState()) or nil
+        local active = (snapshot.area == "bags" or snapshot.area == "equipped")
+                and snapshot.complete
+                and rewardSessions(snapshot.seenAt, pending)
+            or {}
+        local measured = snapshot.area == "bags"
+            and snapshot.complete
+            and type(scan.oldScope) == "table"
+            and scan.oldScope.complete
+        local handler = {}
+        function handler.record(key, group)
+            if not measured then
+                return
+            end
+            for _, reward in ipairs(active) do
+                if
+                    reward.key == key
+                    and not reward.questPreparationID
+                    and reward.character == snapshot.character
+                    and reward.realm == snapshot.realm
+                    and choiceIsProven(reward, active, scan.grouped)
+                then
+                    awardReward(reward, key, group.quantity, scan.records)
+                end
+            end
+        end
+        -- The paired equipped check measures the whole possession change.
+        function handler.finish()
+            if not scan.paired then
+                return
+            end
+            local records, grouped = scan.records, scan.grouped
+            if pending then
+                local keys = {}
+                for key in pairs(heldKeys(snapshot.character, snapshot.realm, "bags")) do
+                    keys[key] = true
+                end
+                for key in pairs(grouped) do
+                    keys[key] = true
+                end
+                for key in pairs(records) do
+                    keys[key] = true
+                end
+                local opened = #pending.sessions
+                local character, realm = snapshot.character, snapshot.realm
+                openAccepted(pending, snapshot.seenAt, character, realm, function(key)
+                    return checkedPossessions(records[key] or valid[key], character, realm, grouped[key])
+                end, keys)
+                for index = opened + 1, #pending.sessions do
+                    active[#active + 1] = pending.sessions[index]
+                end
+            end
+            local quantities = {}
+            for _, reward in ipairs(active) do
+                if reward.questPreparationID then
+                    local record = records[reward.key] or valid[reward.key]
+                    local equipped = grouped[reward.key]
+                    quantities[reward.key] = {
+                        quantity = checkedPossessions(record, snapshot.character, snapshot.realm, equipped),
+                    }
+                end
+            end
+            for _, reward in ipairs(active) do
+                if
+                    reward.questPreparationID
+                    and reward.character == snapshot.character
+                    and reward.realm == snapshot.realm
+                    and choiceIsProven(reward, active, quantities)
+                then
+                    awardReward(reward, reward.key, quantities[reward.key].quantity, records)
+                end
+            end
+        end
+        function handler.commit(fields)
+            fields.rewards = pending
+        end
+        return handler
+    end
+
     return {
-        sessions = rewardSessions,
-        award = awardReward,
-        choiceIsProven = choiceIsProven,
-        openAccepted = openAccepted,
+        engine = { stale = stale, expire = expire, visit = visit, check = check },
+        confirmed = confirmedReward,
     }
 end
 

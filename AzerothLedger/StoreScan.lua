@@ -1,24 +1,30 @@
 local _, addon = ...
 
--- Possessions snapshots: observations, identity evidence and settlement of
--- pending loot, reward, vendor and exchange actions against measured change.
+-- Possessions snapshots: observations and identity evidence. Each correlating
+-- domain settles its pending actions against the measured change through the
+-- check handler its engine returns; one save commits the whole check.
 
 local V = addon.SchemaValidate
 local areas, isInteger, validCheckID, isName, areaKey = V.areas, V.isInteger, V.validCheckID, V.isName, V.areaKey
-local copyValue, validLootState, copyRecord = V.copyValue, V.validLootState, V.copyRecord
-local validRewardState = V.validRewardState
+local copyValue, copyRecord = V.copyValue, V.copyRecord
+
+---@class AzerothLedgerCheck One possessions check, shared with every domain handler.
+---@field snapshot AzerothLedgerSnapshot
+---@field grouped table<string, {itemID: integer, quantity: integer, links: table<string, true>}>
+---@field records table<string, AzerothLedgerRecord> Records this check changes, by key
+---@field oldScope table? The previous check of this area
+---@field unresolvedIdentity boolean Whether this check resolved an unreadable item
+---@field paired boolean Whether this equipped check completes a bag check of the same moment
 
 local StoreScan = {}
 
-function StoreScan.install(store, kernel, domains)
+-- Handlers run in engine order. Each may provide item(key, group, known) before
+-- the record changes, record(key, group, record, seen, known) after it changes,
+-- finish() once every item is measured, and commit(fields) for the save.
+---@param engines AzerothLedgerEngine[]
+function StoreScan.install(store, kernel, correlation, engines)
     local valid, readable, saveFields, heldKeys = kernel.valid, kernel.readable, kernel.save, kernel.heldKeys
-    local checkedPossessions = kernel.checkedPossessions
-    local evidenceState, retain = domains.evidence.state, domains.evidence.retain
-    local activeSession, award = domains.loot.activeSession, domains.loot.award
-    local rewardSessions, awardReward = domains.reward.sessions, domains.reward.award
-    local choiceIsProven, openAccepted = domains.reward.choiceIsProven, domains.reward.openAccepted
-    local vendorState, settleVendor = domains.vendor.state, domains.vendor.settle
-    local exchangeState, settleExchange = domains.exchange.state, domains.exchange.settle
+    local evidenceState, retain = correlation.state, correlation.retain
 
     ---@param snapshot AzerothLedgerSnapshot
     function store.scan(_self, snapshot)
@@ -46,7 +52,7 @@ function StoreScan.install(store, kernel, domains)
                 return false
             end
         end
-        local priorScope = kernel.raw().areas[areaKey(snapshot.character, snapshot.realm, snapshot.area)]
+        local priorScope = kernel.area(areaKey(snapshot.character, snapshot.realm, snapshot.area))
         if type(priorScope) == "table" and not validCheckID(priorScope.checkID) then
             return false
         end
@@ -125,26 +131,23 @@ function StoreScan.install(store, kernel, domains)
             end
         end
         local scopeKey = areaKey(snapshot.character, snapshot.realm, snapshot.area)
-        local oldScope = kernel.raw().areas[scopeKey]
+        local oldScope = kernel.area(scopeKey)
         if type(oldScope) == "table" and isInteger(oldScope.seenAt) and snapshot.seenAt < oldScope.seenAt then
             return false
         end
         local nextRecords = {}
-        local pendingLoot = kernel.raw().loot and validLootState(kernel.raw().loot) and copyValue(kernel.raw().loot)
-            or nil
-        local pendingRewards = kernel.raw().rewards
-                and validRewardState(kernel.raw().rewards)
-                and copyValue(kernel.raw().rewards)
-            or nil
-        local activeRewards = (snapshot.area == "bags" or snapshot.area == "equipped")
-                and snapshot.complete
-                and rewardSessions(snapshot.seenAt, pendingRewards)
-            or {}
-        local session = (snapshot.area == "bags" or snapshot.area == "equipped")
-                and activeSession(snapshot.seenAt, pendingLoot)
-            or nil
-        if session and (session.character ~= snapshot.character or session.realm ~= snapshot.realm) then
-            session = nil
+        ---@type AzerothLedgerCheck
+        local scan = {
+            snapshot = snapshot,
+            grouped = grouped,
+            records = nextRecords,
+            oldScope = oldScope,
+            unresolvedIdentity = unresolvedIdentity,
+            paired = false,
+        }
+        local handlers = {}
+        for index, engine in ipairs(engines) do
+            handlers[index] = engine.check(scan)
         end
         for key, group in pairs(grouped) do
             local characterWasKnown = false
@@ -157,30 +160,9 @@ function StoreScan.install(store, kernel, domains)
                     end
                 end
             end
-            if session and session.baselinePossessions and not characterWasKnown then
-                session.discoveries[key] = true
-            end
-            if
-                session
-                and not session.baselineEquipmentUncertain
-                and snapshot.area == "bags"
-                and snapshot.complete
-                and type(oldScope) == "table"
-                and oldScope.complete
-                and not unresolvedIdentity
-            then
-                -- Bags alone prove a lower bound when they exceed all pre-loot
-                -- possessions, even if every previously equipped unit moved in.
-                local baselineQuantity = session.baselinePossessions and (session.baselinePossessions[key] or 0)
-                    or session.baselineQuantities[key]
-                    or 0
-                local increase = group.quantity - baselineQuantity
-                if increase > 0 then
-                    local credit = isInteger(session.credits[key]) and session.credits[key] or 0
-                    session.credits[key] = math.max(credit, increase)
-                    if not valid[key] then
-                        session.discoveries[key] = true
-                    end
+            for _, handler in ipairs(handlers) do
+                if handler.item then
+                    handler.item(key, group, characterWasKnown)
                 end
             end
             local record = valid[key] and copyRecord(valid[key], true)
@@ -234,19 +216,6 @@ function StoreScan.install(store, kernel, domains)
                 }
                 record.characters[#record.characters + 1] = characterEntry
             end
-            if session and session.discoveries[key] and not characterWasKnown then
-                local gainID = tostring(session.id) .. ":" .. key
-                for _, gain in ipairs(record.gains) do
-                    if gain.id == gainID then
-                        local firstSeenUnits = characterEntry and characterEntry.firstSeenUnits
-                        if firstSeenUnits ~= nil then
-                            characterEntry.firstSeenUnits =
-                                math.max(0, firstSeenUnits - gain.quantity + (gain.refunded or 0))
-                        end
-                        break
-                    end
-                end
-            end
             local previous
             for _, observation in ipairs(record.observations) do
                 if
@@ -269,20 +238,9 @@ function StoreScan.install(store, kernel, domains)
                 previous.seenAt = snapshot.seenAt
             end
             nextRecords[key] = record
-            if session and snapshot.area == "bags" and snapshot.complete then
-                award(session, key, nextRecords, snapshot.seenAt, true)
-            end
-            if snapshot.area == "bags" and snapshot.complete and type(oldScope) == "table" and oldScope.complete then
-                for _, reward in ipairs(activeRewards) do
-                    if
-                        reward.key == key
-                        and not reward.questPreparationID
-                        and reward.character == snapshot.character
-                        and reward.realm == snapshot.realm
-                        and choiceIsProven(reward, activeRewards, grouped)
-                    then
-                        awardReward(reward, key, group.quantity, nextRecords)
-                    end
+            for _, handler in ipairs(handlers) do
+                if handler.record then
+                    handler.record(key, group, record, characterEntry, characterWasKnown)
                 end
             end
         end
@@ -315,107 +273,19 @@ function StoreScan.install(store, kernel, domains)
             end
         end
         local bagArea = store:area(snapshot.character, snapshot.realm, "bags")
-        if
-            snapshot.area == "equipped"
+        -- The paired check follows the bag commit of the same moment.
+        scan.paired = snapshot.area == "equipped"
             and snapshot.complete
-            and bagArea
+            and bagArea ~= nil
             and bagArea.complete
             and bagArea.seenAt == snapshot.seenAt
-        then
-            -- The paired check follows the bag commit. Measure the whole
-            -- possession change so equipping cannot hide or invent a gain.
-            if session and session.baselinePossessions then
-                local keys = {}
-                for key in pairs(heldKeys(snapshot.character, snapshot.realm, "bags")) do
-                    keys[key] = true
-                end
-                for key in pairs(grouped) do
-                    keys[key] = true
-                end
-                for key in pairs(keys) do
-                    local record = nextRecords[key] or valid[key]
-                    local gear = grouped[key]
-                    local quantity = checkedPossessions(record, snapshot.character, snapshot.realm, gear)
-                    local increase = quantity - (session.baselinePossessions[key] or 0)
-                    session.credits[key] = math.max(session.credits[key] or 0, increase)
-                    award(session, key, nextRecords, snapshot.seenAt, true)
-                end
+        for _, handler in ipairs(handlers) do
+            if handler.finish then
+                handler.finish()
             end
-            if pendingRewards then
-                local keys = {}
-                for key in pairs(heldKeys(snapshot.character, snapshot.realm, "bags")) do
-                    keys[key] = true
-                end
-                for key in pairs(grouped) do
-                    keys[key] = true
-                end
-                for key in pairs(nextRecords) do
-                    keys[key] = true
-                end
-                local opened = #pendingRewards.sessions
-                local character, realm = snapshot.character, snapshot.realm
-                openAccepted(pendingRewards, snapshot.seenAt, character, realm, function(key)
-                    return checkedPossessions(nextRecords[key] or valid[key], character, realm, grouped[key])
-                end, keys)
-                for index = opened + 1, #pendingRewards.sessions do
-                    activeRewards[#activeRewards + 1] = pendingRewards.sessions[index]
-                end
-            end
-            local quantities = {}
-            for _, reward in ipairs(activeRewards) do
-                if reward.questPreparationID then
-                    local record = nextRecords[reward.key] or valid[reward.key]
-                    local equipped = grouped[reward.key]
-                    quantities[reward.key] = {
-                        quantity = checkedPossessions(record, snapshot.character, snapshot.realm, equipped),
-                    }
-                end
-            end
-            for _, reward in ipairs(activeRewards) do
-                if
-                    reward.questPreparationID
-                    and reward.character == snapshot.character
-                    and reward.realm == snapshot.realm
-                    and choiceIsProven(reward, activeRewards, quantities)
-                then
-                    awardReward(reward, reward.key, quantities[reward.key].quantity, nextRecords)
-                end
-            end
-        end
-        local vendor = vendorState()
-        if vendor and #vendor.actions == 0 then
-            vendor = nil
-        elseif vendor then
-            vendor = copyValue(vendor)
-        end
-        if
-            vendor
-            and (snapshot.area == "bags" or snapshot.area == "equipped")
-            and snapshot.complete
-            and type(oldScope) == "table"
-            and oldScope.complete
-        then
-            settleVendor(
-                vendor,
-                snapshot.area,
-                snapshot.seenAt,
-                snapshot.character,
-                snapshot.realm,
-                grouped,
-                nextRecords
-            )
-        end
-        local exchange = exchangeState()
-        if exchange and #exchange.actions == 0 then
-            exchange = nil
-        elseif exchange then
-            exchange = copyValue(exchange)
-        end
-        if snapshot.area == "bags" and snapshot.complete and type(oldScope) == "table" and oldScope.complete then
-            settleExchange(exchange, snapshot, grouped, nextRecords)
         end
         local nextAreas = {}
-        for key, state in pairs(kernel.raw().areas) do
+        for key, state in pairs(kernel.areas()) do
             nextAreas[key] = state
         end
         local previousArea = store:area(snapshot.character, snapshot.realm, snapshot.area)
@@ -427,15 +297,11 @@ function StoreScan.install(store, kernel, domains)
             character = snapshot.character,
             realm = snapshot.realm,
         }
-        saveFields({
-            records = nextRecords,
-            areas = nextAreas,
-            loot = pendingLoot,
-            rewards = pendingRewards,
-            vendor = vendor,
-            exchange = exchange,
-            evidence = evidence,
-        })
+        local fields = { records = nextRecords, areas = nextAreas, evidence = evidence }
+        for _, handler in ipairs(handlers) do
+            handler.commit(fields)
+        end
+        saveFields(fields)
         for key, record in pairs(nextRecords) do
             if valid[key] or grouped[key] then
                 valid[key] = copyRecord(record, true)

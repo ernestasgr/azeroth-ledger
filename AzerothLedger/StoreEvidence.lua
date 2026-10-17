@@ -5,12 +5,110 @@ local _, addon = ...
 
 local V = addon.SchemaValidate
 local gainMethods, vendorKinds, isInteger, isName = V.gainMethods, V.vendorKinds, V.isInteger, V.isName
-local copyValue, validEvidence, validLootSource = V.copyValue, V.validEvidence, V.validLootSource
-local validLootState, copyRecord, validPlaceKind = V.validLootState, V.copyRecord, V.validPlaceKind
-local validRecord, validRewardContext, validRewardState = V.validRecord, V.validRewardContext, V.validRewardState
-local sameSource, preparationLive = V.sameSource, V.preparationLive
+local copyValue, validLootSource = V.copyValue, V.validLootSource
+local copyRecord, validPlaceKind = V.copyRecord, V.validPlaceKind
+local validRewardContext, sameSource = V.validRewardContext, V.sameSource
+
+---@class AzerothLedgerEngine A correlating domain: loot, rewards, vendor or exchange.
+---@field stale fun(at: integer): boolean Whether an active entry is at least 60 seconds old
+---@field expire fun(at: integer, reason: string, retain: function): table?, boolean
+---@field visit fun(emit: function, pause: function)
+---@field check fun(scan: AzerothLedgerCheck): table
 
 local StoreEvidence = {}
+
+local function validEvidence(state)
+    if
+        type(state) ~= "table"
+        or not isInteger(state.nextID)
+        or state.nextID < 1
+        or type(state.unresolved) ~= "table"
+        or #state.unresolved > 2000
+        or not isInteger(state.discarded)
+        or state.discarded < 0
+    then
+        return false
+    end
+    if
+        state.discarded > 0
+        and (
+            not isInteger(state.firstDiscarded)
+            or not isInteger(state.lastDiscarded)
+            or state.firstDiscarded < 0
+            or state.lastDiscarded < state.firstDiscarded
+        )
+    then
+        return false
+    end
+    local ids = {}
+    for _, entry in ipairs(state.unresolved) do
+        if
+            type(entry) ~= "table"
+            or not isInteger(entry.id)
+            or entry.id < 1
+            or entry.id >= state.nextID
+            or ids[entry.id]
+            or not isName(entry.kind)
+            or not isName(entry.reason)
+            or not isInteger(entry.at)
+            or entry.at < 0
+            or not isName(entry.character)
+            or not isName(entry.realm)
+            or type(entry.detail) ~= "table"
+        then
+            return false
+        end
+        ids[entry.id] = true
+    end
+    return true
+end
+
+---@type AzerothLedgerSlice
+StoreEvidence.slice = { name = "evidence", validate = validEvidence }
+
+-- Whether an active session or action is at least 60 seconds old.
+---@param entries table[]?
+---@param at integer
+---@param active? fun(entry: table): boolean Every entry is active when omitted
+function StoreEvidence.staleEntries(entries, at, active)
+    for _, entry in ipairs(entries or {}) do
+        if (not active or active(entry)) and at - (entry.openedAt or entry.at) >= 60 then
+            return true
+        end
+    end
+    return false
+end
+
+-- Removes stale active entries in place, newest first, after retaining each as
+-- evidence. A reload makes every active entry stale. Returns whether any went.
+---@param entries table[]?
+---@param at integer
+---@param reason string
+---@param active? fun(entry: table): boolean Every entry is active when omitted
+---@param retainEntry fun(entry: table, openedAt: integer)
+function StoreEvidence.expireEntries(entries, at, reason, active, retainEntry)
+    local changed = false
+    if type(entries) ~= "table" then
+        return changed
+    end
+    for index = #entries, 1, -1 do
+        local entry = entries[index]
+        local openedAt = entry.openedAt or entry.at
+        local stale = reason == "reload" or (isInteger(openedAt) and at - openedAt >= 60)
+        if
+            stale
+            and (not active or active(entry))
+            and isInteger(openedAt)
+            and isName(entry.character)
+            and isName(entry.realm)
+        then
+            retainEntry(entry, openedAt)
+            table.remove(entries, index)
+            changed = true
+        end
+    end
+    return changed
+end
 
 local function retain(state, kind, reason, at, actor, detail)
     state.unresolved[#state.unresolved + 1] = {
@@ -97,17 +195,20 @@ local function validCandidate(name, detail, actor)
         and (detail.peerRealm == nil or isName(detail.peerRealm))
 end
 
--- Returns the evidence interface the correlating domains share.
-function StoreEvidence.install(store, kernel)
-    local valid, readable, saveFields = kernel.valid, kernel.readable, kernel.save
-    local vendorHealthy, exchangeHealthy = kernel.vendorHealthy, kernel.exchangeHealthy
+-- Returns the evidence interface the correlating domains share. Their engines
+-- are attached once every domain is installed.
+function StoreEvidence.install(store, kernel, slice)
+    local valid, readable, saveFields, validRecord = kernel.valid, kernel.readable, kernel.save, kernel.validRecord
+    local savedState = slice.state
     local candidates = {}
+    ---@type {name: string, engine: AzerothLedgerEngine}[]
+    local engines = {}
 
     local function evidenceState()
-        if kernel.raw().evidence == nil then
+        if savedState() == nil then
             return { nextID = 1, unresolved = {}, discarded = 0 }
         end
-        return validEvidence(kernel.raw().evidence) and copyValue(kernel.raw().evidence) or nil
+        return validEvidence(savedState()) and copyValue(savedState()) or nil
     end
 
     -- End correlation independently of event traffic. Completed vendor and outgoing
@@ -116,12 +217,6 @@ function StoreEvidence.install(store, kernel)
         if not readable then
             return false
         end
-        local engines = {
-            loot = kernel.raw().loot and validLootState(kernel.raw().loot) and kernel.raw().loot or nil,
-            rewards = kernel.raw().rewards and validRewardState(kernel.raw().rewards) and kernel.raw().rewards or nil,
-            vendor = kernel.raw().vendor and vendorHealthy and kernel.raw().vendor or nil,
-            exchange = kernel.raw().exchange and exchangeHealthy and kernel.raw().exchange or nil,
-        }
         for index = #candidates, 1, -1 do
             if at - candidates[index].at >= 60 then
                 table.remove(candidates, index)
@@ -129,99 +224,26 @@ function StoreEvidence.install(store, kernel)
         end
         if reason ~= "reload" then
             local stale = false
-            for _, name in ipairs({ "loot", "rewards", "vendor", "exchange" }) do
-                local state = engines[name]
-                local list = (name == "loot" or name == "rewards") and "sessions" or "actions"
-                for _, entry in ipairs(state and state[list] or {}) do
-                    local active = name == "loot"
-                        or name == "rewards"
-                        or entry.status == "pending"
-                        or entry.status == "unresolved"
-                    if active and at - (entry.openedAt or entry.at) >= 60 then
-                        stale = true
-                        break
-                    end
-                end
-                for _, entry in ipairs(name == "rewards" and state and state.preparations or {}) do
-                    if at >= entry.at and not preparationLive(entry, at) then
-                        stale = true
-                        break
-                    end
-                end
+            for _, entry in ipairs(engines) do
+                stale = stale or entry.engine.stale(at)
             end
             if not stale then
-                return kernel.raw().evidence == nil or validEvidence(kernel.raw().evidence)
+                return savedState() == nil or validEvidence(savedState())
             end
         end
         local evidence = evidenceState()
         if not evidence then
             return false
         end
+        local function retainInto(kind, ...)
+            retain(evidence, kind, ...)
+        end
         local fields = { evidence = evidence }
         local changed = false
-        for _, name in ipairs({ "loot", "rewards", "vendor", "exchange" }) do
-            local original = engines[name]
-            if type(original) == "table" then
-                local state = copyValue(original)
-                local list = (name == "loot" or name == "rewards") and "sessions" or "actions"
-                local entries = state[list]
-                if type(entries) == "table" then
-                    for index = #entries, 1, -1 do
-                        local entry = entries[index]
-                        local openedAt = entry.openedAt or entry.at
-                        local stale = reason == "reload" or (isInteger(openedAt) and at - openedAt >= 60)
-                        local active = name == "loot"
-                            or name == "rewards"
-                            or entry.status == "pending"
-                            or entry.status == "unresolved"
-                        if
-                            stale
-                            and active
-                            and isInteger(openedAt)
-                            and isName(entry.character)
-                            and isName(entry.realm)
-                        then
-                            if name == "loot" then
-                                for key, slot in pairs(entry.slots or {}) do
-                                    local received = entry.receipts and entry.receipts[key]
-                                    local quantity = math.max(
-                                        slot.limit or 0,
-                                        received and received.quantity or 0,
-                                        entry.credits and entry.credits[key] or 0
-                                    )
-                                    if quantity == 0 or quantity > (entry.awarded[key] or 0) then
-                                        retain(evidence, name, reason, openedAt, entry, {
-                                            key = key,
-                                            slot = slot,
-                                            receipt = received,
-                                            measured = entry.credits[key],
-                                            awarded = entry.awarded[key],
-                                        })
-                                    end
-                                end
-                            elseif name ~= "rewards" or entry.awarded < entry.quantity or not entry.confirmed then
-                                retain(evidence, name, reason, openedAt, entry, entry)
-                            end
-                            table.remove(entries, index)
-                            changed = true
-                        end
-                    end
-                end
-                if name == "rewards" then
-                    for index = #(state.preparations or {}), 1, -1 do
-                        local entry = state.preparations[index]
-                        if reason == "reload" or (at >= entry.at and not preparationLive(entry, at)) then
-                            -- Declining an offered quest is ordinary, not evidence.
-                            if not entry.confirmed and entry.stage ~= "accept" then
-                                retain(evidence, "quest", reason, entry.at, entry, entry)
-                            end
-                            table.remove(state.preparations, index)
-                            changed = true
-                        end
-                    end
-                end
-                fields[name] = state
-            end
+        for _, entry in ipairs(engines) do
+            local state, expired = entry.engine.expire(at, reason, retainInto)
+            fields[entry.name] = state
+            changed = changed or expired
         end
         if changed then
             saveFields(fields)
@@ -244,7 +266,7 @@ function StoreEvidence.install(store, kernel)
 
     -- The book warning needs counts, not deep copies of up to 2,000 payloads.
     function store.evidenceStatus(_self)
-        local state = kernel.raw().evidence
+        local state = savedState()
         if not state or not validEvidence(state) then
             return { count = 0, discarded = 0 }
         end
@@ -287,7 +309,7 @@ function StoreEvidence.install(store, kernel)
             })
             pause()
         end
-        local evidence = kernel.raw().evidence
+        local evidence = savedState()
         if evidence and validEvidence(evidence) then
             for _, entry in ipairs(evidence.unresolved) do
                 if entry.kind == "lootOpen" and type(entry.detail.slots) == "table" and #entry.detail.slots > 0 then
@@ -307,57 +329,8 @@ function StoreEvidence.install(store, kernel)
                 end
             end
         end
-        for _, kind in ipairs({ "loot", "rewards", "vendor", "exchange" }) do
-            local state = kernel.raw()[kind]
-            local healthy
-            if kind == "loot" then
-                healthy = state and validLootState(state)
-            elseif kind == "rewards" then
-                healthy = state and validRewardState(state)
-            elseif kind == "vendor" then
-                healthy = vendorHealthy
-            else
-                healthy = exchangeHealthy
-            end
-            if readable and state and healthy then
-                local list = (kind == "loot" or kind == "rewards") and state.sessions or state.actions
-                for _, entry in ipairs(list) do
-                    local id = kind .. ":" .. entry.id
-                    if kind == "loot" then
-                        for key, slot in pairs(entry.slots) do
-                            local receipt = entry.receipts[key]
-                            local quantity =
-                                math.max(slot.limit or 0, receipt and receipt.quantity or 0, entry.credits[key] or 0)
-                            if quantity == 0 or quantity > (entry.awarded[key] or 0) then
-                                emit(
-                                    id .. ":" .. key,
-                                    kind,
-                                    "active",
-                                    entry.openedAt,
-                                    entry,
-                                    { key = key, slot = slot, quantity = quantity > 0 and quantity or nil }
-                                )
-                            end
-                            pause()
-                        end
-                    elseif kind == "rewards" then
-                        if entry.awarded < entry.quantity or not entry.confirmed then
-                            emit(id, kind, "active", entry.at, entry, entry)
-                        end
-                    elseif entry.status == "pending" or entry.status == "unresolved" then
-                        local stopped = entry.status == "unresolved" and (kind == "vendor" or not entry.confirmed)
-                        local reason = stopped and "stopped" or "active"
-                        emit(id, kind, reason, entry.at, entry, entry)
-                    end
-                    pause()
-                end
-                for _, entry in ipairs(kind == "rewards" and state.preparations or {}) do
-                    if not entry.confirmed then
-                        emit("quest:" .. entry.questID .. ":" .. entry.at, "quest", "active", entry.at, entry, entry)
-                    end
-                    pause()
-                end
-            end
+        for _, entry in ipairs(engines) do
+            entry.engine.visit(emit, pause)
         end
         return {
             discarded = evidence and validEvidence(evidence) and evidence.discarded or 0,
@@ -489,11 +462,20 @@ function StoreEvidence.install(store, kernel)
         return true
     end
 
+    -- Engines expire and list in this order, so evidence ids keep their order.
+    ---@param list {name: string, engine: AzerothLedgerEngine}[]
+    local function attach(list)
+        for _, entry in ipairs(list) do
+            engines[#engines + 1] = entry
+        end
+    end
+
     return {
         state = evidenceState,
         retain = retain,
         endCorrelation = endCorrelation,
         reserve = reserveCandidate,
+        attach = attach,
     }
 end
 

@@ -1,19 +1,241 @@
 local _, addon = ...
 
--- Owns one opened save: the raw data, revision counter, runtime index and the
--- single saveFields commit path. Domain files never touch these directly.
+-- Owns one opened save: the raw data, records, check areas, Journal history,
+-- revision counter, runtime index and the single saveFields commit path. Each
+-- domain owns one named part of the save and reaches it only through the
+-- handle the kernel gives it.
 
 local V = addon.SchemaValidate
 local CURRENT_SCHEMA, retentionDefaults, isInteger = V.CURRENT_SCHEMA, V.retentionDefaults, V.isInteger
 local validCheckID, validRetention, gainRoot = V.validCheckID, V.validRetention, V.gainRoot
 local chronological, trimHistory, isName, areaKey = V.chronological, V.trimHistory, V.isName, V.areaKey
-local copyArray, copyValue, validEvidence = V.copyArray, V.copyValue, V.validEvidence
-local validLootState, compactObservations, copyRecord = V.validLootState, V.compactObservations, V.copyRecord
-local validRecord, recoverableRecord, validEnvironment = V.validRecord, V.recoverableRecord, V.validEnvironment
-local validRewardState, validVendorState = V.validRewardState, V.validVendorState
-local validExchangeState, validDisplay, validJournal = V.validExchangeState, V.validDisplay, V.validJournal
+local copyArray, copyValue, areas, gainMethods = V.copyArray, V.copyValue, V.areas, V.gainMethods
+local compactObservations, copyRecord, validPlaceKind = V.compactObservations, V.copyRecord, V.validPlaceKind
+
+---@alias AzerothLedgerPossessions fun(character: string, realm: string): integer Units held before a change
+
+---@class AzerothLedgerSlice
+---@field name string The SavedVariables field this domain owns
+---@field validate? fun(state: any): boolean
+---@field journal? string Retention category of the state's `journal` list
+---@field beforeChange? fun(state: table?, key: string, possessions: AzerothLedgerPossessions, before: table?)
+---@field discoveries? fun(state: any): boolean Whether newly discovered items are queued for toasts
 
 local StoreKernel = {}
+
+local function validRefunded(gain)
+    return gain.refunded == nil
+        or (
+            gain.method == "Vendor"
+            and isInteger(gain.refunded)
+            and gain.refunded >= 0
+            and gain.refunded <= gain.quantity
+        )
+end
+
+local function validRecord(key, record)
+    if
+        type(key) ~= "string"
+        or type(record) ~= "table"
+        or record.key ~= key
+        or (record.evidencedDiscovery ~= nil and type(record.evidencedDiscovery) ~= "boolean")
+        or (record.firstSeenLater ~= nil and type(record.firstSeenLater) ~= "boolean")
+        or not isInteger(record.itemID)
+        or record.itemID <= 0
+        or not isInteger(record.firstSeen)
+        or not isInteger(record.lastSeen)
+        or record.firstSeen < 0
+        or record.lastSeen < record.firstSeen
+        or not isInteger(record.firstSeenUnits)
+        or record.firstSeenUnits < 0
+        or not isInteger(record.totalGained)
+        or record.totalGained < 0
+        or (record.firstGained ~= nil and not isInteger(record.firstGained))
+        or (record.lastGained ~= nil and not isInteger(record.lastGained))
+        or type(record.links) ~= "table"
+        or type(record.characters) ~= "table"
+        or type(record.observations) ~= "table"
+        or (record.gains ~= nil and type(record.gains) ~= "table")
+        or #record.links == 0
+        or #record.characters == 0
+        or #record.observations == 0
+    then
+        return false
+    end
+    for _, link in ipairs(record.links) do
+        if addon.Item.key(link, record.itemID) ~= key then
+            return false
+        end
+    end
+    for _, character in ipairs(record.characters) do
+        if
+            type(character) ~= "table"
+            or not isName(character.name)
+            or not isName(character.realm)
+            or not isInteger(character.firstSeen)
+            or not isInteger(character.lastSeen)
+            or not isInteger(character.firstSeenUnits)
+            or (character.transferredUnits ~= nil and not isInteger(character.transferredUnits))
+            or (character.firstSeenLater ~= nil and type(character.firstSeenLater) ~= "boolean")
+        then
+            return false
+        end
+    end
+    for _, observation in ipairs(record.observations) do
+        if
+            type(observation) ~= "table"
+            or not isName(observation.character)
+            or not isName(observation.realm)
+            or not areas[observation.area]
+            or not isInteger(observation.seenAt)
+            or not isInteger(observation.quantity)
+            or observation.quantity < 0
+        then
+            return false
+        end
+    end
+    local gained = 0
+    local gainIDs = {}
+    for _, gain in ipairs(record.gains or {}) do
+        if
+            type(gain) ~= "table"
+            or type(gain.id) ~= "string"
+            or not isInteger(gain.at)
+            or (gain.openedAt ~= nil and not isInteger(gain.openedAt))
+            or (gain.baselinePossessionsComplete ~= nil and type(gain.baselinePossessionsComplete) ~= "boolean")
+            or not isInteger(gain.quantity)
+            or gain.quantity < 1
+            or not isName(gain.character)
+            or not isName(gain.realm)
+            or not isInteger(gain.level)
+            or type(gain.place) ~= "string"
+            or not validPlaceKind(gain.placeKind)
+            or not gainMethods[gain.method]
+            or (gain.mailKind ~= nil and (gain.mailKind ~= "auction-purchase" or gain.method ~= "Obtained"))
+            or (gain.channel ~= nil and gain.channel ~= "mail" and gain.channel ~= "trade")
+            or (gain.channel ~= nil and gain.method ~= "Obtained")
+            or not validRefunded(gain)
+            or gainIDs[gain.id]
+        then
+            return false
+        end
+        if gain.source ~= nil then
+            if type(gain.source) ~= "table" or (gain.source.name ~= nil and not isName(gain.source.name)) then
+                return false
+            end
+            if gain.method == "Looted" then
+                if (gain.source.kind ~= "mob" and gain.source.kind ~= "container") or not isName(gain.source.guid) then
+                    return false
+                end
+            elseif gain.method == "Vendor" then
+                if gain.source.kind ~= "vendor" or not isName(gain.source.name) or gain.source.guid ~= nil then
+                    return false
+                end
+            elseif gain.method == "Obtained" then
+                if gain.source.kind ~= "player" or not isName(gain.source.name) or not isName(gain.source.realm) then
+                    return false
+                end
+            else
+                return false
+            end
+        end
+        if gain.context ~= nil then
+            if
+                type(gain.context) ~= "table"
+                or gain.method == "Looted"
+                or gain.method == "Vendor"
+                or gain.context.kind ~= (gain.method == "Quest" and "quest" or "recipe")
+                or not isInteger(gain.context.id)
+                or gain.context.id < 1
+                or (gain.context.name ~= nil and not isName(gain.context.name))
+            then
+                return false
+            end
+        end
+        gainIDs[gain.id] = true
+        if gain.corrections ~= nil then
+            if type(gain.corrections) ~= "table" then
+                return false
+            end
+            local ids = {}
+            for _, id in ipairs(gain.corrections) do
+                if not isName(id) or ids[id] then
+                    return false
+                end
+                ids[id] = true
+            end
+        end
+        gained = gained + gain.quantity - (gain.refunded or 0)
+    end
+    if gained ~= record.totalGained then
+        return false
+    end
+    if #record.gains > 0 and (not isInteger(record.firstGained) or not isInteger(record.lastGained)) then
+        return false
+    end
+    return true
+end
+
+local function recoverableRecord(key, record)
+    if
+        type(key) ~= "string"
+        or type(record) ~= "table"
+        or record.key ~= key
+        or not isInteger(record.itemID)
+        or record.itemID <= 0
+        or not isInteger(record.firstSeen)
+        or not isInteger(record.lastSeen)
+        or not isInteger(record.firstSeenUnits)
+        or not isInteger(record.totalGained)
+        or type(record.links) ~= "table"
+        or type(record.characters) ~= "table"
+        or type(record.observations) ~= "table"
+        or type(record.gains) ~= "table"
+        or #record.links == 0
+        or #record.characters == 0
+        or #record.observations == 0
+    then
+        return false
+    end
+    for _, gain in ipairs(record.gains) do
+        if
+            type(gain) ~= "table"
+            or (gain.source ~= nil and type(gain.source) ~= "table")
+            or (gain.context ~= nil and type(gain.context) ~= "table")
+        then
+            return false
+        end
+    end
+    return true
+end
+
+local function validJournal(value)
+    if
+        type(value) ~= "table"
+        or not isInteger(value.nextSequence)
+        or value.nextSequence < 1
+        or type(value.gains) ~= "table"
+    then
+        return false
+    end
+    local seen = {}
+    for _, entry in ipairs(value.gains) do
+        if
+            type(entry) ~= "table"
+            or not isName(entry.id)
+            or not isName(entry.key)
+            or not isInteger(entry.at)
+            or not isInteger(entry.sequence)
+            or entry.sequence < 1
+            or entry.sequence >= value.nextSequence
+            or seen[entry.sequence]
+        then
+            return false
+        end
+        seen[entry.sequence] = true
+    end
+    return true
+end
 
 local function changeTooltip(facts, gain, direction)
     local actor = areaKey(gain.character, gain.realm, "")
@@ -101,11 +323,13 @@ local function checkedPossessions(record, character, realm, equipped)
     return bagQuantity(record, character, realm) + (equipped and equipped.quantity or 0)
 end
 
--- Opens saved data once. Domains receive this narrow interface; only the kernel
--- reassigns `raw`, so domains must read `kernel.raw()` at each point of use.
+-- Opens saved data once. Returns the kernel interface and one handle per slice;
+-- only the kernel reassigns `raw`, so handles read the slice at each call.
+-- Slices are listed in the order their Journal lists receive sequence numbers.
 ---@param raw any
 ---@param save fun(value: AzerothLedgerData)
-function StoreKernel.open(raw, save)
+---@param slices AzerothLedgerSlice[]
+function StoreKernel.open(raw, save, slices)
     if raw == nil then
         raw = { schema = CURRENT_SCHEMA, records = {}, areas = {} }
         save(raw)
@@ -143,23 +367,10 @@ function StoreKernel.open(raw, save)
     elseif supported then
         damagedCount = 1
     end
-    if supported and raw.environment ~= nil and not validEnvironment(raw.environment) then
-        damagedCount = damagedCount + 1
-    end
-    if supported and raw.rewards ~= nil and not validRewardState(raw.rewards) then
-        damagedCount = damagedCount + 1
-    end
-    if supported and raw.loot ~= nil and not validLootState(raw.loot) then
-        damagedCount = damagedCount + 1
-    end
-    if supported and raw.vendor ~= nil and not validVendorState(raw.vendor) then
-        damagedCount = damagedCount + 1
-    end
-    if supported and raw.exchange ~= nil and not validExchangeState(raw.exchange) then
-        damagedCount = damagedCount + 1
-    end
-    if supported and raw.evidence ~= nil and not validEvidence(raw.evidence) then
-        damagedCount = damagedCount + 1
+    for _, slice in ipairs(slices) do
+        if supported and slice.validate and raw[slice.name] ~= nil and not slice.validate(raw[slice.name]) then
+            damagedCount = damagedCount + 1
+        end
     end
     if supported and raw.retention ~= nil and not validRetention(raw.retention) then
         damagedCount = damagedCount + 1
@@ -173,10 +384,9 @@ function StoreKernel.open(raw, save)
         damagedCount = damagedCount + 1
     end
     if readable then
-        for _, category in ipairs({ "exchange", "vendor" }) do
-            local state = raw[category]
-            local validState = category == "exchange" and validExchangeState or validVendorState
-            for _, entry in ipairs(state and validState(state) and state.journal or {}) do
+        for _, slice in ipairs(slices) do
+            local state = slice.journal and raw[slice.name]
+            for _, entry in ipairs(state and slice.validate(state) and state.journal or {}) do
                 if not valid[entry.key] then
                     damagedCount = damagedCount + 1
                 end
@@ -189,9 +399,6 @@ function StoreKernel.open(raw, save)
         end
     end
 
-    if supported and raw.display ~= nil and not validDisplay(raw.display) then
-        damagedCount = damagedCount + 1
-    end
     -- Runtime indexes are rebuilt from validated facts, never persisted or pruned.
     local scopeRecords, actorIndex, recordKeys, keyIndex, gainIndex = {}, {}, {}, {}, {}
     local gainPositions, tooltipIndex = {}, {}
@@ -257,8 +464,6 @@ function StoreKernel.open(raw, save)
     local journalHealthy = readable and validJournal(raw.journal)
     local journalEntries = journalHealthy and copyArray(raw.journal.gains) or {}
     table.sort(journalEntries, chronological)
-    local vendorHealthy = readable and (raw.vendor == nil or validVendorState(raw.vendor))
-    local exchangeHealthy = readable and (raw.exchange == nil or validExchangeState(raw.exchange))
     local function editGainRoot(record, root)
         local result = copyRecord(record, true)
         local edits = {}
@@ -392,20 +597,14 @@ function StoreKernel.open(raw, save)
     local function saveFields(fields)
         local nextValue = {
             schema = CURRENT_SCHEMA,
-            marker = fields.marker or raw.marker,
-            environment = fields.environment or raw.environment,
             records = raw.records,
             areas = fields.areas or raw.areas,
-            loot = fields.loot or raw.loot,
-            rewards = fields.rewards or raw.rewards,
-            vendor = fields.vendor or raw.vendor,
-            exchange = fields.exchange or raw.exchange,
-            evidence = fields.evidence or raw.evidence,
             retention = fields.retention or raw.retention,
-            display = fields.display or raw.display,
-            book = fields.book or raw.book,
             journal = journalHealthy and raw.journal or { nextSequence = 1, gains = {} },
         }
+        for _, slice in ipairs(slices) do
+            nextValue[slice.name] = fields[slice.name] or raw[slice.name]
+        end
         local history = { nextSequence = nextValue.journal.nextSequence, gains = journalEntries }
         nextValue.journal = history
         local function sequence(entry)
@@ -460,18 +659,17 @@ function StoreKernel.open(raw, save)
         if #pending > 0 or fields.retention then
             trimHistory(history.gains, limits.gains, true)
         end
-        for _, category in ipairs({ "exchange", "vendor" }) do
-            local state = nextValue[category]
-            local validState = category == "exchange" and validExchangeState or validVendorState
-            if state and (fields[category] or fields.retention) and validState(state) then
+        for _, slice in ipairs(slices) do
+            local state = slice.journal and nextValue[slice.name]
+            if state and (fields[slice.name] or fields.retention) and slice.validate(state) then
                 state = copyValue(state)
-                nextValue[category] = state
+                nextValue[slice.name] = state
                 for _, entry in ipairs(state.journal) do
                     if not isInteger(entry.sequence) or entry.sequence < 1 then
                         sequence(entry)
                     end
                 end
-                trimHistory(state.journal, limits[category == "exchange" and "transfers" or "vendor"])
+                trimHistory(state.journal, limits[slice.journal])
             end
         end
         local discovered = {}
@@ -488,22 +686,12 @@ function StoreKernel.open(raw, save)
         local previousRecords, plans = {}, {}
         for key, record in pairs(fields.records or {}) do
             local before = valid[key]
-            for _, session in ipairs(nextValue.loot and nextValue.loot.sessions or {}) do
-                if session.baselinePossessions and session.baselinePossessions[key] == nil then
-                    session.baselinePossessions[key] = possessionsQuantity(before, session.character, session.realm)
-                end
-                if session.baselineGains[key] == nil then
-                    session.baselineGains[key] = before and before.totalGained or 0
-                    session.baselineQuantities[key] = possessionsQuantity(before, session.character, session.realm)
-                end
+            local function possessions(character, realm)
+                return possessionsQuantity(before, character, realm)
             end
-            for _, preparation in ipairs(nextValue.rewards and nextValue.rewards.preparations or {}) do
-                if not preparation.baseline[key] then
-                    preparation.baseline[key] = {
-                        quantity = possessionsQuantity(before, preparation.character, preparation.realm),
-                        gained = before and before.totalGained or 0,
-                        discovery = before == nil,
-                    }
+            for _, slice in ipairs(slices) do
+                if slice.beforeChange then
+                    slice.beforeChange(nextValue[slice.name], key, possessions, before)
                 end
             end
             record.observations = compactObservations(record.observations)
@@ -546,7 +734,13 @@ function StoreKernel.open(raw, save)
         journalHealthy = true
         journalEntries = history.gains
         raw = nextValue
-        if not validDisplay(nextValue.display) or nextValue.display.toasts then
+        local queue = true
+        for _, slice in ipairs(slices) do
+            if slice.discoveries and not slice.discoveries(nextValue[slice.name]) then
+                queue = false
+            end
+        end
+        if queue then
             for _, record in ipairs(discovered) do
                 discoveries[#discoveries + 1] = record
             end
@@ -577,17 +771,61 @@ function StoreKernel.open(raw, save)
         return total
     end
 
+    -- Each domain reads its own slice through its handle; `healthy` is fixed at open.
+    local handles = {}
+    for _, slice in ipairs(slices) do
+        local name, validate = slice.name, slice.validate
+        local function state()
+            return type(raw) == "table" and raw[name] or nil
+        end
+        handles[name] = {
+            state = state,
+            healthy = readable and (raw[name] == nil or not validate or validate(raw[name])),
+            damaged = function()
+                return state() ~= nil and validate ~= nil and not validate(state())
+            end,
+        }
+    end
+
     return {
         supported = supported,
         readable = readable,
         damagedCount = damagedCount,
-        vendorHealthy = vendorHealthy,
-        exchangeHealthy = exchangeHealthy,
         -- Validated facts by key; callers replace entries after each save.
         valid = valid,
         recordHealthy = recordHealthy,
-        raw = function()
-            return raw
+        validRecord = validRecord,
+        schema = function()
+            return type(raw) == "table" and raw.schema or nil
+        end,
+        -- The dated check of one character's bags, bank or equipped gear.
+        area = function(scopeKey)
+            return raw.areas[scopeKey]
+        end,
+        areas = function()
+            return raw.areas
+        end,
+        journal = function()
+            return raw.journal
+        end,
+        journalDamaged = function()
+            return raw.journal ~= nil and not validJournal(raw.journal)
+        end,
+        -- The Journal lists slices keep beside the gain history, in slice order.
+        journalLists = function()
+            local lists = {}
+            for _, slice in ipairs(slices) do
+                if slice.journal then
+                    local handle = handles[slice.name]
+                    local state = handle.state()
+                    lists[#lists + 1] = {
+                        retention = slice.journal,
+                        entries = state and handle.healthy and state.journal or {},
+                        damaged = handle.damaged,
+                    }
+                end
+            end
+            return lists
         end,
         save = saveFields,
         retention = retention,
@@ -625,7 +863,8 @@ function StoreKernel.open(raw, save)
         bagQuantity = bagQuantity,
         possessionsQuantity = possessionsQuantity,
         checkedPossessions = checkedPossessions,
-    }
+    },
+        handles
 end
 
 addon.StoreKernel = StoreKernel

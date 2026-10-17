@@ -5,8 +5,82 @@ local _, addon = ...
 local V = addon.SchemaValidate
 local vendorKinds, isInteger, isName, copyArray = V.vendorKinds, V.isInteger, V.isName, V.copyArray
 local copyValue, copyRecord, validPlaceKind = V.copyValue, V.copyRecord, V.validPlaceKind
+local Evidence = addon.StoreEvidence
 
 local StoreVendor = {}
+
+local vendorStatuses = { pending = true, confirmed = true, unresolved = true }
+
+local function validVendorState(vendor)
+    if
+        type(vendor) ~= "table"
+        or not isInteger(vendor.nextID)
+        or vendor.nextID < 1
+        or type(vendor.actions) ~= "table"
+        or type(vendor.journal) ~= "table"
+    then
+        return false
+    end
+    local ids = {}
+    for _, action in ipairs(vendor.actions) do
+        if
+            type(action) ~= "table"
+            or not isInteger(action.id)
+            or action.id < 1
+            or action.id >= vendor.nextID
+            or ids[action.id]
+            or not vendorKinds[action.kind]
+            or not vendorStatuses[action.status]
+            or (action.area ~= "bags" and action.area ~= "equipped")
+            or type(action.key) ~= "string"
+            or not isInteger(action.itemID)
+            or addon.Item.key(action.link, action.itemID) ~= action.key
+            or not isInteger(action.quantity)
+            or action.quantity < 1
+            or not isInteger(action.at)
+            or not isName(action.character)
+            or not isName(action.realm)
+            or not isInteger(action.level)
+            or type(action.place) ~= "string"
+            or not isInteger(action.baseline)
+            or action.baseline < 0
+            or not isInteger(action.baselineGained)
+            or action.baselineGained < 0
+            or not isInteger(action.receiptQuantity)
+            or action.receiptQuantity < 0
+            or (action.linkedGainID ~= nil and type(action.linkedGainID) ~= "string")
+            or (action.linkedSaleID ~= nil and not isInteger(action.linkedSaleID))
+            or (action.restored ~= nil and type(action.restored) ~= "boolean")
+            or (action.vendorName ~= nil and not isName(action.vendorName))
+        then
+            return false
+        end
+        ids[action.id] = true
+    end
+    for _, entry in ipairs(vendor.journal) do
+        if
+            type(entry) ~= "table"
+            or not isInteger(entry.id)
+            or not vendorKinds[entry.kind]
+            or entry.kind == "purchase"
+            or type(entry.key) ~= "string"
+            or not isInteger(entry.quantity)
+            or entry.quantity < 1
+            or not isInteger(entry.at)
+            or not isName(entry.character)
+            or not isName(entry.realm)
+            or (entry.vendorName ~= nil and not isName(entry.vendorName))
+            or (entry.level ~= nil and not isInteger(entry.level))
+            or (entry.place ~= nil and type(entry.place) ~= "string")
+            or not validPlaceKind(entry.placeKind)
+            or (entry.linkedGainID ~= nil and type(entry.linkedGainID) ~= "string")
+            or (entry.linkedSaleID ~= nil and (not isInteger(entry.linkedSaleID) or entry.linkedSaleID < 1))
+        then
+            return false
+        end
+    end
+    return true
+end
 
 local function vendorResult(state, action, status)
     action.status = status
@@ -47,19 +121,26 @@ local function linkedVendorGain(record, character, realm, quantity)
     return match
 end
 
--- Returns the state accessor and settlement a possessions scan uses.
-function StoreVendor.install(store, kernel)
+---@type AzerothLedgerSlice
+StoreVendor.slice = { name = "vendor", validate = validVendorState, journal = "vendor" }
+
+local function activeAction(action)
+    return action.status == "pending" or action.status == "unresolved"
+end
+
+-- Returns the correlation engine a possessions check and evidence expiry use.
+function StoreVendor.install(store, kernel, slice)
     local valid, readable, saveFields, gainRecord = kernel.valid, kernel.readable, kernel.save, kernel.gain
     local refundRecord = kernel.refund
-    local recordHealthy, vendorHealthy = kernel.recordHealthy, kernel.vendorHealthy
+    local recordHealthy, vendorHealthy, savedState = kernel.recordHealthy, slice.healthy, slice.state
     local areaQuantity, bagQuantity = kernel.areaQuantity, kernel.bagQuantity
 
     local function vendorState()
-        if kernel.raw().vendor == nil then
+        if savedState() == nil then
             return { nextID = 1, actions = {}, journal = {} }
         end
         if vendorHealthy then
-            return kernel.raw().vendor
+            return savedState()
         end
         return nil
     end
@@ -305,7 +386,78 @@ function StoreVendor.install(store, kernel)
         return result
     end
 
-    return { state = vendorState, settle = settleVendor }
+    local function healthyState()
+        return savedState() and vendorHealthy and savedState() or nil
+    end
+
+    local function stale(at)
+        local state = healthyState()
+        return Evidence.staleEntries(state and state.actions, at, activeAction)
+    end
+
+    local function expire(at, reason, retain)
+        local original = healthyState()
+        if type(original) ~= "table" then
+            return nil, false
+        end
+        local state = copyValue(original)
+        local changed = Evidence.expireEntries(state.actions, at, reason, activeAction, function(entry, openedAt)
+            retain("vendor", reason, openedAt, entry, entry)
+        end)
+        return state, changed
+    end
+
+    local function visit(emit, pause)
+        local state = healthyState()
+        if not readable or not state then
+            return
+        end
+        for _, entry in ipairs(state.actions) do
+            if activeAction(entry) then
+                local reason = entry.status == "unresolved" and "stopped" or "active"
+                emit("vendor:" .. entry.id, "vendor", reason, entry.at, entry, entry)
+            end
+            pause()
+        end
+    end
+
+    -- Settles vendor actions against a complete check after a complete one.
+    ---@param scan AzerothLedgerCheck
+    local function check(scan)
+        local snapshot, oldScope = scan.snapshot, scan.oldScope
+        local handler, vendor = {}, nil
+        function handler.finish()
+            vendor = vendorState()
+            if vendor and #vendor.actions == 0 then
+                vendor = nil
+            elseif vendor then
+                vendor = copyValue(vendor)
+            end
+            if
+                vendor
+                and (snapshot.area == "bags" or snapshot.area == "equipped")
+                and snapshot.complete
+                and type(oldScope) == "table"
+                and oldScope.complete
+            then
+                settleVendor(
+                    vendor,
+                    snapshot.area,
+                    snapshot.seenAt,
+                    snapshot.character,
+                    snapshot.realm,
+                    scan.grouped,
+                    scan.records
+                )
+            end
+        end
+        function handler.commit(fields)
+            fields.vendor = vendor
+        end
+        return handler
+    end
+
+    return { engine = { stale = stale, expire = expire, visit = visit, check = check } }
 end
 
 addon.StoreVendor = StoreVendor
