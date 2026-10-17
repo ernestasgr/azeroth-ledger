@@ -30,14 +30,14 @@ Code, tests, comments and player-facing text use the terms in `GLOSSARY.md` (Col
 
 ## Saved data
 
-- A new saved field is optional and is validated in `SchemaValidate.lua`, so existing saves stay valid without a migration.
+- A new saved field is optional, so existing saves stay valid without a migration. It is validated by the validator of the `Store*.lua` file that owns that part of the save (records and the Journal belong to `StoreKernel.lua`). `SchemaValidate.lua` keeps only shared helpers and option tables.
 - Changing an existing field's meaning or bumping `CURRENT_SCHEMA` needs a migration and a backup path in the same PR. `tools/install_local.py` refuses any other schema, and records are never silently discarded.
 
 ## Tests
 
 - A bug fix adds a spec case that reproduces the live data (real names, links and event order from the save or trace) and fails without the fix.
 - An assert message states the player-visible rule (`"a transfer must not count the same units twice"`), not the mechanics.
-- A behaviour that needs the client (event order, UI) is recorded as in-client pending in the PR or in `docs/validation/` until a WoWUnit run confirms it.
+- A behaviour that needs the client (event order, UI) is recorded as in-client pending in the PR until a WoWUnit run confirms it.
 
 ## Comments
 

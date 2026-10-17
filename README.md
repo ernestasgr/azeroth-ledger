@@ -8,7 +8,7 @@ Open the Ledger book with its button beside the minimap or with `/al`. Browse ca
 
 The Journal shows recent gains, moves between your characters, and vendor sales, refunds, and buybacks, newest first. Select an entry to see who was involved and where the item came from. A purchase appears once as a gain. AddOns Settings → Azeroth Ledger controls how many recent entries to keep: gains default to 1,000 (0–5,000), transfers and vendor actions to 250 each (0–2,000). Zero keeps no recent entries in that category. Removing old Journal entries does not change Collection totals, dates, or sources.
 
-Item tooltips show when an item was Seen, Looted, or Obtained, its confirmed total gains, current status, and known source. A newly discovered item shows a notification (five seconds by default). Items already there at the first check, moves between your characters, duplicate messages, and later gains of an existing item stay quiet. Native AddOns Settings → Azeroth Ledger has separate Appearance, Notifications, and Tooltips pages. Both tooltips and notifications default on and persist across reload. See [tooltip and toast validation](docs/validation/issue-25-presentation.md) for automated checks and pending client checks.
+Item tooltips show when an item was Seen, Looted, or Obtained, its confirmed total gains, current status, and known source. A newly discovered item shows a notification (five seconds by default). Items already there at the first check, moves between your characters, duplicate messages, and later gains of an existing item stay quiet. Native AddOns Settings → Azeroth Ledger has separate Appearance, Notifications, and Tooltips pages. Both tooltips and notifications default on and persist across reload.
 
 Select the book's warning or **Review item changes** to see gains the addon could not confirm. Search by item and filter by character or realm to read what happened and whether another check may help. Looking at an unconfirmed change never adds it to Total gained.
 
@@ -16,7 +16,7 @@ Character and realm filters focus item details on that view. Current counts add 
 
 AddOns Settings → Azeroth Ledger includes an optional **Developer mode** setting. It shows internal item keys and recording details in item pages; it is off by default.
 
-Use Ctrl+F to search, Up/Down to select items, Page Up/Page Down or the mouse wheel to browse results, and Tab/Shift+Tab then Enter to activate controls. Character, realm and place menus show named choices. Escape dismisses an open menu, then closes the book. Scale buttons fit the book to your screen. The [book preview](docs/validation/collection-redesign.md) shows the layout and interaction checks; [Collection validation](docs/validation/issue-23-collection.md) records semantic checks and pending in-client checks.
+Use Ctrl+F to search, Up/Down to select items, Page Up/Page Down or the mouse wheel to browse results, and Tab/Shift+Tab then Enter to activate controls. Character, realm and place menus show named choices. Escape dismisses an open menu, then closes the book. Scale buttons fit the book to your screen.
 
 See [GLOSSARY.md](GLOSSARY.md) for the player-facing glossary. Client compatibility and saved data must be checked on the intended Forever release build.
 
