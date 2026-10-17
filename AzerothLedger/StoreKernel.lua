@@ -11,7 +11,6 @@ local validCheckID, validRetention, gainRoot = V.validCheckID, V.validRetention,
 local chronological, trimHistory, isName, areaKey = V.chronological, V.trimHistory, V.isName, V.areaKey
 local copyArray, copyValue, areas, gainMethods = V.copyArray, V.copyValue, V.areas, V.gainMethods
 local compactObservations, copyRecord, validPlaceKind = V.compactObservations, V.copyRecord, V.validPlaceKind
-local countsAfterFirstCheck = V.countsAfterFirstCheck
 
 ---@alias AzerothLedgerPossessions fun(character: string, realm: string): integer Units held before a change
 
@@ -495,9 +494,13 @@ function StoreKernel.open(raw, save, slices)
     -- `discovery` says the item was unknown when the action began; `since` is
     -- loot's opening time. Loot measures its discoveries itself; another
     -- channel's gain discovers the item only when its character also made the
-    -- earliest sighting. A discovery leaves the character's first-check units
-    -- only when Total found counts the gain on top of them, so no unit counts
-    -- twice and none is lost.
+    -- earliest sighting.
+    --
+    -- A character's first-check units exclude every unit its gains explain, so
+    -- every view counts first-check units plus gains. A discovery leaves them,
+    -- and so does any other gain made before the character's first sighting:
+    -- that sighting already held the gained units. Loot handles its own
+    -- sightings and leaves only on a measured discovery.
     ---@param record AzerothLedgerRecord
     ---@param entry table
     ---@param options? {discovery?: boolean, since?: integer, full?: boolean}
@@ -528,25 +531,20 @@ function StoreKernel.open(raw, save, slices)
             if not options.since or record.firstSeen >= options.since then
                 record.firstSeenUnits = math.max(0, record.firstSeenUnits - quantity)
             end
-            for _, seen in ipairs(record.characters) do
-                if
-                    seen.name == entry.character
-                    and seen.realm == entry.realm
-                    and countsAfterFirstCheck(target, seen.firstSeen)
-                then
+        end
+        for _, seen in ipairs(record.characters) do
+            if seen.name == entry.character and seen.realm == entry.realm then
+                if discovered or (entry.openedAt == nil and target.at <= seen.firstSeen) then
                     seen.firstSeenUnits = math.max(0, seen.firstSeenUnits - quantity)
-                    break
                 end
+                break
             end
         end
         return record
     end
 
     -- Refunds units of one earlier gain with the given method, on a copy of
-    -- record. Returns nil when that gain cannot absorb the refund. When Total
-    -- found does not count the gain on top of its character's first-check units,
-    -- the refunded units leave those units instead. Saves from before this rule
-    -- may already lack them, so the units never go below zero.
+    -- record. Returns nil when that gain cannot absorb the refund.
     ---@param record AzerothLedgerRecord
     ---@param gainID string
     ---@param quantity integer
@@ -560,15 +558,6 @@ function StoreKernel.open(raw, save, slices)
                 end
                 entry.refunded = (entry.refunded or 0) + quantity
                 record.totalGained = record.totalGained - quantity
-                for _, seen in ipairs(record.characters) do
-                    if
-                        seen.name == entry.character
-                        and seen.realm == entry.realm
-                        and not countsAfterFirstCheck(entry, seen.firstSeen)
-                    then
-                        seen.firstSeenUnits = math.max(0, seen.firstSeenUnits - quantity)
-                    end
-                end
                 return record
             end
         end

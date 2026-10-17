@@ -34,9 +34,19 @@ local function world()
     local store = addon.Schema.open(nil, function(value)
         saved = value
     end)
-    local w = {}
+    -- Each character's realm; a case may move Ben to another realm.
+    local w = { realms = { Ada = "Realm", Ben = "Realm" } }
+    function w.realm(character)
+        return w.realms[character or "Ada"] or "Realm"
+    end
     function w.actor(character, at)
-        return { character = character or "Ada", realm = "Realm", level = 12, place = "Elwynn Forest", at = at }
+        return {
+            character = character or "Ada",
+            realm = w.realm(character),
+            level = 12,
+            place = "Elwynn Forest",
+            at = at,
+        }
     end
     function w.bags(at, quantity, character, extra)
         local items = quantity > 0 and { { itemID = 4540, link = link, quantity = quantity } } or {}
@@ -45,7 +55,7 @@ local function world()
         end
         assert(store:scan({
             character = character or "Ada",
-            realm = "Realm",
+            realm = w.realm(character),
             area = "bags",
             seenAt = at,
             complete = true,
@@ -146,27 +156,49 @@ local function world()
     return w
 end
 
--- One line per record: the facts every crediting path must keep consistent,
--- and the Total found a player sees for each character and for the account.
+-- Units a breakdown explains for one view: a character, a realm, or the account.
+local function explained(store, itemKey, scope)
+    local total = 0
+    for _, quantity in pairs(store:breakdown(itemKey, scope).methods) do
+        total = total + quantity
+    end
+    return total
+end
+
+-- Two lines per record: the facts every crediting path must keep consistent,
+-- then what each view shows. Characters read "overall/breakdown", each realm
+-- reads its breakdown, and "all" reads the account overall and breakdown.
 local function facts(record, store)
     if not record then
         return "missing"
     end
-    local characters, found, all = {}, {}, nil
+    local characters, found, realms, all = {}, {}, {}, nil
     for _, seen in ipairs(record.characters) do
         characters[#characters + 1] = seen.name .. "=" .. seen.firstSeenUnits
         local projection = addon.LastSeen.project(store, record, seen.name, seen.realm)
-        found[#found + 1] = seen.name .. "=" .. tostring(projection.characterOverall)
+        found[#found + 1] = seen.name
+            .. "="
+            .. tostring(projection.characterOverall)
+            .. "/"
+            .. explained(store, record.key, { character = seen.name, realm = seen.realm })
+        realms[seen.realm] = true
         all = projection.allCharactersOverall
+    end
+    local realmViews = {}
+    for realm in pairs(realms) do
+        realmViews[#realmViews + 1] = realm .. "=" .. explained(store, record.key, { realm = realm })
     end
     table.sort(characters)
     table.sort(found)
+    table.sort(realmViews)
+    all = tostring(all) .. "/" .. explained(store, record.key)
     local gains = {}
     for _, gain in ipairs(record.gains) do
         gains[#gains + 1] = gain.method .. "+" .. gain.quantity .. (gain.refunded and ("-" .. gain.refunded) or "")
     end
     return string.format(
-        "gained=%d first=%s last=%s firstSeenUnits=%d chars=[%s] gains=[%s] discovery=%s\nfound=[%s] all=%s",
+        "gained=%d first=%s last=%s firstSeenUnits=%d chars=[%s] gains=[%s] discovery=%s"
+            .. "\nfound=[%s] realms=[%s] all=%s",
         record.totalGained,
         tostring(record.firstGained),
         tostring(record.lastGained),
@@ -175,7 +207,8 @@ local function facts(record, store)
         table.concat(gains, ","),
         tostring(record.evidencedDiscovery == true),
         table.concat(found, ","),
-        tostring(all)
+        table.concat(realmViews, ","),
+        all
     )
 end
 
@@ -186,7 +219,7 @@ local cases = {
             w.bags(100, 4)
         end,
         expect = "gained=0 first=nil last=nil firstSeenUnits=4 chars=[Ada=4] gains=[] discovery=false",
-        found = "found=[Ada=4] all=4",
+        found = "found=[Ada=4/4] realms=[Realm=4] all=4/4",
     },
     {
         name = "loot of a newly seen item, bags checked before the receipt",
@@ -197,7 +230,7 @@ local cases = {
             w.lootReceipt(112, 2)
         end,
         expect = "gained=2 first=112 last=112 firstSeenUnits=0 chars=[Ada=0] gains=[Looted+2] discovery=true",
-        found = "found=[Ada=nil] all=nil",
+        found = "found=[Ada=nil/2] realms=[Realm=2] all=nil/2",
     },
     {
         name = "loot of a newly seen item, receipt before the bags check",
@@ -208,7 +241,7 @@ local cases = {
             w.bags(112, 2)
         end,
         expect = "gained=2 first=111 last=111 firstSeenUnits=0 chars=[Ada=0] gains=[Looted+2] discovery=true",
-        found = "found=[Ada=nil] all=nil",
+        found = "found=[Ada=nil/2] realms=[Realm=2] all=nil/2",
     },
     {
         name = "loot of an item already held",
@@ -219,7 +252,7 @@ local cases = {
             w.bags(112, 6)
         end,
         expect = "gained=1 first=111 last=111 firstSeenUnits=5 chars=[Ada=5] gains=[Looted+1] discovery=false",
-        found = "found=[Ada=6] all=6",
+        found = "found=[Ada=6/6] realms=[Realm=6] all=6/6",
     },
     {
         name = "loot settled by a late source proof",
@@ -228,7 +261,7 @@ local cases = {
             w.lateLoot(100)
         end,
         expect = "gained=2 first=101 last=101 firstSeenUnits=0 chars=[Ada=0] gains=[Looted+2] discovery=true",
-        found = "found=[Ada=2] all=2",
+        found = "found=[Ada=2/2] realms=[Realm=2] all=2/2",
     },
     {
         name = "quest reward of a newly seen item",
@@ -237,8 +270,8 @@ local cases = {
             w.reward(110, "Quest", 1)
             w.bags(111, 1)
         end,
-        expect = "gained=1 first=110 last=110 firstSeenUnits=0 chars=[Ada=1] gains=[Quest+1] discovery=true",
-        found = "found=[Ada=1] all=1",
+        expect = "gained=1 first=110 last=110 firstSeenUnits=0 chars=[Ada=0] gains=[Quest+1] discovery=true",
+        found = "found=[Ada=1/1] realms=[Realm=1] all=1/1",
     },
     {
         name = "quest reward of an item already held",
@@ -248,7 +281,7 @@ local cases = {
             w.bags(111, 3)
         end,
         expect = "gained=1 first=110 last=110 firstSeenUnits=2 chars=[Ada=2] gains=[Quest+1] discovery=false",
-        found = "found=[Ada=3] all=3",
+        found = "found=[Ada=3/3] realms=[Realm=3] all=3/3",
     },
     {
         name = "crafted item",
@@ -257,8 +290,8 @@ local cases = {
             w.reward(110, "Crafted", 1)
             w.bags(111, 1)
         end,
-        expect = "gained=1 first=110 last=110 firstSeenUnits=0 chars=[Ada=1] gains=[Crafted+1] discovery=true",
-        found = "found=[Ada=1] all=1",
+        expect = "gained=1 first=110 last=110 firstSeenUnits=0 chars=[Ada=0] gains=[Crafted+1] discovery=true",
+        found = "found=[Ada=1/1] realms=[Realm=1] all=1/1",
     },
     {
         name = "vendor purchase of a newly seen item",
@@ -267,8 +300,8 @@ local cases = {
             w.vendor(110, "purchase", 1)
             w.bags(111, 1)
         end,
-        expect = "gained=1 first=110 last=110 firstSeenUnits=0 chars=[Ada=1] gains=[Vendor+1] discovery=true",
-        found = "found=[Ada=1] all=1",
+        expect = "gained=1 first=110 last=110 firstSeenUnits=0 chars=[Ada=0] gains=[Vendor+1] discovery=true",
+        found = "found=[Ada=1/1] realms=[Realm=1] all=1/1",
     },
     {
         name = "vendor purchase of an item already held, with a receipt",
@@ -279,7 +312,7 @@ local cases = {
             w.bags(112, 5)
         end,
         expect = "gained=3 first=110 last=110 firstSeenUnits=2 chars=[Ada=2] gains=[Vendor+3] discovery=false",
-        found = "found=[Ada=5] all=5",
+        found = "found=[Ada=5/5] realms=[Realm=5] all=5/5",
     },
     {
         name = "vendor purchase then refund",
@@ -292,7 +325,7 @@ local cases = {
             w.bags(114, 0)
         end,
         expect = "gained=0 first=110 last=110 firstSeenUnits=0 chars=[Ada=0] gains=[Vendor+3-3] discovery=true",
-        found = "found=[Ada=0] all=0",
+        found = "found=[Ada=0/0] realms=[Realm=0] all=0/0",
     },
     {
         name = "vendor sale and buyback",
@@ -305,8 +338,8 @@ local cases = {
             w.vendor(114, "buyback", 1)
             w.bags(115, 1)
         end,
-        expect = "gained=1 first=110 last=110 firstSeenUnits=0 chars=[Ada=1] gains=[Vendor+1] discovery=true",
-        found = "found=[Ada=1] all=1",
+        expect = "gained=1 first=110 last=110 firstSeenUnits=0 chars=[Ada=0] gains=[Vendor+1] discovery=true",
+        found = "found=[Ada=1/1] realms=[Realm=1] all=1/1",
     },
     {
         name = "mail from another player, item already held",
@@ -316,7 +349,7 @@ local cases = {
             w.bags(112, 7, "Ben")
         end,
         expect = "gained=2 first=110 last=110 firstSeenUnits=5 chars=[Ben=5] gains=[Obtained+2] discovery=false",
-        found = "found=[Ben=7] all=7",
+        found = "found=[Ben=7/7] realms=[Realm=7] all=7/7",
     },
     {
         name = "mail from another player, newly seen item",
@@ -325,8 +358,8 @@ local cases = {
             w.mail(110, "Ben", "in", 2, "Cara")
             w.bags(112, 2, "Ben")
         end,
-        expect = "gained=2 first=110 last=110 firstSeenUnits=0 chars=[Ben=2] gains=[Obtained+2] discovery=true",
-        found = "found=[Ben=2] all=2",
+        expect = "gained=2 first=110 last=110 firstSeenUnits=0 chars=[Ben=0] gains=[Obtained+2] discovery=true",
+        found = "found=[Ben=2/2] realms=[Realm=2] all=2/2",
     },
     {
         name = "Transfer between own characters",
@@ -339,7 +372,7 @@ local cases = {
             w.bags(106, 3, "Ben")
         end,
         expect = "gained=0 first=nil last=nil firstSeenUnits=3 chars=[Ada=3,Ben=0] gains=[] discovery=false",
-        found = "found=[Ada=3,Ben=3] all=3",
+        found = "found=[Ada=3/3,Ben=3/3] realms=[Realm=3] all=3/3",
     },
     {
         name = "loot then vendor on one item keeps first and last dates",
@@ -352,7 +385,7 @@ local cases = {
             w.bags(121, 3)
         end,
         expect = "gained=3 first=111 last=120 firstSeenUnits=0 chars=[Ada=0] gains=[Looted+1,Vendor+2] discovery=true",
-        found = "found=[Ada=nil] all=nil",
+        found = "found=[Ada=nil/3] realms=[Realm=3] all=nil/3",
     },
     {
         name = "gain on a second character after the first check",
@@ -363,8 +396,8 @@ local cases = {
             w.bags(112, 1, "Ben")
         end,
         -- Current behaviour: Ben's first-check units still count the mailed unit.
-        expect = "gained=1 first=110 last=110 firstSeenUnits=2 chars=[Ada=2,Ben=1] gains=[Obtained+1] discovery=false",
-        found = "found=[Ada=2,Ben=1] all=3",
+        expect = "gained=1 first=110 last=110 firstSeenUnits=2 chars=[Ada=2,Ben=0] gains=[Obtained+1] discovery=false",
+        found = "found=[Ada=2/2,Ben=1/1] realms=[Realm=3] all=3/3",
     },
     {
         name = "two items settled by one check",
@@ -373,12 +406,15 @@ local cases = {
             w.vendor(110, "purchase", 1)
             w.bags(111, 1, "Ada", 4)
         end,
-        expect = "gained=1 first=110 last=110 firstSeenUnits=0 chars=[Ada=1] gains=[Vendor+1] discovery=true",
-        found = "found=[Ada=1] all=1",
+        expect = "gained=1 first=110 last=110 firstSeenUnits=0 chars=[Ada=0] gains=[Vendor+1] discovery=true",
+        found = "found=[Ada=1/1] realms=[Realm=1] all=1/1",
     },
 }
 
 local failures = {}
+local function fail(rule, name, expected, actual)
+    failures[#failures + 1] = rule .. ": " .. name .. "\n  expected " .. expected .. "\n  actual   " .. actual
+end
 for _, case in ipairs(cases) do
     local w = world()
     case.run(w)
@@ -387,45 +423,50 @@ for _, case in ipairs(cases) do
     local restored = facts(reopened:find(key), reopened)
     local expected = case.expect .. "\n" .. case.found
     if live ~= expected then
-        failures[#failures + 1] = case.name .. "\n  expected " .. expected .. "\n  actual   " .. live
+        fail("each confirmed gain counts once and every view shows what the characters hold", case.name, expected, live)
     elseif restored ~= live then
-        failures[#failures + 1] = case.name .. " after reopening\n  expected " .. live .. "\n  actual   " .. restored
+        fail("a reopened save shows the same Collection", case.name, live, restored)
     elseif reopened:diagnostic().kind ~= "healthy" then
-        failures[#failures + 1] = case.name .. ": reopened save is " .. reopened:diagnostic().kind
+        fail("a save the Ledger wrote reopens healthy", case.name, "healthy", reopened:diagnostic().kind)
     end
     local persisted = w.saved().records[key]
     if persisted and persisted.totalGained ~= w.store():find(key).totalGained then
-        failures[#failures + 1] = case.name .. ": saved Total gained differs from the live record"
+        fail(
+            "the saved Total gained matches the one shown",
+            case.name,
+            tostring(w.store():find(key).totalGained),
+            tostring(persisted.totalGained)
+        )
     end
 end
--- The second item in the shared check stays a first-check item.
 do
     local w = world()
     cases[#cases].run(w)
     local expected = "gained=0 first=nil last=nil firstSeenUnits=4 chars=[Ada=4] gains=[] discovery=false"
-        .. "\nfound=[Ada=4] all=4"
+        .. "\nfound=[Ada=4/4] realms=[Realm=4] all=4/4"
     local actual = facts(w.store():find(otherKey), w.store())
     if actual ~= expected then
-        failures[#failures + 1] = "second item in a shared check\n  expected " .. expected .. "\n  actual   " .. actual
+        fail("an item that appears in a check without any action stays Seen", "second item", expected, actual)
     end
 end
 
--- Every non-loot channel against the orderings that decide a discovery. The
--- truth is what each character holds; Total found must match it.
+-- Every non-loot channel against the orderings that decide a discovery, with
+-- Ben on Ada's realm and on another realm. The truth is what each character
+-- holds: every character, realm and account view must show it.
 local function act(w, channel, at, character)
     if channel == "quest" or channel == "craft" then
         local receipt = channel == "quest" and assert(addon.Reward.quest({}, 92463, link, 1))
             or assert(addon.Reward.craft({}, { itemID = 4540, hyperlink = link, quantity = 1 }))
         assert(w.store():rewardReceipt(receipt, at, w.actor(character)))
         if channel == "quest" then
-            assert(w.store():questTurnedIn(92463, at, { character = character, realm = "Realm" }))
+            assert(w.store():questTurnedIn(92463, at, { character = character, realm = w.realm(character) }))
         end
     elseif channel == "vendor" then
         assert(
             w.store():vendorAction(
                 { kind = "purchase", key = key, itemID = 4540, link = link, quantity = 1 },
                 at,
-                { character = character, realm = "Realm", level = 12, place = "Elwynn Forest" }
+                { character = character, realm = w.realm(character), level = 12, place = "Elwynn Forest" }
             )
         )
     else
@@ -440,7 +481,7 @@ local orderings = {
             act(w, channel, 110, "Ada")
             w.bags(112, 1)
         end,
-        found = "found=[Ada=1] all=1",
+        holds = { Ada = 1 },
     },
     {
         name = "already held",
@@ -449,7 +490,7 @@ local orderings = {
             act(w, channel, 110, "Ada")
             w.bags(112, 3)
         end,
-        found = "found=[Ada=3] all=3",
+        holds = { Ada = 3 },
     },
     {
         name = "another character sees it first",
@@ -459,7 +500,7 @@ local orderings = {
             w.bags(111, 1, "Ben")
             w.bags(112, 1)
         end,
-        found = "found=[Ada=1,Ben=1] all=2",
+        holds = { Ada = 1, Ben = 1 },
     },
     {
         name = "a new character gains it",
@@ -469,34 +510,55 @@ local orderings = {
             act(w, channel, 110, "Ben")
             w.bags(112, 1, "Ben")
         end,
-        found = "found=[Ada=2,Ben=1] all=3",
+        holds = { Ada = 2, Ben = 1 },
     },
 }
-for _, channel in ipairs({ "quest", "craft", "vendor", "mail" }) do
-    for _, ordering in ipairs(orderings) do
-        local w = world()
-        ordering.run(w, channel)
-        local record = w.store():find(key)
-        local found = facts(record, w.store()):match("\n(.*)$")
-        local account = record.firstSeenUnits + record.totalGained
-        if found ~= ordering.found or found:match("all=(%d+)$") ~= tostring(account) then
-            failures[#failures + 1] = channel
-                .. ", "
-                .. ordering.name
-                .. "\n  expected "
-                .. ordering.found
-                .. "\n  actual   "
-                .. found
-                .. " (first check + Total gained = "
-                .. account
-                .. ")"
+-- The view line facts() prints when every view shows what the characters hold.
+local function truth(holds, realmOf)
+    local characters, realms, total = {}, {}, 0
+    for name, quantity in pairs(holds) do
+        characters[#characters + 1] = name .. "=" .. quantity .. "/" .. quantity
+        realms[realmOf[name]] = (realms[realmOf[name]] or 0) + quantity
+        total = total + quantity
+    end
+    local realmViews = {}
+    for realm, quantity in pairs(realms) do
+        realmViews[#realmViews + 1] = realm .. "=" .. quantity
+    end
+    table.sort(characters)
+    table.sort(realmViews)
+    return "found=["
+        .. table.concat(characters, ",")
+        .. "] realms=["
+        .. table.concat(realmViews, ",")
+        .. "] all="
+        .. total
+        .. "/"
+        .. total
+end
+for _, benRealm in ipairs({ "Realm", "Other Realm" }) do
+    for _, channel in ipairs({ "quest", "craft", "vendor", "mail" }) do
+        for _, ordering in ipairs(orderings) do
+            local w = world()
+            w.realms.Ben = benRealm
+            ordering.run(w, channel)
+            local found = facts(w.store():find(key), w.store()):match("\n(.*)$")
+            local expected = truth(ordering.holds, w.realms)
+            if found ~= expected then
+                fail(
+                    "every view shows what each character holds",
+                    channel .. ", " .. ordering.name .. ", Ben on " .. benRealm,
+                    expected,
+                    found
+                )
+            end
         end
     end
 end
 -- Saves written before the Total found fix took a discovered vendor purchase's
 -- units off the character's first-check units. This is the exact save that
--- code wrote after buying three newly seen items; a refund, whether already
--- saved or made after the update, must never leave a negative Total found.
+-- code wrote after buying three newly seen items. Read now, it shows the three
+-- units held; a refund, already saved or made after the update, leaves zero.
 local function purchasedBeforeTheFix()
     return {
         areas = {
@@ -626,14 +688,25 @@ do
     local store = addon.Schema.open(refundedBeforeTheFix(), function() end)
     local character, account = totalFound(store)
     if character ~= 0 or account ~= 0 then
-        failures[#failures + 1] = "an item bought and refunded before the update must show Total found 0, not "
-            .. tostring(character)
-            .. " / "
-            .. tostring(account)
+        fail(
+            "an item bought and refunded before the update shows Total found 0",
+            "saved refund",
+            "0 / 0",
+            tostring(character) .. " / " .. tostring(account)
+        )
     end
 end
 do
     local store = addon.Schema.open(purchasedBeforeTheFix(), function() end)
+    local held, heldAccount = totalFound(store)
+    if held ~= 3 or heldAccount ~= 3 then
+        fail(
+            "an item bought before the update shows the units bought",
+            "saved purchase",
+            "3 / 3",
+            tostring(held) .. " / " .. tostring(heldAccount)
+        )
+    end
     assert(
         store:vendorAction(
             { kind = "refund", key = key, itemID = 4540, link = link, quantity = 3 },
@@ -644,10 +717,12 @@ do
     assert(store:scan({ character = "Ada", realm = "Realm", area = "bags", seenAt = 114, complete = true, items = {} }))
     local character, account = totalFound(store)
     if store:find(key).totalGained ~= 0 or character ~= 0 or account ~= 0 then
-        failures[#failures + 1] = "a refund after the update of an item bought before it must show Total found 0, not "
-            .. tostring(character)
-            .. " / "
-            .. tostring(account)
+        fail(
+            "a refund after the update of an item bought before it shows Total found 0",
+            "refund after update",
+            "0 / 0",
+            tostring(character) .. " / " .. tostring(account)
+        )
     end
 end
 assert(#failures == 0, "\n" .. table.concat(failures, "\n"))
