@@ -170,7 +170,7 @@ end
 
 -- Returns the session hooks a possessions scan settles.
 function StoreLoot.install(store, kernel, correlation)
-    local valid, readable, saveFields, editGainRoot = kernel.valid, kernel.readable, kernel.save, kernel.editGainRoot
+    local valid, readable, saveFields, gainRecord = kernel.valid, kernel.readable, kernel.save, kernel.gain
     local heldKeys, possessionsQuantity = kernel.heldKeys, kernel.possessionsQuantity
     local evidenceState, reserveCandidate = correlation.state, correlation.reserve
 
@@ -281,49 +281,20 @@ function StoreLoot.install(store, kernel, correlation)
         if quantity <= 0 then
             return
         end
-        local gainID = tostring(session.id) .. ":" .. key
-        record = incremental and editGainRoot(record, gainID) or copyRecord(record)
-        local gain
-        for _, entry in ipairs(record.gains) do
-            if entry.id == gainID then
-                gain = entry
-                break
-            end
-        end
-        if gain then
-            gain.quantity = gain.quantity + quantity
-        else
-            gain = {
-                id = gainID,
-                at = receipt.at,
-                openedAt = session.openedAt,
-                baselinePossessionsComplete = session.baselinePossessions ~= nil,
-                quantity = quantity,
-                character = session.character,
-                realm = session.realm,
-                level = session.level,
-                place = session.place,
-                placeKind = session.placeKind,
-                method = "Looted",
-                source = type(session.slots[key]) == "table" and session.slots[key].source or nil,
-            }
-            record.gains[#record.gains + 1] = gain
-        end
-        record.totalGained = record.totalGained + quantity
-        record.firstGained = record.firstGained and math.min(record.firstGained, gain.at) or gain.at
-        record.lastGained = record.lastGained and math.max(record.lastGained, gain.at) or gain.at
-        if session.discoveries[key] then
-            record.evidencedDiscovery = true
-            if record.firstSeen >= session.openedAt then
-                record.firstSeenUnits = math.max(0, record.firstSeenUnits - quantity)
-            end
-            for _, character in ipairs(record.characters) do
-                if character.name == session.character and character.realm == session.realm then
-                    character.firstSeenUnits = math.max(0, character.firstSeenUnits - quantity)
-                    break
-                end
-            end
-        end
+        record = gainRecord(record, {
+            id = tostring(session.id) .. ":" .. key,
+            at = receipt.at,
+            openedAt = session.openedAt,
+            baselinePossessionsComplete = session.baselinePossessions ~= nil,
+            quantity = quantity,
+            character = session.character,
+            realm = session.realm,
+            level = session.level,
+            place = session.place,
+            placeKind = session.placeKind,
+            method = "Looted",
+            source = type(session.slots[key]) == "table" and session.slots[key].source or nil,
+        }, session.discoveries[key] and { since = session.openedAt }, { full = not incremental })
         session.awarded[key] = target
         attributeLoot(session, key, record)
         records[key] = record

@@ -32,7 +32,7 @@ end
 
 -- Returns the state accessor and settlement a possessions scan uses.
 function StoreExchange.install(store, kernel)
-    local valid, readable, saveFields, editGainRoot = kernel.valid, kernel.readable, kernel.save, kernel.editGainRoot
+    local valid, readable, saveFields, gainRecord = kernel.valid, kernel.readable, kernel.save, kernel.gain
     local bagQuantity, characterGained = kernel.bagQuantity, kernel.characterGained
     local exchangeHealthy = kernel.exchangeHealthy
 
@@ -475,10 +475,8 @@ function StoreExchange.install(store, kernel)
                         elseif senderKnown then
                             action.status = "unresolved"
                         else
-                            local gainID = "exchange:" .. action.id .. ":" .. action.key
-                            record = editGainRoot(record, gainID)
-                            local gain = {
-                                id = gainID,
+                            records[action.key] = gainRecord(record, {
+                                id = "exchange:" .. action.id .. ":" .. action.key,
                                 at = action.at,
                                 quantity = quantity,
                                 character = action.character,
@@ -494,24 +492,7 @@ function StoreExchange.install(store, kernel)
                                     name = action.peerName,
                                     realm = action.peerRealm,
                                 } or nil,
-                            }
-                            record.gains[#record.gains + 1] = gain
-                            record.totalGained = record.totalGained + quantity
-                            record.firstGained = record.firstGained and math.min(record.firstGained, action.at)
-                                or action.at
-                            record.lastGained = record.lastGained and math.max(record.lastGained, action.at)
-                                or action.at
-                            if action.discovery then
-                                record.evidencedDiscovery = true
-                                record.firstSeenUnits = math.max(0, record.firstSeenUnits - quantity)
-                                for _, seen in ipairs(record.characters) do
-                                    if seen.name == action.character and seen.realm == action.realm then
-                                        seen.firstSeenUnits = math.max(0, seen.firstSeenUnits - quantity)
-                                        break
-                                    end
-                                end
-                            end
-                            records[action.key] = record
+                            }, action.discovery)
                             action.quantity = quantity
                             action.status = "settled"
                         end

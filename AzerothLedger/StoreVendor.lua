@@ -49,7 +49,8 @@ end
 
 -- Returns the state accessor and settlement a possessions scan uses.
 function StoreVendor.install(store, kernel)
-    local valid, readable, saveFields, editGainRoot = kernel.valid, kernel.readable, kernel.save, kernel.editGainRoot
+    local valid, readable, saveFields, gainRecord = kernel.valid, kernel.readable, kernel.save, kernel.gain
+    local refundRecord = kernel.refund
     local recordHealthy, vendorHealthy = kernel.recordHealthy, kernel.vendorHealthy
     local areaQuantity, bagQuantity = kernel.areaQuantity, kernel.bagQuantity
 
@@ -184,10 +185,8 @@ function StoreVendor.install(store, kernel)
                         local otherGains = math.max(0, record.totalGained - action.baselineGained)
                         local quantity = math.min(action.quantity, delta - otherGains)
                         if quantity > 0 then
-                            local gainID = "vendor:" .. action.id .. ":" .. action.key
-                            record = editGainRoot(record, gainID)
-                            local gain = {
-                                id = gainID,
+                            records[action.key] = gainRecord(record, {
+                                id = "vendor:" .. action.id .. ":" .. action.key,
                                 at = action.at,
                                 quantity = quantity,
                                 character = action.character,
@@ -197,44 +196,14 @@ function StoreVendor.install(store, kernel)
                                 placeKind = action.placeKind,
                                 method = "Vendor",
                                 source = action.vendorName and { kind = "vendor", name = action.vendorName } or nil,
-                            }
-                            record.gains[#record.gains + 1] = gain
-                            record.totalGained = record.totalGained + quantity
-                            record.firstGained = record.firstGained and math.min(record.firstGained, action.at)
-                                or action.at
-                            record.lastGained = record.lastGained and math.max(record.lastGained, action.at)
-                                or action.at
-                            if not valid[action.key] then
-                                record.evidencedDiscovery = true
-                                record.firstSeenUnits = math.max(0, record.firstSeenUnits - quantity)
-                                for _, seen in ipairs(record.characters) do
-                                    if seen.name == action.character and seen.realm == action.realm then
-                                        seen.firstSeenUnits = math.max(0, seen.firstSeenUnits - quantity)
-                                        break
-                                    end
-                                end
-                            end
-                            records[action.key] = record
+                            }, not valid[action.key])
                             vendorResult(state, action, "confirmed")
                         end
                     end
                 elseif action.kind == "refund" and delta == -action.quantity and record then
-                    record = copyRecord(record)
-                    local linked
-                    for _, gain in ipairs(record.gains) do
-                        if
-                            gain.id == action.linkedGainID
-                            and gain.method == "Vendor"
-                            and gain.quantity - (gain.refunded or 0) >= action.quantity
-                        then
-                            linked = gain
-                            break
-                        end
-                    end
-                    if linked and record.totalGained >= action.quantity then
-                        linked.refunded = (linked.refunded or 0) + action.quantity
-                        record.totalGained = record.totalGained - action.quantity
-                        records[action.key] = record
+                    local refunded = refundRecord(record, action.linkedGainID, action.quantity, "Vendor")
+                    if refunded then
+                        records[action.key] = refunded
                         vendorResult(state, action, "confirmed")
                     else
                         vendorResult(state, action, "unresolved")

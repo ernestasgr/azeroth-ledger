@@ -271,6 +271,92 @@ function StoreKernel.open(raw, save)
         return result
     end
 
+    -- Records one confirmed gain on a copy of record, merging by gain id. The
+    -- kernel alone writes Total gained, gain dates and discovered first-check
+    -- units. A discovery may carry `since`: the record's first-check units then
+    -- change only when the record was first seen at or after that time.
+    ---@param record AzerothLedgerRecord
+    ---@param entry table
+    ---@param discovery? boolean|{since: integer}
+    ---@param options? {full?: boolean}
+    local function recordGain(record, entry, discovery, options)
+        record = options and options.full and copyRecord(record) or editGainRoot(record, entry.id)
+        local target
+        for _, existing in ipairs(record.gains) do
+            if existing.id == entry.id then
+                target = existing
+                break
+            end
+        end
+        if target then
+            target.quantity = target.quantity + entry.quantity
+        else
+            target = entry
+            record.gains[#record.gains + 1] = entry
+        end
+        local quantity = entry.quantity
+        record.totalGained = record.totalGained + quantity
+        record.firstGained = record.firstGained and math.min(record.firstGained, target.at) or target.at
+        record.lastGained = record.lastGained and math.max(record.lastGained, target.at) or target.at
+        if discovery then
+            record.evidencedDiscovery = true
+            if type(discovery) ~= "table" or record.firstSeen >= discovery.since then
+                record.firstSeenUnits = math.max(0, record.firstSeenUnits - quantity)
+            end
+            for _, seen in ipairs(record.characters) do
+                if seen.name == entry.character and seen.realm == entry.realm then
+                    seen.firstSeenUnits = math.max(0, seen.firstSeenUnits - quantity)
+                    break
+                end
+            end
+        end
+        return record
+    end
+
+    -- Refunds units of one earlier gain with the given method, on a copy of
+    -- record. Returns nil when that gain cannot absorb the refund.
+    ---@param record AzerothLedgerRecord
+    ---@param gainID string
+    ---@param quantity integer
+    ---@param method string
+    local function recordRefund(record, gainID, quantity, method)
+        record = copyRecord(record)
+        for _, entry in ipairs(record.gains) do
+            if entry.id == gainID and entry.method == method and entry.quantity - (entry.refunded or 0) >= quantity then
+                if record.totalGained < quantity then
+                    return nil
+                end
+                entry.refunded = (entry.refunded or 0) + quantity
+                record.totalGained = record.totalGained - quantity
+                return record
+            end
+        end
+        return nil
+    end
+
+    local function netGained(entries)
+        local total = 0
+        for _, entry in ipairs(entries or {}) do
+            total = total + entry.quantity - (entry.refunded or 0)
+        end
+        return total
+    end
+
+    -- Total gained follows from the gains: the saved total moves by exactly the
+    -- net change of the edited gain groups, or of the whole list when copied.
+    local function derivedGained(key, record)
+        local before = valid[key]
+        local total = before and before.totalGained or 0
+        if record.baseGains then
+            for root, entries in pairs(record.gainEdits) do
+                total = total + netGained(entries) - netGained(gainIndex[key] and gainIndex[key][root])
+            end
+        elseif not before or record.gains ~= before.gains then
+            total = total + netGained(record.gains) - netGained(before and before.gains)
+        end
+        return total
+    end
+
     local function gainPlan(key, record)
         local plan = {
             replacements = {},
@@ -421,6 +507,7 @@ function StoreKernel.open(raw, save)
                 end
             end
             record.observations = compactObservations(record.observations)
+            record.totalGained = derivedGained(key, record)
             previousRecords[key] = raw.records[key] or false
             local persisted = copyRecord(record, true)
             if record.baseGains then
@@ -531,7 +618,8 @@ function StoreKernel.open(raw, save)
             return gainIndex[key] and gainIndex[key][root]
         end,
         heldKeys = heldKeys,
-        editGainRoot = editGainRoot,
+        gain = recordGain,
+        refund = recordRefund,
         characterGained = characterGained,
         areaQuantity = priorQuantity,
         bagQuantity = bagQuantity,

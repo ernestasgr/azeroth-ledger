@@ -44,7 +44,7 @@ end
 
 -- Returns the reward sessions and award a possessions scan settles.
 function StoreReward.install(store, kernel)
-    local valid, readable, saveFields, editGainRoot = kernel.valid, kernel.readable, kernel.save, kernel.editGainRoot
+    local valid, readable, saveFields, gainRecord = kernel.valid, kernel.readable, kernel.save, kernel.gain
     local heldKeys, bagQuantity, possessionsQuantity = kernel.heldKeys, kernel.bagQuantity, kernel.possessionsQuantity
 
     local function rewardSessions(at, pending)
@@ -360,45 +360,18 @@ function StoreReward.install(store, kernel)
         if quantity <= 0 then
             return
         end
-        local gainID = "reward:" .. session.id .. ":" .. key
-        record = editGainRoot(record, gainID)
-        local gain
-        for _, existing in ipairs(record.gains) do
-            if existing.id == gainID then
-                gain = existing
-                break
-            end
-        end
-        if gain then
-            gain.quantity = gain.quantity + quantity
-        else
-            gain = {
-                id = gainID,
-                at = session.at,
-                quantity = quantity,
-                character = session.character,
-                realm = session.realm,
-                level = session.level,
-                place = session.place,
-                placeKind = session.placeKind,
-                method = session.method,
-                context = session.context,
-            }
-            record.gains[#record.gains + 1] = gain
-        end
-        record.totalGained = record.totalGained + quantity
-        record.firstGained = record.firstGained and math.min(record.firstGained, gain.at) or gain.at
-        record.lastGained = record.lastGained and math.max(record.lastGained, gain.at) or gain.at
-        if session.discovery then
-            record.evidencedDiscovery = true
-            record.firstSeenUnits = math.max(0, record.firstSeenUnits - quantity)
-            for _, character in ipairs(record.characters) do
-                if character.name == session.character and character.realm == session.realm then
-                    character.firstSeenUnits = math.max(0, character.firstSeenUnits - quantity)
-                    break
-                end
-            end
-        end
+        record = gainRecord(record, {
+            id = "reward:" .. session.id .. ":" .. key,
+            at = session.at,
+            quantity = quantity,
+            character = session.character,
+            realm = session.realm,
+            level = session.level,
+            place = session.place,
+            placeKind = session.placeKind,
+            method = session.method,
+            context = session.context,
+        }, session.discovery)
         session.awarded = target
         records[key] = record
     end
