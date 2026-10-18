@@ -7,7 +7,7 @@ local _, addon = ...
 -- Overlapping takes, returns, deletions, and money takes all report MAIL_SUCCESS
 -- too, so any overlap marks pending takes unresolved instead of guessing.
 --
--- In the trade window both sides are recorded once both players accept, and
+-- In the trade window both sides are recorded once either player accepts, and
 -- confirmed only by the client's trade-complete message. Any item change after
 -- acceptance cancels the prepared intents.
 local Exchange = {}
@@ -48,7 +48,8 @@ function Exchange.player(name, realm, localRealm)
     return { name = name, realm = realm }
 end
 
-function Exchange.inbox(api, localRealm)
+-- `won` holds item IDs won at the Black Market this session; their system mail is a purchase.
+function Exchange.inbox(api, localRealm, won)
     if
         type(api.GetInboxNumItems) ~= "function"
         or type(api.GetInboxHeaderInfo) ~= "function"
@@ -80,7 +81,7 @@ function Exchange.inbox(api, localRealm)
                 if intent then
                     readableCount = readableCount + 1
                     intent.mailKind = returned and "return"
-                        or invoice == "buyer" and "auction-purchase"
+                        or (invoice == "buyer" or (not invoice and won and won[itemID])) and "auction-purchase"
                         or (invoice ~= nil or canReply ~= true) and "unresolved"
                         or nil
                     -- Inbox indexes move when a message disappears. Compare total units
@@ -243,11 +244,12 @@ local function mail(deps, write)
     -- Taken mail whose items have not yet appeared in bags.
     local awaiting
     local sending
+    local won = {}
 
     -- Same-realm senders carry no realm suffix.
     local function readInbox()
         local _, realm = addon.Runtime.identity(api)
-        return Exchange.inbox(api, realm)
+        return Exchange.inbox(api, realm, won)
     end
 
     local function updateProgress()
@@ -382,6 +384,10 @@ local function mail(deps, write)
 
     local channel = {}
 
+    function channel.isOpen()
+        return open
+    end
+
     -- Runs once after each full inventory flush, when taken mail may have landed.
     function channel.flushed()
         updateProgress()
@@ -391,6 +397,9 @@ local function mail(deps, write)
     end
 
     channel.events = {
+        BLACK_MARKET_WON = function(_, itemID)
+            won[itemID] = true
+        end,
         MAIL_SHOW = function()
             open = true
             take, ambiguous, sending = nil, false, nil
@@ -484,6 +493,9 @@ local function trade(deps, write)
     end
 
     return {
+        isOpen = function()
+            return open
+        end,
         events = {
             TRADE_SHOW = function()
                 open, prepared, preparedIDs = true, false, nil
@@ -494,13 +506,28 @@ local function trade(deps, write)
             end,
             TRADE_PLAYER_ITEM_CHANGED = itemChanged,
             TRADE_TARGET_ITEM_CHANGED = itemChanged,
+            -- The second acceptance completes the trade at once, so the client
+            -- may never report both: the first locks in the items.
             TRADE_ACCEPT_UPDATE = function(playerAccepted, targetAccepted)
-                if playerAccepted == 1 and targetAccepted == 1 then
+                if playerAccepted == 1 or targetAccepted == 1 then
                     prepare()
+                else
+                    itemChanged()
                 end
             end,
+            -- A window closed without "Trade complete." ends what was prepared.
+            -- The message may follow the close, so this waits a moment for it.
             TRADE_CLOSED = function()
                 open = false
+                local timer = rawget(api, "C_Timer")
+                if prepared and type(timer) == "table" and type(timer.After) == "function" then
+                    local pending = preparedIDs
+                    timer.After(2, function()
+                        if prepared and preparedIDs == pending then
+                            itemChanged()
+                        end
+                    end)
+                end
             end,
             UI_INFO_MESSAGE = function(messageID, message)
                 if prepared and isTradeComplete(api, messageID, message) then
@@ -542,15 +569,22 @@ function Exchange.new(deps)
         end
     end
 
-    local mailbox = mail(deps, write)
+    local mailbox, window = mail(deps, write), trade(deps, write)
     local events = {}
-    for _, channel in ipairs({ mailbox, trade(deps, write) }) do
+    for _, channel in ipairs({ mailbox, window }) do
         for event, handler in pairs(channel.events) do
             assert(not events[event], "exchange event handled twice: " .. event)
             events[event] = handler
         end
     end
-    return { events = events, flushed = mailbox.flushed }
+    return {
+        events = events,
+        flushed = mailbox.flushed,
+        -- Whether an item handed over now may be a mail take or trade.
+        isOpen = function()
+            return mailbox.isOpen() or window.isOpen()
+        end,
+    }
 end
 
 addon.Exchange = Exchange

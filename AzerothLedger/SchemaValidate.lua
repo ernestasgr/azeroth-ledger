@@ -207,6 +207,7 @@ end
 ---@class AzerothLedgerLootReceipt: AzerothLedgerLootClaim
 ---@field itemID integer
 ---@field link string
+---@field kind? 'loot'|'pushed'|'created'
 
 ---@class AzerothLedgerLootSessionSlot
 ---@field source? AzerothLedgerLootSource
@@ -245,7 +246,7 @@ end
 ---@class AzerothLedgerRewardReceipt
 ---@field key string
 ---@field quantity integer
----@field method 'Quest'|'Crafted'
+---@field method 'Quest'|'Crafted'|'Obtained'
 ---@field context? AzerothLedgerRewardContext
 ---@field preview? boolean
 ---@field choiceGroup? string
@@ -267,7 +268,7 @@ end
 ---@class AzerothLedgerRewardSession
 ---@field id integer
 ---@field key string
----@field method 'Quest'|'Crafted'
+---@field method 'Quest'|'Crafted'|'Obtained'
 ---@field context? AzerothLedgerRewardContext
 ---@field character string
 ---@field realm string
@@ -878,9 +879,11 @@ local bookChoices = {
         { label = "Auction purchase", value = "Auction purchase" },
         { label = "Mail", value = "Mail" },
         { label = "Trade", value = "Trade" },
+        { label = "Guild bank", value = "Guild bank" },
         { label = "Obtained (way unknown)", value = "Obtained (way unknown)" },
         { label = "Alt mail", value = "Alt mail" },
         { label = "Alt trade", value = "Alt trade" },
+        { label = "Alt guild bank", value = "Alt guild bank" },
         { label = "Sale", value = "Sale" },
         { label = "Refund", value = "Refund" },
         { label = "Buyback", value = "Buyback" },

@@ -25,8 +25,11 @@ end
 GetInventoryItemLink = function()
     return nil
 end
-LOOT_ITEM_SELF = "You receive item: %s."
-LOOT_ITEM_SELF_MULTIPLE = "You receive item: %sx%d."
+LOOT_ITEM_SELF = "You receive loot: %s."
+LOOT_ITEM_SELF_MULTIPLE = "You receive loot: %sx%d."
+-- The client prints a purchase as an item handed over, not as loot.
+LOOT_ITEM_PUSHED_SELF = "You receive item: %s."
+LOOT_ITEM_PUSHED_SELF_MULTIPLE = "You receive item: %sx%d."
 
 C_Container = {
     GetContainerNumSlots = function(bag)

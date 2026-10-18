@@ -114,7 +114,7 @@ function Vendor.slots(api)
         return nil
     end
     local result = {}
-    for bag = 0, 4 do
+    for _, bag in ipairs(addon.Scan.containers(api, "bags")) do
         local ok, count = pcall(containers.GetContainerNumSlots, bag)
         if not ok or type(count) ~= "number" or count < 0 or count > 100 or count ~= math.floor(count) then
             return nil

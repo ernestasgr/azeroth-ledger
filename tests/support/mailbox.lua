@@ -108,8 +108,11 @@ local function mailbox(initial, switching)
             callback(...)
         end
     end
-    _G.LOOT_ITEM_SELF = "You receive item: %s."
-    _G.LOOT_ITEM_SELF_MULTIPLE = "You receive item: %sx%d."
+    _G.LOOT_ITEM_SELF = "You receive loot: %s."
+    _G.LOOT_ITEM_SELF_MULTIPLE = "You receive loot: %sx%d."
+    -- Forever prints a mail take as an item handed over.
+    _G.LOOT_ITEM_PUSHED_SELF = "You receive item: %s."
+    _G.LOOT_ITEM_PUSHED_SELF_MULTIPLE = "You receive item: %sx%d."
     load.addon("Main", addon)
     function state:event(name, ...)
         if not self.sameSecond then

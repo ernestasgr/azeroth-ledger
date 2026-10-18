@@ -158,7 +158,7 @@ end
 ---@return string
 function LastSeen.gainAction(gain)
     if gain.method == "Obtained" and not gain.mailKind then
-        return ({ mail = "Mail", trade = "Trade" })[gain.channel] or methods.Obtained.fact
+        return ({ mail = "Mail", trade = "Trade", guild = "Guild bank" })[gain.channel] or methods.Obtained.fact
     end
     return gain.mailKind == "auction-purchase" and "Auction purchase"
         or gain.method == "Vendor" and "Purchase"

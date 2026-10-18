@@ -7,6 +7,9 @@ end
 
 local gainSourceText, gainAction = addon.LastSeen.gainSourceText, addon.LastSeen.gainAction
 
+-- How each channel names a move between your own characters.
+local altActions = { mail = "Alt mail", trade = "Alt trade", guild = "Alt guild bank" }
+
 local function location(row)
     return row.place and row.place ~= "" and row.place or "Unknown"
 end
@@ -70,9 +73,9 @@ function Journal.query(store, filter, pause)
         elseif row.category == "transfer" then
             scopeMatches = (
                 matchesActor(row.sender, row.senderRealm) or matchesActor(row.recipient, row.recipientRealm)
-            ) and matchesAction(row.channel == "mail" and "Alt mail" or "Alt trade")
+            ) and matchesAction(altActions[row.channel])
             row.actors = actor(row.sender, row.senderRealm) .. " → " .. actor(row.recipient, row.recipientRealm)
-            row.action = row.channel == "mail" and "Alt mail" or "Alt trade"
+            row.action = altActions[row.channel]
             row.evidence = "Confirmed send and matching receipt; no external gain"
             row.sourceText = actor(row.sender, row.senderRealm)
         else

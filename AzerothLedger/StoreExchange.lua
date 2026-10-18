@@ -1,134 +1,22 @@
 local _, addon = ...
 
--- Mail and trade: intents, confirmations, alt transfers and outside gains.
+-- Mail, trade and the guild bank: intents, confirmations, alt transfers and outside gains.
 
 local V = addon.SchemaValidate
-local isInteger, validCheckID, isName, areaKey = V.isInteger, V.validCheckID, V.isName, V.areaKey
-local copyArray, copyValue, validPlaceKind = V.copyArray, V.copyValue, V.validPlaceKind
+local isInteger, validCheckID, areaKey = V.isInteger, V.validCheckID, V.areaKey
+local copyArray, copyValue = V.copyArray, V.copyValue
 local Evidence = addon.StoreEvidence
+local Transfer = addon.StoreTransfer
 
 local StoreExchange = {}
 
-local exchangeStatuses = { pending = true, unresolved = true, settled = true, canceled = true }
-local mailKinds = { ["return"] = true, ["auction-purchase"] = true, unresolved = true }
-
-local function validChannel(channel)
-    return channel == "mail" or channel == "trade"
-end
-
-local function validDirection(direction)
-    return direction == "in" or direction == "out"
-end
-
-local function validMailKind(intent)
-    return intent.mailKind == nil
-        or (intent.channel == "mail" and intent.direction == "in" and mailKinds[intent.mailKind] == true)
-end
-
-local function validTransferred(action)
-    local transferred = action.transferred
-    return transferred == nil or (isInteger(transferred) and transferred >= 0 and transferred <= action.quantity)
-end
-
-local function validExchangeState(exchange)
-    if
-        type(exchange) ~= "table"
-        or not isInteger(exchange.nextID)
-        or type(exchange.actions) ~= "table"
-        or type(exchange.journal) ~= "table"
-    then
-        return false
-    end
-    local ids = {}
-    for _, action in ipairs(exchange.actions) do
-        if
-            type(action) ~= "table"
-            or not isInteger(action.id)
-            or action.id < 1
-            or action.id >= exchange.nextID
-            or ids[action.id]
-            or not validChannel(action.channel)
-            or (action.direction ~= "in" and action.direction ~= "out")
-            or type(action.key) ~= "string"
-            or not isInteger(action.itemID)
-            or addon.Item.key(action.link, action.itemID) ~= action.key
-            or not isInteger(action.quantity)
-            or action.quantity < 1
-            or not isInteger(action.at)
-            or not isName(action.character)
-            or not isName(action.realm)
-            or not isInteger(action.level)
-            or type(action.place) ~= "string"
-            or not isInteger(action.baseline)
-            or action.baseline < 0
-            or not isInteger(action.baselineGained)
-            or action.baselineGained < 0
-            or type(action.discovery) ~= "boolean"
-            or type(action.confirmed) ~= "boolean"
-            or not exchangeStatuses[action.status]
-            or (action.peerName ~= nil and not isName(action.peerName))
-            or (action.peerRealm ~= nil and not isName(action.peerRealm))
-            or not validTransferred(action)
-            or not validCheckID(action.baselineCheckID)
-            or (action.isTransfer ~= nil and type(action.isTransfer) ~= "boolean")
-            or (action.isReturn ~= nil and type(action.isReturn) ~= "boolean")
-            or not validMailKind(action)
-        then
-            return false
-        end
-        ids[action.id] = true
-    end
-    for _, activity in ipairs(exchange.journal) do
-        if
-            type(activity) ~= "table"
-            or not isInteger(activity.id)
-            or type(activity.key) ~= "string"
-            or not validChannel(activity.channel)
-            or not isInteger(activity.quantity)
-            or activity.quantity < 1
-            or not isInteger(activity.at)
-            or not isName(activity.sender)
-            or not isName(activity.senderRealm)
-            or not isName(activity.recipient)
-            or not isName(activity.recipientRealm)
-            or (activity.level ~= nil and not isInteger(activity.level))
-            or (activity.place ~= nil and type(activity.place) ~= "string")
-            or not validPlaceKind(activity.placeKind)
-        then
-            return false
-        end
-    end
-    return true
-end
-
-local function pruneExchange(state, at)
-    for index = #state.actions, 1, -1 do
-        local action = state.actions[index]
-        local age = at - action.at
-        if
-            age > 31 * 86400
-            or (
-                age >= 60
-                and (
-                    action.status == "canceled"
-                    or (
-                        action.status == "settled"
-                        and (action.direction == "in" or action.transferred == action.quantity)
-                    )
-                )
-            )
-        then
-            table.remove(state.actions, index)
-        end
-    end
-end
+local State = addon.StoreExchangeState
+local validChannel, validDirection, validExchangeState =
+    State.validChannel, State.validDirection, State.validExchangeState
+local pruneExchange, activeAction, validIntent = State.pruneExchange, State.activeAction, State.validIntent
 
 ---@type AzerothLedgerSlice
 StoreExchange.slice = { name = "exchange", validate = validExchangeState, journal = "transfers" }
-
-local function activeAction(action)
-    return action.status == "pending" or action.status == "unresolved"
-end
 
 -- Returns the correlation engine a possessions check and evidence expiry use.
 function StoreExchange.install(store, kernel, slice)
@@ -351,6 +239,25 @@ function StoreExchange.install(store, kernel, slice)
         return result
     end
 
+    -- Units from outside your characters: a player, the auction house or the guild.
+    local function outside(action, record, quantity)
+        local player = action.mailKind == nil and action.peerName and action.peerRealm
+        return recordGain(record, {
+            id = "exchange:" .. action.id .. ":" .. action.key,
+            at = action.at,
+            quantity = quantity,
+            character = action.character,
+            realm = action.realm,
+            level = action.level,
+            place = action.place,
+            placeKind = action.placeKind,
+            method = "Obtained",
+            mailKind = action.mailKind,
+            channel = action.channel,
+            source = player and { kind = "player", name = action.peerName, realm = action.peerRealm } or nil,
+        }, { discovery = action.discovery })
+    end
+
     local function settleExchange(state, snapshot, grouped, records)
         if not state or snapshot.area ~= "bags" or not snapshot.complete then
             return
@@ -384,9 +291,9 @@ function StoreExchange.install(store, kernel, slice)
                             reserved = reserved + prior.quantity
                         end
                     end
+                    -- A guild bank deposit has no recipient to name.
                     if
-                        action.peerName
-                        and action.peerRealm
+                        (action.channel == "guild" or (action.peerName and action.peerRealm))
                         and action.baseline >= action.quantity + reserved
                         and -delta >= action.quantity + reserved
                     then
@@ -420,61 +327,10 @@ function StoreExchange.install(store, kernel, slice)
                         action.status = "unresolved"
                     elseif quantity > 0 and record then
                         local playerExchange = action.mailKind == nil
-                        local ownSender
-                        local senderCandidates = 0
-                        local senderKnown = false
-                        for _, character in ipairs(playerExchange and store:characters() or {}) do
-                            if
-                                character.character == action.peerName
-                                and (not action.peerRealm or character.realm == action.peerRealm)
-                            then
-                                senderKnown = true
-                            end
-                        end
-                        if senderKnown then
-                            for _, outgoing in ipairs(state.actions) do
-                                if
-                                    outgoing.status == "settled"
-                                    and outgoing.direction == "out"
-                                    and outgoing.channel == action.channel
-                                    and outgoing.key == action.key
-                                    and outgoing.quantity - (outgoing.transferred or 0) >= quantity
-                                    and outgoing.character == action.peerName
-                                    and (not action.peerRealm or outgoing.realm == action.peerRealm)
-                                    and outgoing.peerName == action.character
-                                    and outgoing.peerRealm == action.realm
-                                then
-                                    ownSender = outgoing
-                                    senderCandidates = senderCandidates + 1
-                                end
-                            end
-                        end
+                        local senderKnown, ownSender, senderCandidates =
+                            Transfer.altSender(state, action, quantity, playerExchange and store:characters() or {})
                         if action.mailKind == "return" then
-                            local returned, returnCandidates = nil, 0
-                            for _, outgoing in ipairs(state.actions) do
-                                if
-                                    outgoing.status == "settled"
-                                    and outgoing.direction == "out"
-                                    and outgoing.channel == "mail"
-                                    and outgoing.key == action.key
-                                    and outgoing.character == action.character
-                                    and outgoing.realm == action.realm
-                                    and outgoing.at <= action.at
-                                    and outgoing.quantity - (outgoing.transferred or 0) >= quantity
-                                    and (
-                                        (
-                                            action.peerName == outgoing.peerName
-                                            and (not action.peerRealm or action.peerRealm == outgoing.peerRealm)
-                                        )
-                                        or (
-                                            action.peerName == action.character
-                                            and (not action.peerRealm or action.peerRealm == action.realm)
-                                        )
-                                    )
-                                then
-                                    returned, returnCandidates = outgoing, returnCandidates + 1
-                                end
-                            end
+                            local returned, returnCandidates = Transfer.returnedMail(state, action, quantity)
                             if returned and returnCandidates == 1 then
                                 returned.transferred = (returned.transferred or 0) + quantity
                                 action.isReturn = true
@@ -485,67 +341,33 @@ function StoreExchange.install(store, kernel, slice)
                             end
                         elseif action.mailKind == "unresolved" then
                             action.status = "unresolved"
-                        elseif playerExchange and not action.peerName then
+                        elseif playerExchange and not action.peerName and action.channel ~= "guild" then
                             action.status = "unresolved"
+                        elseif action.channel == "guild" then
+                            local own, deposit = Transfer.guildDeposits(state, action, quantity)
+                            if own > 0 and deposit.character ~= action.character then
+                                Transfer.record(state, records, action, deposit, own)
+                            end
+                            if own < quantity then
+                                records[action.key] = outside(action, records[action.key] or record, quantity - own)
+                            elseif deposit.character == action.character then
+                                action.isReturn = true
+                            else
+                                action.isTransfer = true
+                            end
+                            action.quantity = quantity
+                            action.status = "settled"
                         elseif ownSender and senderCandidates == 1 then
                             ownSender.transferred = (ownSender.transferred or 0) + quantity
                             action.peerRealm = ownSender.realm
                             action.isTransfer = true
-                            state.journal[#state.journal + 1] = {
-                                id = action.id,
-                                key = action.key,
-                                channel = action.channel,
-                                quantity = quantity,
-                                at = action.at,
-                                sender = ownSender.character,
-                                senderRealm = ownSender.realm,
-                                recipient = action.character,
-                                recipientRealm = action.realm,
-                                level = action.level,
-                                place = action.place,
-                                placeKind = action.placeKind,
-                            }
-                            -- The delivering check may have counted these units as the
-                            -- recipient's first sighting; they came from the sender.
-                            local received = records[action.key]
-                            for index, seen in ipairs(received and received.characters or {}) do
-                                if seen.name == action.character and seen.realm == action.realm then
-                                    if seen.firstSeen >= action.at and seen.firstSeenUnits > 0 then
-                                        local moved = math.min(seen.firstSeenUnits, quantity)
-                                        local copy = {}
-                                        for field, value in pairs(seen) do
-                                            copy[field] = value
-                                        end
-                                        copy.firstSeenUnits = seen.firstSeenUnits - moved
-                                        copy.transferredUnits = (seen.transferredUnits or 0) + moved
-                                        received.characters[index] = copy
-                                    end
-                                    break
-                                end
-                            end
+                            Transfer.record(state, records, action, ownSender, quantity)
                             action.quantity = quantity
                             action.status = "settled"
                         elseif senderKnown then
                             action.status = "unresolved"
                         else
-                            records[action.key] = recordGain(record, {
-                                id = "exchange:" .. action.id .. ":" .. action.key,
-                                at = action.at,
-                                quantity = quantity,
-                                character = action.character,
-                                realm = action.realm,
-                                level = action.level,
-                                place = action.place,
-                                placeKind = action.placeKind,
-                                method = "Obtained",
-                                mailKind = action.mailKind,
-                                channel = action.channel,
-                                source = playerExchange and action.peerName and action.peerRealm and {
-                                    kind = "player",
-                                    name = action.peerName,
-                                    realm = action.peerRealm,
-                                } or nil,
-                            }, { discovery = action.discovery })
+                            records[action.key] = outside(action, record, quantity)
                             action.quantity = quantity
                             action.status = "settled"
                         end
@@ -614,15 +436,6 @@ function StoreExchange.install(store, kernel, slice)
             fields.exchange = exchange
         end
         return handler
-    end
-
-    local function validIntent(intent, actor)
-        return Evidence.validItemAction(intent, actor)
-            and validChannel(intent.channel)
-            and validDirection(intent.direction)
-            and (intent.peerName == nil or isName(intent.peerName))
-            and (intent.peerRealm == nil or isName(intent.peerRealm))
-            and validMailKind(intent)
     end
 
     return {

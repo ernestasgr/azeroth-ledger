@@ -3,7 +3,7 @@ local addonName, addon = ...
 -- Composition root. It opens the store when the addon's SavedVariables load,
 -- wires the event channels to one frame, and exposes the slash command, key
 -- binding, and minimap button. Event rules live in the channel modules: Loot,
--- Reward, Vendor and Exchange.
+-- Reward, Vendor, Exchange and GuildBank.
 local Events, Runtime, Trace = addon.Events, addon.Runtime, addon.Trace
 
 local client = addon.Client.inspect(_G)
@@ -88,30 +88,44 @@ local vendor = addon.Vendor.new({
     check = check,
     refresh = refresh,
 })
+local exchange = addon.Exchange.new({
+    api = _G,
+    issues = client.issues,
+    commands = commands(addon.Exchange),
+    mailProgress = function(ids)
+        return store:mailProgress(ids)
+    end,
+    check = check,
+})
+local guildBank = addon.GuildBank.new({
+    api = _G,
+    issues = client.issues,
+    commands = commands(addon.GuildBank),
+    check = check,
+})
+local reward = addon.Reward.new({
+    api = _G,
+    clock = clock,
+    commands = commands(addon.Reward),
+    check = check,
+    refresh = refresh,
+    exchangeOpen = function()
+        return exchange.isOpen() or guildBank.isOpen()
+    end,
+})
 local channels = {
     vendor,
-    addon.Exchange.new({
-        api = _G,
-        issues = client.issues,
-        commands = commands(addon.Exchange),
-        mailProgress = function(ids)
-            return store:mailProgress(ids)
-        end,
-        check = check,
-    }),
+    exchange,
+    guildBank,
     addon.Loot.new({
         api = _G,
         commands = commands(addon.Loot),
         refresh = refresh,
         merchantOpen = vendor.isOpen,
-    }),
-    addon.Reward.new({
-        api = _G,
+        received = reward.received,
         clock = clock,
-        commands = commands(addon.Reward),
-        check = check,
-        refresh = refresh,
     }),
+    reward,
 }
 for _, channel in ipairs(channels) do
     for kind, list in pairs(listeners) do
