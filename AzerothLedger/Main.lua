@@ -266,4 +266,6 @@ else
 end
 
 addon.name = addonName
+-- Client APIs and events this login could not use, for /al status and in-client tests.
+addon.clientIssues = client.issues
 AzerothLedger = addon

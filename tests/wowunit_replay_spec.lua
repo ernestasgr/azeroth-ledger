@@ -3,20 +3,7 @@ local addon = load.addon("Settings")
 AzerothLedger = addon
 date = os.date
 
-local groups = {}
-WoWUnit = setmetatable({}, {
-    __call = function()
-        local group = {}
-        groups[#groups + 1] = group
-        return group
-    end,
-})
-WoWUnit.AreEqual = function(expected, actual)
-    assert(expected == actual, tostring(expected) .. " ~= " .. tostring(actual))
-end
-WoWUnit.IsTrue = function(value)
-    assert(value)
-end
+local wowunit = assert(loadfile("tests/support/wowunit.lua"))()
 
 local native = assert(loadfile("tests/support/native_ui.lua"))().create()
 CreateFrame = native.api.CreateFrame
@@ -25,9 +12,12 @@ GameFontNormal = {}
 
 SlashCmdList = {}
 load.companion("Performance")
-for _, group in ipairs(groups) do
-    for name, test in pairs(group) do
-        test(group)
-        print(name .. ": passed")
+for _, group in ipairs(wowunit.groups) do
+    -- The Forever group needs a booted client; wowunit_forever_spec replays it.
+    if group.name ~= "AzerothLedgerForever" then
+        for name, test in pairs(group.tests) do
+            test(group.tests)
+            print(name .. ": passed")
+        end
     end
 end
