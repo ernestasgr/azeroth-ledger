@@ -29,8 +29,10 @@ local function texture()
 end
 rawset(_G, "Minimap", minimap)
 rawset(_G, "AzerothLedgerMinimapButtonDB", minimapButtonDatabase)
-CreateFrame = function(frameType, _, parent)
+CreateFrame = function(frameType, frameName, parent)
     assert(frameType == "Button" and parent == minimap)
+    -- Minimap button collectors such as EllesmereUI skip unnamed children.
+    assert(frameName == "AzerothLedgerMinimapButton", "the minimap button needs a global name")
     minimapButton = { scripts = {} }
     minimapButton.SetSize = function() end
     minimapButton.SetFrameStrata = function() end
