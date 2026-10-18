@@ -1,7 +1,7 @@
 local load = assert(loadfile("tests/support/addon.lua"))()
 -- Pins Total gained, gain dates and first-check units for every channel that
 -- credits a gain, through the store's public interface and a save round trip.
-local addon = load.addon("LastSeen")
+local addon = load.addon("Exchange")
 date = os.date
 
 local link = "|Hitem:4540::::::::|h[Tough Hunk of Bread]|h"

@@ -847,143 +847,8 @@ function Validate.colorOptions()
     return copyValue(colorOptions)
 end
 
--- The entry ID identifies the creature/container type; the final field identifies a
--- particular spawn. Keep the complete GUID in the gain as its original proof.
-local function entryID(source)
-    if not source or (source.kind ~= "container" and source.kind ~= "mob") then
-        return nil
-    end
-    local prefix = source.kind == "container" and "GameObject" or "Creature"
-    local id = source.guid:match("^" .. prefix .. "%-%d+%-%d+%-%d+%-%d+%-(%d+)%-%x+$")
-    local entry = id and tonumber(id)
-    return entry and entry > 0 and entry <= 4294967295 and tostring(entry) or nil
-end
-
----@param source? AzerothLedgerLootSource|AzerothLedgerVendorSource|AzerothLedgerPlayerSource
----@return string
-function Validate.sourceText(source)
-    if not source then
-        return "Unknown"
-    elseif source.kind == "player" then
-        return source.name .. "-" .. source.realm
-    end
-    local id = entryID(source)
-    local kind = source.kind == "container" and "Container" or "Mob"
-    return source.name or (id and (kind .. " #" .. id)) or ("Unnamed " .. source.kind)
-end
-
--- Identity is independent of its display name. Unparseable GUIDs remain
--- separate spawn evidence; vendor names explicitly carry no proven ID.
----@param gain AzerothLedgerGain
----@return string key
----@return string neutral
----@return string? name
-function Validate.sourceIdentity(gain)
-    local context = gain.context
-    if context then
-        local kind = context.kind == "quest" and "Quest" or "Recipe"
-        return context.kind .. ":" .. context.id, kind .. " #" .. context.id, context.name
-    elseif gain.mailKind == "auction-purchase" then
-        return "auction", "Auction purchase"
-    end
-    local source = gain.source
-    if not source then
-        return "unknown", "Unknown"
-    elseif source.kind == "player" then
-        local label = source.name .. "-" .. source.realm
-        return "player:" .. label, "Player: " .. label
-    elseif source.kind == "vendor" then
-        return "vendor:" .. source.name, "Vendor: " .. source.name
-    end
-    local id = entryID(source)
-    local kind = source.kind == "container" and "Container" or "Mob"
-    return source.kind .. ":" .. (id or source.guid),
-        id and (kind .. " #" .. id) or ("Unknown " .. source.kind),
-        source.name
-end
-
----@class ALSourceGroup
----@field key string
----@field neutral string
----@field quantity integer
----@field names table<string, boolean>
----@field label? string
-
----@param groups table<string, ALSourceGroup>
----@param gain AzerothLedgerGain
----@param quantity integer
-function Validate.addSource(groups, gain, quantity)
-    if quantity <= 0 then
-        return
-    end
-    local key, neutral, name = Validate.sourceIdentity(gain)
-    local group = groups[key] or { key = key, neutral = neutral, quantity = 0, names = {} }
-    groups[key] = group
-    group.quantity = group.quantity + quantity
-    if name then
-        group.names[name] = true
-    end
-end
-
----@param groups table<string, ALSourceGroup>
----@param pause? fun()
----@return ALSourceGroup[]
-function Validate.sourceGroups(groups, pause)
-    -- Source comparisons are small; checkpoint in bounded batches rather than
-    -- spending a coroutine resume on each comparison of a large source list.
-    local steps = 0
-    local checkpoint = pause
-            and function()
-                steps = steps + 1
-                if steps == 8 then
-                    steps = 0
-                    pause()
-                end
-            end
-        or nil
-    local rows, labels = {}, {}
-    for _, group in pairs(groups) do
-        local name = next(group.names)
-        group.label = name and not next(group.names, name) and name or group.neutral
-        labels[group.label] = (labels[group.label] or 0) + 1
-        rows[#rows + 1] = group
-        if checkpoint then
-            checkpoint()
-        end
-    end
-    addon.Work.sort(rows, function(left, right)
-        return left.key < right.key
-    end, checkpoint)
-    local used = { ["Initial stock"] = true, ["Appeared later"] = true, ["Your characters"] = true }
-    for index, group in ipairs(rows) do
-        if labels[group.label] > 1 or used[group.label] then
-            local identity = group.key:match("^(%a+:%d+)$")
-            group.label = group.label
-                .. " ("
-                .. (identity and identity:gsub(":", " #", 1) or ("recorded source " .. index))
-                .. ")"
-        end
-        while used[group.label] do
-            group.label = group.label .. " (recorded source " .. index .. ")"
-        end
-        used[group.label] = true
-        if checkpoint then
-            checkpoint()
-        end
-    end
-    addon.Work.sort(rows, function(left, right)
-        return left.label < right.label or (left.label == right.label and left.key < right.key)
-    end, checkpoint)
-    return rows
-end
-
 local bookChoices = {
-    ownership = {
-        { label = "Any status" },
-        { label = "Present", value = "present" },
-        { label = "Unknown", value = "unknown" },
-        { label = "Historical only", value = "historical" },
-    },
+    ownership = addon.LastSeen.ownershipChoices(),
     quality = {
         { label = "Any quality" },
         { label = "Poor", value = 0 },
@@ -997,16 +862,7 @@ local bookChoices = {
         { label = "WoW Token", value = 8 },
         { label = "Unknown quality", value = "unknown" },
     },
-    method = {
-        { label = "Any method" },
-        { label = "Already had", value = "Seen" },
-        { label = "Appeared later", value = "Appeared" },
-        { label = "Looted", value = "Looted" },
-        { label = "Quest reward", value = "Quest" },
-        { label = "Crafted", value = "Crafted" },
-        { label = "Vendor purchase", value = "Vendor" },
-        { label = "Obtained", value = "Obtained" },
-    },
+    method = addon.LastSeen.methodChoices(),
     sort = {
         { label = "Name A-Z", value = "name" },
         { label = "Discovery: newest", value = "discovered" },

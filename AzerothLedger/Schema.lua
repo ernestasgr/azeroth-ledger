@@ -3,18 +3,7 @@ local _, addon = ...
 -- The public Schema API. Pure helpers live in SchemaValidate; Schema.open composes
 -- one store from the kernel and the domain files, keeping one method table. Each
 -- domain file declares the saved slices it owns and receives only their handles.
-local V = addon.SchemaValidate
-
-local Schema = {
-    displayOptions = V.displayOptions,
-    colorOptions = V.colorOptions,
-    sourceText = V.sourceText,
-    sourceIdentity = V.sourceIdentity,
-    addSource = V.addSource,
-    sourceGroups = V.sourceGroups,
-    bookChoices = V.bookChoices,
-    retentionOptions = V.retentionOptions,
-}
+local Schema = {}
 
 ---@param raw any
 ---@param save fun(value: AzerothLedgerData)

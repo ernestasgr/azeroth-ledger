@@ -6,7 +6,10 @@ local V = addon.SchemaValidate
 local retentionMaximums, isInteger, gainRoot = V.retentionMaximums, V.isInteger, V.gainRoot
 local chronological, copyValue = V.chronological, V.copyValue
 
-local StoreJournal = {}
+local StoreJournal = {
+    -- Settings offers the retention limits this file saves.
+    retentionOptions = V.retentionOptions,
+}
 
 function StoreJournal.install(store, kernel)
     local valid, readable, saveFields, retention = kernel.valid, kernel.readable, kernel.save, kernel.retention

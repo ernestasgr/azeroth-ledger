@@ -5,27 +5,7 @@ local function actor(name, realm)
     return name and (name .. (realm and ("-" .. realm) or "")) or "Unknown character"
 end
 
-local function source(gain)
-    if gain.mailKind == "auction-purchase" then
-        return "Auction purchase"
-    end
-    if gain.source then
-        return addon.Schema.sourceText(gain.source)
-    end
-    if gain.context then
-        return gain.context.name or (gain.context.kind .. " " .. gain.context.id)
-    end
-    return "Unknown source"
-end
-
-local function method(gain)
-    if gain.method == "Obtained" and not gain.mailKind then
-        return ({ mail = "Mail", trade = "Trade" })[gain.channel] or "Obtained (way unknown)"
-    end
-    return gain.mailKind == "auction-purchase" and "Auction purchase"
-        or gain.method == "Vendor" and "Purchase"
-        or gain.method
-end
+local gainSourceText, gainAction = addon.LastSeen.gainSourceText, addon.LastSeen.gainAction
 
 local function location(row)
     return row.place and row.place ~= "" and row.place or "Unknown"
@@ -55,25 +35,25 @@ function Journal.query(store, filter, pause)
             local first = row.contributions[1]
             row.quantity, row.refunded = 0, 0
             row.actors = actor(first.character, first.realm)
-            row.action = method(first)
+            row.action = gainAction(first)
             row.place, row.level = first.place, first.level
             row.details = {}
             local evidence, seen = {}, {}
             for _, gain in ipairs(row.contributions) do
-                if matchesActor(gain.character, gain.realm) and matchesAction(method(gain)) then
+                if matchesActor(gain.character, gain.realm) and matchesAction(gainAction(gain)) then
                     scopeMatches = true
                 end
                 row.quantity = row.quantity + gain.quantity
                 row.refunded = row.refunded + (gain.refunded or 0)
-                local label = method(gain) .. ": " .. source(gain)
+                local label = gainAction(gain) .. ": " .. gainSourceText(gain)
                 row.details[#row.details + 1] = {
                     actor = actor(gain.character, gain.realm),
                     at = gain.at,
                     quantity = gain.quantity,
                     place = location(gain),
                     level = gain.level,
-                    method = method(gain),
-                    source = source(gain),
+                    method = gainAction(gain),
+                    source = gainSourceText(gain),
                 }
                 if not seen[label] then
                     evidence[#evidence + 1], seen[label] = label, true

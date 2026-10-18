@@ -223,7 +223,7 @@ function SettingsPanel.register(api, store)
         addon.Book.setScale(store, value)
     end)
     slider(categories.Appearance, scale, 0.6, 1.1, 0.05, "The window fits within your screen, even at larger sizes.")
-    for _, definition in ipairs(addon.Schema.displayOptions()) do
+    for _, definition in ipairs(addon.StorePreferences.displayOptions()) do
         local target = categories[definition.section]
         local setting = proxy(target, definition.key, definition.name, definition.default, function()
             return store:display()[definition.key]
@@ -247,7 +247,7 @@ function SettingsPanel.register(api, store)
         end
     end
     heading(layouts.Appearance, "Colors")
-    for _, definition in ipairs(addon.Schema.colorOptions()) do
+    for _, definition in ipairs(addon.StorePreferences.colorOptions()) do
         local setting = proxy(
             categories.Appearance,
             definition.key,
@@ -270,7 +270,7 @@ function SettingsPanel.register(api, store)
         )
     end
     local function palette(overrides)
-        for _, definition in ipairs(addon.Schema.colorOptions()) do
+        for _, definition in ipairs(addon.StorePreferences.colorOptions()) do
             store:setDisplay(definition.key, overrides[definition.key] or definition.default)
         end
         changed()
@@ -311,7 +311,7 @@ function SettingsPanel.register(api, store)
     end
     for _, section in ipairs({ "Appearance", "Notifications", "Tooltips" }) do
         button(layouts[section], "Reset " .. section:lower(), function()
-            for _, definition in ipairs(addon.Schema.displayOptions()) do
+            for _, definition in ipairs(addon.StorePreferences.displayOptions()) do
                 if definition.section == section then
                     store:setDisplay(definition.key, definition.default)
                 end
@@ -330,7 +330,7 @@ function SettingsPanel.register(api, store)
         end, "Show a sample notification at your chosen size and position. This records no item discovery.")
     end
     heading(layout, "Journal history")
-    for _, definition in ipairs(addon.Schema.retentionOptions()) do
+    for _, definition in ipairs(addon.StoreJournal.retentionOptions()) do
         local setting = proxy(category, definition.key, definition.name, definition.default, function()
             return store:retention()[definition.key]
         end, function(value)
