@@ -15,6 +15,7 @@ local function scenario()
     local store = addon.Schema.open(nil, function(value)
         saved = value
     end)
+    assert(store:setCharacter("Ada", "Realm"))
     local function bags(at, quest, bolts, cloth)
         local items = {}
         local entries = { { questLink, 263409, quest }, { boltLink, 2996, bolts }, { clothLink, 2589, cloth } }
@@ -36,6 +37,7 @@ local function scenario()
         store = addon.Schema.open(saved, function(value)
             saved = value
         end)
+        assert(store:setCharacter("Ada", "Realm"))
         return store
     end
     return store, bags, restore

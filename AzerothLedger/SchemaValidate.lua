@@ -539,6 +539,7 @@ end
 ---@field setEnvironment fun(self: AzerothLedgerStore, environment: AzerothLedgerEnvironment): boolean
 ---@field scan fun(self: AzerothLedgerStore, snapshot: AzerothLedgerSnapshot): boolean
 ---@field command fun(self: ALStore, name: ALCommandName, payload: any, at: integer, actor: ALActor): any
+---@field setCharacter fun(self: ALStore, character: string, realm: string): boolean
 ---@field vendorActivity fun(self: AzerothLedgerStore): AzerothLedgerVendorActivity[]
 ---@field vendorUnresolved fun(self: AzerothLedgerStore): AzerothLedgerVendorEvidence[]
 ---@field mailProgress fun(self: AzerothLedgerStore, ids: table<integer, boolean>): 'waiting'|'measured'|'ended'

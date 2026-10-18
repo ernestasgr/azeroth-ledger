@@ -249,6 +249,7 @@ function tests.LootEquippedBeforeCheckingKeepsSourceSharesAndOneDiscovery(_self)
     local store = addon.Schema.open(nil, function(value)
         saved = value
     end)
+    WoWUnit.IsTrue(store:setCharacter("Ada", "A"))
     local key = addon.Item.key(bear, 100)
     local actor = { character = "Ada", realm = "A", level = 12, place = "Durotar" }
     local function scan(area, at, items)
@@ -302,6 +303,7 @@ function tests.ContainerSpawnsShareOneSourceTotalWithoutLosingTheirGUIDs(_self)
     local store = addon.Schema.open(nil, function(value)
         saved = value
     end)
+    WoWUnit.IsTrue(store:setCharacter("Ada", "A"))
     local link = "|Hitem:11583::::::::|h[Cactus Apple]|h"
     local key = addon.Item.key(link, 11583)
     local slots = {}
@@ -448,11 +450,13 @@ function tests.IconAndCheckboxContentCannotBeCoveredByTheirBackings(_self)
     parent:Hide()
 end
 
-local function fixture()
+-- Ada on realm A plays unless a test logs in as another character.
+local function fixture(playing, playingRealm)
     local writes = 0
     local store = addon.Schema.open(nil, function()
         writes = writes + 1
     end)
+    WoWUnit.IsTrue(store:setCharacter(playing or "Ada", playingRealm or "A"))
     local function scan(character, realm, area, at, items, complete)
         WoWUnit.IsTrue(store:scan({
             character = character,
@@ -476,6 +480,7 @@ end
 
 function tests.IncompleteStorageRemainsUnknownAfterRefund(_self)
     local store = addon.Schema.open(nil, function() end)
+    WoWUnit.IsTrue(store:setCharacter("Ada", "A"))
     local bread = "|Hitem:4540::::::::|h[Bread]|h"
     local key = addon.Item.key(bread, 4540)
     local actor = { character = "Ada", realm = "A", level = 12, place = "Forest", placeKind = "zone" }
@@ -730,7 +735,7 @@ end
 
 function tests.FirstGainOnAnotherCharacterIsNotAlsoInitialStock(_self)
     for _, delayed in ipairs({ false, true }) do
-        local store, scan = fixture()
+        local store, scan = fixture("Ben", "B")
         local key = addon.Item.key(meat, 2672)
         scan("Ben", "B", "bags", 1003, {})
         local actor = { character = "Ben", realm = "B", level = 12, place = "Forest" }

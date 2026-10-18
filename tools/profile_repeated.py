@@ -106,10 +106,11 @@ def main() -> None:
             local _, tooltipMs, tooltipInstructions = counted(function()
                 return addon.Presentation.line(store, "|Hitem:10001::::::::|h[Item 00001]|h", "Fixture", "Test")
             end)
-            -- A baseline older than store:command still names each write.
+            -- A baseline older than store:command still names each write and has no login.
             local craft = { key="10001:0", quantity=1, method="Crafted", context={kind="recipe",id=123} }
             local crafter = {character="Fixture",realm="Test",level=1,place="Test zone"}
             if store.command then
+                assert(store:setCharacter("Fixture", "Test"))
                 assert(store:command("rewardReceipt", craft, 60001, crafter))
             else
                 assert(store:rewardReceipt(craft, 60001, crafter))

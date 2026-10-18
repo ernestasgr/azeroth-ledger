@@ -10,6 +10,7 @@ local function open(raw)
 end
 
 local fresh = open(nil)
+assert(fresh:setCharacter("Ada", "Realm"))
 assert(fresh:diagnostic().kind == "healthy")
 assert(saved.schema == 2)
 assert(fresh:setMarker("reload-1"))

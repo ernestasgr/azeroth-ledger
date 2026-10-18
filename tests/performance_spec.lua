@@ -314,6 +314,7 @@ for _, gainCount in ipairs({ 5000, 50000 }) do
     local acquisition = addon.Schema.open(acquisitionRaw, function(value)
         acquisitionRaw = value
     end)
+    assert(acquisition:setCharacter("Fixture", "Test"))
     local gainActor = { character = "Fixture", realm = "Test", level = 1, place = "Test zone" }
     assert(
         acquisition:command(
@@ -364,6 +365,7 @@ retryStore = addon.Schema.open(retryRaw, function(value)
     end
     retryRaw = value
 end)
+assert(retryStore:setCharacter("Fixture", "Test"))
 assert(
     retryStore:command(
         "rewardReceipt",
@@ -402,6 +404,7 @@ for _, channel in ipairs({ "vendor", "mail", "loot" }) do
         end
         failureRaw = value
     end)
+    assert(failureStore:setCharacter("Fixture", "Test"))
     local actor = { character = "Fixture", realm = "Test", level = 1, place = "Test zone" }
     local link = "|Hitem:10001::::::::|h[Item 00001]|h"
     if channel == "vendor" then
@@ -478,6 +481,7 @@ local lateStore = addon.Schema.open(lateRaw, function(value)
     end
     lateRaw = value
 end)
+assert(lateStore:setCharacter("Fixture", "Test"))
 assert(lateStore:scan({
     character = "Fixture",
     realm = "Test",

@@ -101,12 +101,16 @@ local function mailbox(initial, switching)
         return entry and (entry.link or link)
     end
     -- Native calls are asynchronous. The driver supplies the later inbox/bag changes.
-    _G.TakeInboxItem = function(_index, _attachment) end
-    _G.AutoLootMailItem = function(_index) end
-    _G.TakeInboxMoney = function(_index) end
-    _G.ReturnInboxItem = function(_index) end
-    _G.DeleteInboxItem = function(_index) end
-    _G.SendMail = function(_recipient) end
+    -- A relog loads a fresh UI, so it starts again from unhooked natives.
+    local function natives()
+        _G.TakeInboxItem = function(_index, _attachment) end
+        _G.AutoLootMailItem = function(_index) end
+        _G.TakeInboxMoney = function(_index) end
+        _G.ReturnInboxItem = function(_index) end
+        _G.DeleteInboxItem = function(_index) end
+        _G.SendMail = function(_recipient) end
+    end
+    natives()
     _G.hooksecurefunc = function(target, method, callback)
         if type(target) == "string" then
             target, method, callback = _G, target, method
@@ -132,6 +136,17 @@ local function mailbox(initial, switching)
     state:event("PLAYER_LOGIN")
     if not switching then
         state:event("BAG_UPDATE_DELAYED")
+    end
+    -- Logging in as another character reloads the addon from its saved data.
+    function state:relog(character)
+        self.character = character
+        natives()
+        local relogged = {}
+        load.addon("Main", relogged)
+        self:event("ADDON_LOADED", "AzerothLedger")
+        self:event("PLAYER_LOGIN")
+        self:event("BAG_UPDATE_DELAYED")
+        return relogged
     end
     return addon, state
 end
@@ -331,7 +346,7 @@ for _, message in ipairs({
 end
 
 -- A proven alt send remains a transfer through the native modified-click path.
-addon, state = mailbox({ { quantity = 2 } })
+state = select(2, mailbox({ { quantity = 2 } }))
 state:event("MAIL_SHOW")
 state.outbox = { { quantity = 2 } }
 state:event("MAIL_SEND_INFO_UPDATE")
@@ -340,8 +355,7 @@ state.bags = {}
 state:event("MAIL_SEND_SUCCESS")
 state:event("BAG_UPDATE_DELAYED")
 state:event("MAIL_CLOSED")
-state.character = "Ben"
-state:event("PLAYER_LOGIN")
+addon = state:relog("Ben")
 state.messages = { { sender = "Ada-Realm", items = { { quantity = 2 } } } }
 state:event("MAIL_SHOW")
 _G.AutoLootMailItem(1)
@@ -353,7 +367,7 @@ assert(addon.store:find("4540:0").totalGained == 0)
 assert(#addon.store:exchangeActivity() == 1 and addon.store:exchangeActivity()[1].quantity == 2)
 
 -- Forever shows surnames and omits the local realm: "Ada Quietfield" is still Ada on this realm.
-addon, state = mailbox({ { quantity = 2 } })
+state = select(2, mailbox({ { quantity = 2 } }))
 state:event("MAIL_SHOW")
 state.outbox = { { quantity = 2 } }
 state:event("MAIL_SEND_INFO_UPDATE")
@@ -362,8 +376,7 @@ state.bags = {}
 state:event("MAIL_SEND_SUCCESS")
 state:event("BAG_UPDATE_DELAYED")
 state:event("MAIL_CLOSED")
-state.character = "Ben"
-state:event("PLAYER_LOGIN")
+addon = state:relog("Ben")
 state.messages = { { sender = "Ada Quietfield", items = { { quantity = 2 } } } }
 state:event("MAIL_SHOW")
 _G.AutoLootMailItem(1)

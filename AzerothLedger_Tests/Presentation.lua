@@ -8,6 +8,7 @@ local function fixture()
     local store = addon.Schema.open(nil, function(value)
         saved = value
     end)
+    WoWUnit.IsTrue(store:setCharacter("Ada", "Realm"))
     local at = 1000
     local actor = { character = "Ada", realm = "Realm", level = 12, place = "Elwynn" }
     local function bags(quantity)

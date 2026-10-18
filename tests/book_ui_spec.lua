@@ -60,6 +60,7 @@ local writes = 0
 local store = addon.Schema.open(nil, function()
     writes = writes + 1
 end)
+assert(store:setCharacter("Ada", "A"))
 local items = { { itemID = 2672, link = "|Hitem:2672::::::::|h[Meat]|h", quantity = 400 } }
 for index = 1, 14 do
     items[#items + 1] = {

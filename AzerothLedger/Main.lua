@@ -119,7 +119,13 @@ end
 
 -- The addon's own routes. They run only after the store is open.
 local ledgerRoutes = {
+    -- The player's name and realm are settled by PLAYER_LOGIN, before any
+    -- loot, quest, vendor, mail or trade event of this login.
     PLAYER_LOGIN = function()
+        local character, realm = Runtime.identity(_G)
+        if character and realm then
+            store:setCharacter(character, realm)
+        end
         addon.MinimapButton.create(_G, toggle)
         inventory:check("all")
         addon.Commands.printStatus(commandContext)

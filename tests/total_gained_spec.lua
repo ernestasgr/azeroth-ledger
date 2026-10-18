@@ -16,6 +16,22 @@ local function world()
     end)
     -- Each character's realm; a case may move Ben to another realm.
     local w = { realms = { Ada = "Realm", Ben = "Realm" } }
+    -- One login plays one character. Writing as another relogs: the store
+    -- reopens from its saved data, which ends that login's pending actions.
+    local playing
+    function w.write(name, payload, at, actor)
+        if playing and (playing.character ~= actor.character or playing.realm ~= actor.realm) then
+            store = addon.Schema.open(saved, function(value)
+                saved = value
+            end)
+            playing = nil
+        end
+        if not playing then
+            assert(store:setCharacter(actor.character, actor.realm))
+            playing = { character = actor.character, realm = actor.realm }
+        end
+        return store:command(name, payload, at, actor)
+    end
     function w.realm(character)
         return w.realms[character or "Ada"] or "Realm"
     end
@@ -44,7 +60,7 @@ local function world()
     end
     function w.lootOpen(at, quantity)
         assert(
-            store:command(
+            w.write(
                 "lootOpen",
                 { slots = { { key = key, quantity = quantity } } },
                 at,
@@ -53,7 +69,7 @@ local function world()
         )
     end
     function w.lootReceipt(at, quantity)
-        assert(store:command("lootReceipt", { key = key, quantity = quantity }, at, w.actor("Ada")))
+        assert(w.write("lootReceipt", { key = key, quantity = quantity }, at, w.actor("Ada")))
     end
     -- A second same-item slot that only becomes readable after the loot closes.
     function w.lateLoot(at)
@@ -82,24 +98,24 @@ local function world()
         }))
         local context = { character = "Ada", realm = "Realm", at = at, level = 1, place = "Teldrassil" }
         context.slots = assert(addon.Loot.open(api))
-        assert(store:command("lootOpen", context, context.at, context))
+        assert(w.write("lootOpen", context, context.at, context))
         w.lootReceipt(at + 1, 2)
         w.bags(at + 2, 2)
-        assert(store:command("lootClose", nil, at + 2, w.actor("Ada")))
+        assert(w.write("lootClose", nil, at + 2, w.actor("Ada")))
         readable = true
-        assert(store:command("lootSourceProof", { slots = assert(addon.Loot.open(api)) }, at + 3, w.actor("Ada")))
+        assert(w.write("lootSourceProof", { slots = assert(addon.Loot.open(api)) }, at + 3, w.actor("Ada")))
     end
     function w.reward(at, method, quantity)
         local receipt = method == "Quest" and assert(addon.Reward.quest({}, 92463, link, quantity))
             or assert(addon.Reward.craft({}, { itemID = 4540, hyperlink = link, quantity = quantity }))
-        assert(store:command("rewardReceipt", receipt, at, w.actor("Ada")))
+        assert(w.write("rewardReceipt", receipt, at, w.actor("Ada")))
         if method == "Quest" then
-            assert(store:command("questTurnedIn", 92463, at, { character = "Ada", realm = "Realm" }))
+            assert(w.write("questTurnedIn", 92463, at, { character = "Ada", realm = "Realm" }))
         end
     end
     function w.vendor(at, kind, quantity)
         assert(
-            store:command(
+            w.write(
                 "vendorAction",
                 { kind = kind, key = key, itemID = 4540, link = link, quantity = quantity },
                 at,
@@ -108,17 +124,10 @@ local function world()
         )
     end
     function w.vendorReceipt(at, quantity)
-        assert(
-            store:command(
-                "vendorReceipt",
-                { key = key, quantity = quantity },
-                at,
-                { character = "Ada", realm = "Realm" }
-            )
-        )
+        assert(w.write("vendorReceipt", { key = key, quantity = quantity }, at, { character = "Ada", realm = "Realm" }))
     end
     function w.exchange(channel, at, character, direction, quantity, peer)
-        assert(store:command("exchangeIntent", {
+        assert(w.write("exchangeIntent", {
             channel = channel,
             direction = direction,
             key = key,
@@ -129,12 +138,7 @@ local function world()
             peerRealm = peer and "Realm" or nil,
         }, at, w.actor(character, at)))
         assert(
-            store:command(
-                "exchangeConfirm",
-                { channel = channel, direction = direction },
-                at + 1,
-                w.actor(character, at + 1)
-            )
+            w.write("exchangeConfirm", { channel = channel, direction = direction }, at + 1, w.actor(character, at + 1))
         )
     end
     function w.mail(at, character, direction, quantity, peer)
@@ -454,13 +458,13 @@ local function act(w, channel, at, character)
     if channel == "quest" or channel == "craft" then
         local receipt = channel == "quest" and assert(addon.Reward.quest({}, 92463, link, 1))
             or assert(addon.Reward.craft({}, { itemID = 4540, hyperlink = link, quantity = 1 }))
-        assert(w.store():command("rewardReceipt", receipt, at, w.actor(character)))
+        assert(w.write("rewardReceipt", receipt, at, w.actor(character)))
         if channel == "quest" then
-            assert(w.store():command("questTurnedIn", 92463, at, { character = character, realm = w.realm(character) }))
+            assert(w.write("questTurnedIn", 92463, at, { character = character, realm = w.realm(character) }))
         end
     elseif channel == "vendor" then
         assert(
-            w.store():command(
+            w.write(
                 "vendorAction",
                 { kind = "purchase", key = key, itemID = 4540, link = link, quantity = 1 },
                 at,
@@ -684,6 +688,7 @@ end
 
 do
     local store = addon.Schema.open(refundedBeforeTheFix(), function() end)
+    assert(store:setCharacter("Ada", "Realm"))
     local character, account = totalFound(store)
     if character ~= 0 or account ~= 0 then
         fail(
@@ -696,6 +701,7 @@ do
 end
 do
     local store = addon.Schema.open(purchasedBeforeTheFix(), function() end)
+    assert(store:setCharacter("Ada", "Realm"))
     local held, heldAccount = totalFound(store)
     if held ~= 3 or heldAccount ~= 3 then
         fail(

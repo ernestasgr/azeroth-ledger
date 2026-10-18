@@ -9,6 +9,7 @@ local function fixture()
     local store = addon.Schema.open(nil, function(value)
         saved = value
     end)
+    WoWUnit.IsTrue(store:setCharacter("Ada", "Realm"))
     local function scan(at, quantity)
         WoWUnit.IsTrue(store:scan({
             character = actor.character,
@@ -210,7 +211,7 @@ function tests.UnreadableVariantsWaitForIdentifiableData(_self)
 end
 
 function tests.CandidateOverflowRetainsDetailsAndWarnsAtAccountLimit(_self)
-    local store, _, open = fixture()
+    local store, _, open, saved = fixture()
     WoWUnit.IsTrue(open(1010))
     for _ = 1, 255 do
         WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 1 }, 1011, actor))
@@ -232,7 +233,11 @@ function tests.CandidateOverflowRetainsDetailsAndWarnsAtAccountLimit(_self)
         end
     end
     WoWUnit.IsTrue(warning)
-    -- The cap is per character, while the unresolved limit is account-wide.
+    -- The cap is per character, while the unresolved limit is account-wide:
+    -- once Ben logs in, Ada's overflow does not limit him.
+    store = addon.Schema.open(saved(), function() end)
+    WoWUnit.IsTrue(store:setCharacter("Ben", "Realm"))
+    WoWUnit.AreEqual(2000, #store:unresolved())
     WoWUnit.IsTrue(
         store:scan({ character = "Ben", realm = "Realm", area = "bags", seenAt = 1012, complete = true, items = {} })
     )
@@ -253,6 +258,7 @@ function tests.ReloadEndsUnmatchedCorrelation(_self)
     WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 1 }, 1011, actor))
     WoWUnit.AreEqual(0, store:find(key).totalGained)
     local restored = addon.Schema.open(saved(), function() end)
+    WoWUnit.IsTrue(restored:setCharacter("Ada", "Realm"))
     WoWUnit.AreEqual("reload", restored:unresolved()[1].reason)
     WoWUnit.IsTrue(restored:scan({
         character = "Ada",

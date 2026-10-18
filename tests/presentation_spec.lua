@@ -26,6 +26,7 @@ api.TooltipUtil = {
     end,
 }
 local store = addon.Schema.open(nil, function() end)
+assert(store:setCharacter("Ada", "Realm"))
 local link = "|Hitem:4540::::::::|h[Bread]|h"
 local key = addon.Item.key(link, 4540)
 local function bags(at, quantity)
@@ -155,6 +156,7 @@ end
 local second = assert(loadfile("tests/support/native_ui.lua"))().create()
 local secondApi = second.api
 local secondStore = addon.Schema.open(nil, function() end)
+assert(secondStore:setCharacter("Ada", "Realm"))
 secondApi.UnitName, secondApi.GetRealmName = api.UnitName, api.GetRealmName
 secondApi.Enum, secondApi.TooltipUtil = api.Enum, api.TooltipUtil
 secondApi.TooltipDataProcessor = { AddTooltipPostCall = function() end }

@@ -6,6 +6,7 @@ local writes = 0
 local store = addon.Schema.open(nil, function(value)
     saved, writes = value, writes + 1
 end)
+assert(store:setCharacter("Ada", "Realm"))
 local actor = { character = "Ada", realm = "Realm", level = 12, place = "Forest" }
 local link = "|Hitem:2672::::::::|h[Meat]|h"
 assert(store:scan({
@@ -189,6 +190,7 @@ assert(result.rows[1].action == "Mail or trade" and result.rows[1].status == "Ne
 assert(not result.rows[1].nextStep:find("eligible", 1, true))
 
 local exchange = addon.Schema.open(nil, function() end)
+assert(exchange:setCharacter("Ada", "Realm"))
 assert(exchange:scan({ character = "Ada", realm = "Realm", area = "bags", complete = true, seenAt = 1000, items = {} }))
 assert(
     exchange:command(

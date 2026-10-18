@@ -632,6 +632,7 @@ end
 -- loot close; its exact source proof must still settle the measured receipt.
 local lateStore = addon.Schema.open(nil, function() end)
 local lateActor = { character = "Mindria", realm = "Classic Beta PvE" }
+assert(lateStore:setCharacter(lateActor.character, lateActor.realm))
 local lateContext = {
     character = lateActor.character,
     realm = lateActor.realm,

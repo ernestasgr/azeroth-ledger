@@ -8,6 +8,7 @@ local function fixture()
     local store = addon.Schema.open(nil, function(value)
         saved = value
     end)
+    WoWUnit.IsTrue(store:setCharacter("Ada", "Realm"))
     local actor = { character = "Ada", realm = "Realm", level = 12, place = "Elwynn" }
     local at = 1000
     local function bags(quantity)
@@ -36,10 +37,12 @@ local function fixture()
     return store,
         bags,
         action,
-        function()
+        -- Reopens the saved data, as a reload or a login as another character.
+        function(character, realm)
             store = addon.Schema.open(saved, function(value)
                 saved = value
             end)
+            WoWUnit.IsTrue(store:setCharacter(character or "Ada", realm or "Realm"))
             return store
         end,
         function(value)
@@ -134,7 +137,13 @@ function tests.SettingsUsePersistedStoreValuesAndExplicitZero(_self)
 end
 
 function tests.TransferLimitPreservesStockAndDiscoveryDates(_self)
-    local store, bags, action, _, clock, actor = fixture()
+    local store, bags, action, relog, clock, actor = fixture()
+    local playing = actor.character
+    local function login(character)
+        if character ~= playing then
+            store, playing = relog(character), character
+        end
+    end
     action("purchase", 3)
     bags(3)
     local function scan(character, at, quantity)
@@ -149,6 +158,7 @@ function tests.TransferLimitPreservesStockAndDiscoveryDates(_self)
     end
     scan("Ben", 1004, 0)
     local function exchange(character, peer, direction, at)
+        login(character)
         local who = { character = character, realm = "Realm", level = 12, place = "Elwynn" }
         WoWUnit.IsTrue(store:command("exchangeIntent", {
             channel = "mail",
@@ -187,6 +197,7 @@ function tests.TransferLimitPreservesStockAndDiscoveryDates(_self)
     WoWUnit.AreEqual(totals.methods.Vendor, store:breakdown(key).methods.Vendor)
     WoWUnit.AreEqual(totals.sources.Unknown, store:breakdown(key).sources.Unknown)
     clock(1020)
+    login("Ada")
     action("sale", 1)
     bags(0)
     WoWUnit.AreEqual(1, #store:vendorActivity())
@@ -197,6 +208,7 @@ function tests.DanglingHistoryIsIsolatedWithADiagnostic(_self)
     local store = addon.Schema.open(nil, function(value)
         saved = value
     end)
+    WoWUnit.IsTrue(store:setCharacter("Ada", "Realm"))
     local actor = { character = "Ada", realm = "Realm", level = 12, place = "Elwynn" }
     local function scan(at, quantity)
         WoWUnit.IsTrue(store:scan({
@@ -306,6 +318,7 @@ function tests.ProvenExchangeChannelsSurviveReloadAndUnknownHistoryStaysUnknown(
         local store = addon.Schema.open(nil, function(value)
             saved = value
         end)
+        WoWUnit.IsTrue(store:setCharacter("Ada", "Realm"))
         local actor = { character = "Ada", realm = "Realm", level = 12, place = "Elwynn" }
         local function scan(at, quantity)
             WoWUnit.IsTrue(store:scan({
@@ -377,6 +390,7 @@ function tests.SameNamedIntrinsicVariantsHaveSeparateReadOnlyHistory(_self)
     local store = addon.Schema.open(nil, function()
         writes = writes + 1
     end)
+    WoWUnit.IsTrue(store:setCharacter("Ada", "Realm"))
     local actor = { character = "Ada", realm = "Realm", level = 12, place = "Elwynn" }
     local items = {}
     local function scan(at)
@@ -413,13 +427,14 @@ function tests.SameNamedIntrinsicVariantsHaveSeparateReadOnlyHistory(_self)
     WoWUnit.AreEqual(before, writes)
 end
 function tests.JournalFiltersCombineScopeActionAndHalfOpenDates(_self)
-    local store, bags, action, _, clock, actor = fixture()
+    local _, bags, action, relog, clock, actor = fixture()
     action("purchase", 2)
     bags(2)
     clock(2000)
     action("sale", 1)
     bags(1)
     actor.character, actor.realm = "Ben", "Other"
+    local store = relog(actor.character, actor.realm)
     clock(2998)
     bags(0)
     clock(3000)

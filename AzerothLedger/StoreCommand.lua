@@ -4,6 +4,10 @@ local _, addon = ...
 -- actions, mail and trade. It checks each action's time and character once,
 -- ends the correlation the action outlives, counts candidate signals against
 -- the per-character limit, and passes the action to the domain that declared it.
+--
+-- One login plays one character, and changing character reloads the UI and
+-- reopens the store. So a store accepts writes only from the character it was
+-- logged in as; any other character's write is refused.
 
 local V = addon.SchemaValidate
 local isInteger, isName = V.isInteger, V.isName
@@ -36,6 +40,20 @@ function StoreCommand.install(store, kernel, correlation, commands)
     local readable, saveFields = kernel.readable, kernel.save
     local evidenceState, retain = correlation.state, correlation.retain
     local endCorrelation, reserve = correlation.endCorrelation, correlation.reserve
+    local current
+
+    -- Names the character this login plays. It is set once: a second call
+    -- succeeds only for the same character.
+    function store.setCharacter(_self, character, realm)
+        if not isName(character) or not isName(realm) then
+            return false
+        end
+        if current then
+            return current.character == character and current.realm == realm
+        end
+        current = { character = character, realm = realm }
+        return true
+    end
 
     ---@param name string
     ---@param payload any
@@ -48,9 +66,10 @@ function StoreCommand.install(store, kernel, correlation, commands)
             or not readable
             or not isInteger(at)
             or at < 0
+            or not current
             or type(actor) ~= "table"
-            or not isName(actor.character)
-            or not isName(actor.realm)
+            or actor.character ~= current.character
+            or actor.realm ~= current.realm
             or not command.valid(payload, actor)
         then
             return false

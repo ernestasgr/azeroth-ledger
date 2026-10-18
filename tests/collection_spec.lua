@@ -132,6 +132,7 @@ local lootSaved
 local lootStore = addon.Schema.open(nil, function(value)
     lootSaved = value
 end)
+assert(lootStore:setCharacter("Ada", "Realm"))
 local lootLink = "|Hitem:4865::::::::|h[Ruined Pelt]|h"
 local lootKey = addon.Item.key(lootLink, 4865)
 local receiptAPI = {
@@ -214,6 +215,7 @@ equal("Elwynn Forest", lootRecord.gains[1].place)
 local restoredLoot = addon.Schema.open(lootSaved, function(value)
     lootSaved = value
 end)
+assert(restoredLoot:setCharacter("Ada", "Realm"))
 assert(not restoredLoot:command("lootReceipt", receipt, 2013, { character = "Ada", realm = "Realm" }))
 assert(restoredLoot:scan({
     character = "Ada",
@@ -227,6 +229,7 @@ equal(2, restoredLoot:find(lootKey).totalGained)
 equal(1, #restoredLoot:find(lootKey).gains)
 
 local partial = addon.Schema.open(nil, function() end)
+assert(partial:setCharacter("Ada", "Realm"))
 assert(partial:scan({
     character = "Ada",
     realm = "Realm",
@@ -259,6 +262,7 @@ equal(5, partial:find(lootKey).firstSeenUnits)
 equal(6, partial:find(lootKey).firstSeenUnits + partial:find(lootKey).totalGained)
 
 local delayed = addon.Schema.open(nil, function() end)
+assert(delayed:setCharacter("Ada", "Realm"))
 local function delayedBags(at, units)
     assert(delayed:scan({
         character = "Ada",
@@ -298,6 +302,7 @@ equal(0, delayed:find(lootKey).totalGained)
 equal(0, #delayed:find(lootKey).gains)
 
 local twoWindow = addon.Schema.open(nil, function() end)
+assert(twoWindow:setCharacter("Ada", "Realm"))
 local function twoWindowBags(at, units)
     assert(twoWindow:scan({
         character = "Ada",

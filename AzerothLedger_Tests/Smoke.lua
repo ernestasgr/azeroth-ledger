@@ -216,6 +216,7 @@ local function lootReplay(startingUnits, gainUnits, receiptUnits, duplicates, re
     local store = addon.Schema.open(nil, function(value)
         saved = value
     end)
+    WoWUnit.IsTrue(store:setCharacter("Ada", "Realm"))
     local function bags(at, units)
         local items = {}
         if units > 0 then
@@ -291,6 +292,7 @@ local inputLink = "|Hitem:2589::::::::|h[Linen Cloth]|h"
 
 local function rewardStore()
     local store = addon.Schema.open(nil, function() end)
+    WoWUnit.IsTrue(store:setCharacter("Ada", "Realm"))
     local function bags(at, quest, craft, input)
         local items = {}
         for _, item in ipairs({
