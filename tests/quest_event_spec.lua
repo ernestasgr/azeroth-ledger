@@ -1,3 +1,4 @@
+local load = assert(loadfile("tests/support/addon.lua"))()
 local addon = {}
 local link = "|Hitem:80::::::::|h[Soft Fur-lined Shoes]|h"
 local otherLink = "|Hitem:81::::::::|h[Other Reward]|h"
@@ -75,45 +76,7 @@ _G.GetQuestItemInfo = function(kind)
 end
 SlashCmdList = {}
 
-for _, source in ipairs({
-    "Item",
-    "Work", -- Frame work and profiling precede consumers.
-    "Trace",
-    "SchemaValidate",
-    "StoreKernel",
-    "StorePreferences",
-    "StoreJournal",
-    "StoreEvidence",
-    "StoreRecords",
-    "StoreLoot",
-    "StoreExchange",
-    "StoreVendor",
-    "StoreReward",
-    "StoreScan",
-    "Schema",
-    "Client",
-    "Scan",
-    "Loot",
-    "Reward",
-    "Vendor",
-    "LastSeen",
-    "Collection",
-    "Inventory",
-    "Events",
-    "Runtime",
-    "MerchantSession",
-    "MailSession",
-    "TradeSession",
-    "LootSession",
-    "QuestSession",
-    "CraftSession",
-    "Diagnostics",
-    "Commands",
-    "MinimapButton",
-    "Main",
-}) do
-    assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
-end
+load.addon("Main", addon)
 
 local function event(name, ...)
     if frame.registered[name] then

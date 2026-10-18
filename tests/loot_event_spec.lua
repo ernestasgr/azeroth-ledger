@@ -1,3 +1,4 @@
+local load = assert(loadfile("tests/support/addon.lua"))()
 local addon = {}
 local frame = { registered = {} }
 local clock, units = 1000, 0
@@ -81,45 +82,7 @@ _G.UnitGUID = function()
     return "Creature-0-6783-1-118-1984-000040D7BC"
 end
 SlashCmdList = {}
-for _, source in ipairs({
-    "Item",
-    "Work", -- Frame work and profiling precede consumers.
-    "Trace",
-    "SchemaValidate",
-    "StoreKernel",
-    "StorePreferences",
-    "StoreJournal",
-    "StoreEvidence",
-    "StoreRecords",
-    "StoreLoot",
-    "StoreExchange",
-    "StoreVendor",
-    "StoreReward",
-    "StoreScan",
-    "Schema",
-    "Client",
-    "Scan",
-    "Loot",
-    "Reward",
-    "Vendor",
-    "LastSeen",
-    "Collection",
-    "Inventory",
-    "Events",
-    "Runtime",
-    "MerchantSession",
-    "MailSession",
-    "TradeSession",
-    "LootSession",
-    "QuestSession",
-    "CraftSession",
-    "Diagnostics",
-    "Commands",
-    "MinimapButton",
-    "Main",
-}) do
-    assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
-end
+load.addon("Main", addon)
 local function event(name, ...)
     if frame.registered[name] then
         frame.onEvent(frame, name, ...)
@@ -552,7 +515,7 @@ do
         for name, value in pairs(api) do
             _G[name] = value
         end
-        local function load()
+        local function start()
             assert(loadfile("AzerothLedger/Main.lua"))("AzerothLedger", addon)
             event("ADDON_LOADED", "AzerothLedger")
             event("PLAYER_LOGIN")
@@ -577,7 +540,7 @@ do
             event("CHAT_MSG_LOOT", "You receive loot: " .. sword)
         end
         clock = 2100
-        load()
+        start()
         if
             scenario == "incomparable baseline"
             or scenario == "partial existing gear move"
@@ -607,7 +570,7 @@ do
             receipt()
         end
         if scenario == "reload before check" then
-            load()
+            start()
         end
         bagReadable, gearReadable = scenario ~= "partial bags after loot", scenario ~= "partial gear after loot"
         if
@@ -662,7 +625,7 @@ do
             assert(addon.store:find(swordKey).totalGained == 1, "Moves or duplicates added another gain")
             assert(#addon.store:takeDiscoveries() == 0, "Duplicates queued another discovery")
         end
-        load()
+        start()
         check()
         gained = addon.store:find(swordKey)
         assert((gained and gained.totalGained or 0) == expected, scenario .. ": reload changed confirmed gains")

@@ -1,3 +1,4 @@
+local load = assert(loadfile("tests/support/addon.lua"))()
 local addon
 local frame = { registered = {} }
 local timers = {}
@@ -71,41 +72,6 @@ setGlobal("C_Container", {
 })
 setGlobal("SlashCmdList", {})
 
-local sources = {
-    "Item",
-    "Work",
-    "Trace",
-    "SchemaValidate",
-    "StoreKernel",
-    "StorePreferences",
-    "StoreJournal",
-    "StoreEvidence",
-    "StoreRecords",
-    "StoreLoot",
-    "StoreExchange",
-    "StoreVendor",
-    "StoreReward",
-    "StoreScan",
-    "Schema",
-    "Client",
-    "Scan",
-    "LastSeen",
-    "Collection",
-    "Inventory",
-    "Events",
-    "Runtime",
-    "MerchantSession",
-    "MailSession",
-    "TradeSession",
-    "LootSession",
-    "QuestSession",
-    "CraftSession",
-    "Diagnostics",
-    "Commands",
-    "MinimapButton",
-    "Main",
-}
-
 local function event(name, ...)
     if frame.registered[name] then
         frame.onEvent(frame, name, ...)
@@ -120,13 +86,7 @@ local function runTimers()
     end
 end
 
-local function loadAddon(target)
-    for _, source in ipairs(sources) do
-        assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", target)
-    end
-end
-addon = {}
-loadAddon(addon)
+addon = load.addon("Main")
 
 local key = addon.Item.key(startingLink, startingID)
 
@@ -169,7 +129,7 @@ setGlobal("UnitName", function(unit)
     return unit == "player" and "QuietCharacter" or nil
 end)
 local second = {}
-loadAddon(second)
+load.addon("Main", second)
 event("ADDON_LOADED", "AzerothLedger")
 event("PLAYER_LOGIN")
 clock = clock + 1

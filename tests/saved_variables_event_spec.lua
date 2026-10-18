@@ -1,3 +1,4 @@
+local load = assert(loadfile("tests/support/addon.lua"))()
 local addon = {}
 local frame = { registered = {} }
 local link = "|Hitem:4540::::::::|h[Tough Hunk of Bread]|h"
@@ -62,25 +63,7 @@ function frame:SetScript(script, handler)
     end
 end
 
-for _, source in ipairs({
-    "Item",
-    "Work",
-    "Trace",
-    "SchemaValidate",
-    "StoreKernel",
-    "StorePreferences",
-    "StoreJournal",
-    "StoreEvidence",
-    "StoreRecords",
-    "StoreLoot",
-    "StoreExchange",
-    "StoreVendor",
-    "StoreReward",
-    "StoreScan",
-    "Schema",
-}) do
-    assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
-end
+load.addon("Schema", addon)
 
 addon.Client = {
     inspect = function()
@@ -91,10 +74,6 @@ addon.Scan = {
     reader = function()
         return { capture = function() end }
     end,
-}
-addon.Collection = {
-    refresh = function() end,
-    open = function() end,
 }
 SlashCmdList = {}
 
@@ -133,23 +112,13 @@ local saved = {
 }
 
 AzerothLedgerDB = nil
-assert(loadfile("AzerothLedger/Inventory.lua"))("AzerothLedger", addon)
-for _, source in ipairs({
-    "Events",
-    "Runtime",
-    "MerchantSession",
-    "MailSession",
-    "TradeSession",
-    "LootSession",
-    "QuestSession",
-    "CraftSession",
-    "Diagnostics",
-    "Commands",
-    "MinimapButton",
-}) do
-    assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
-end
-assert(loadfile("AzerothLedger/Main.lua"))("AzerothLedger", addon)
+-- Everything after Scan, so the Client and Scan stubs above stay in place. Collection loads
+-- with the rest, so its stub replaces it afterwards; the addon looks Collection up per call.
+load.addon("Main", addon, "Scan")
+addon.Collection = {
+    refresh = function() end,
+    open = function() end,
+}
 assert(frame.registered.ADDON_LOADED)
 assert(AzerothLedgerDB == nil, "addon must not initialize SavedVariables while Lua files load")
 frame.onEvent(frame, "ADDON_LOADED", "AnotherAddon")

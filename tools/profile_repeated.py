@@ -26,11 +26,10 @@ def main() -> None:
             return subprocess.check_output(["git", "show", f"{args.baseline}:{path}"], text=True, encoding="utf-8")
         return Path(path).read_text(encoding="utf-8")
 
-    # The store spans several files after the Schema split; take that ref's TOC order.
+    # A baseline is read from Git, so take that ref's own TOC order rather than tests/support/addon.lua.
     listed = [line.strip()[:-4] for line in read("AzerothLedger/AzerothLedger.toc").splitlines()
               if line.strip().endswith(".lua")]
-    store = [name for name in listed[: listed.index("Schema") + 1] if name.startswith(("Schema", "Store"))]
-    for name in ("Item", "Work", *store, "Client", "LastSeen", "Collection", "Journal", "BookQuery", "Presentation"):
+    for name in listed[: max(listed.index("BookQuery"), listed.index("Presentation")) + 1]:
         source = read(f"AzerothLedger/{name}.lua")
         lua.execute('assert(loadstring((...)))("AzerothLedger", select(2, ...))', source, addon)
     cases = lua.execute(r'''

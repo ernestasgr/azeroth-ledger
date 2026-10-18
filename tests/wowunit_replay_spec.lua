@@ -1,39 +1,5 @@
-local addon = {}
-for _, source in ipairs({
-    "Item",
-    "Work",
-    "SchemaValidate",
-    "StoreKernel",
-    "StorePreferences",
-    "StoreJournal",
-    "StoreEvidence",
-    "StoreRecords",
-    "StoreLoot",
-    "StoreExchange",
-    "StoreVendor",
-    "StoreReward",
-    "StoreScan",
-    "Schema",
-    "Client",
-    "Scan",
-    "Loot",
-    "Reward",
-    "Vendor",
-    "Exchange",
-    "LastSeen",
-    "Collection",
-    "Presentation",
-    "Journal",
-    "BookWidgets",
-    "BookQuery",
-    "BookState",
-    "BookFrame",
-    "BookRender",
-    "Book",
-    "Settings",
-}) do
-    assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
-end
+local load = assert(loadfile("tests/support/addon.lua"))()
+local addon = load.addon("Settings")
 AzerothLedger = addon
 date = os.date
 
@@ -57,17 +23,8 @@ CreateFrame = native.api.CreateFrame
 UIParent = native.api.UIParent
 GameFontNormal = {}
 
-assert(loadfile("AzerothLedger_Tests/Smoke.lua"))("AzerothLedger_Tests", {})
-assert(loadfile("AzerothLedger_Tests/Vendor.lua"))("AzerothLedger_Tests", {})
-assert(loadfile("AzerothLedger_Tests/Exchange.lua"))("AzerothLedger_Tests", {})
-assert(loadfile("AzerothLedger_Tests/Evidence.lua"))("AzerothLedger_Tests", {})
-assert(loadfile("AzerothLedger_Tests/Collection.lua"))("AzerothLedger_Tests", {})
-assert(loadfile("AzerothLedger_Tests/Journal.lua"))("AzerothLedger_Tests", {})
-assert(loadfile("AzerothLedger_Tests/Presentation.lua"))("AzerothLedger_Tests", {})
-local companion = {}
 SlashCmdList = {}
-assert(loadfile("AzerothLedger_Tests/PerformanceFixture.lua"))("AzerothLedger_Tests", companion)
-assert(loadfile("AzerothLedger_Tests/Performance.lua"))("AzerothLedger_Tests", companion)
+load.companion("Performance")
 for _, group in ipairs(groups) do
     for name, test in pairs(group) do
         test(group)

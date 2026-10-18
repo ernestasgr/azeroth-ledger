@@ -1,3 +1,4 @@
+local load = assert(loadfile("tests/support/addon.lua"))()
 -- Synthetic production hooks/events; this does not certify native client behavior.
 local link = "|Hitem:4540::::::::|h[Bread]|h"
 
@@ -119,47 +120,7 @@ local function mailbox(initial, switching)
     _G.SlashCmdList = {}
     _G.LOOT_ITEM_SELF = "You receive item: %s."
     _G.LOOT_ITEM_SELF_MULTIPLE = "You receive item: %sx%d."
-    for _, source in ipairs({
-        "Item",
-        "Work",
-        "Trace",
-        "SchemaValidate",
-        "StoreKernel",
-        "StorePreferences",
-        "StoreJournal",
-        "StoreEvidence",
-        "StoreRecords",
-        "StoreLoot",
-        "StoreExchange",
-        "StoreVendor",
-        "StoreReward",
-        "StoreScan",
-        "Schema",
-        "Client",
-        "Scan",
-        "Inventory",
-        "Loot",
-        "Reward",
-        "Vendor",
-        "Exchange",
-        "LastSeen",
-        "Collection",
-        "Journal",
-        "Events",
-        "Runtime",
-        "MerchantSession",
-        "MailSession",
-        "TradeSession",
-        "LootSession",
-        "QuestSession",
-        "CraftSession",
-        "Diagnostics",
-        "Commands",
-        "MinimapButton",
-        "Main",
-    }) do
-        assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
-    end
+    load.addon("Main", addon)
     function state:event(name, ...)
         assert(frame.registered[name], name)
         if not self.sameSecond then

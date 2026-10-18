@@ -1,4 +1,4 @@
-"""Validate TOC load order and build the addon-only release archive."""
+"""Check the addon matches its TOC and build the addon-only release archive."""
 
 from __future__ import annotations
 
@@ -10,31 +10,35 @@ from zipfile import ZIP_DEFLATED, ZipFile
 ROOT = Path(__file__).resolve().parents[1]
 ADDON = ROOT / "AzerothLedger"
 TESTS = ROOT / "AzerothLedger_Tests"
-SOURCE_ORDER = ("Item.lua", "Work.lua", "Trace.lua", "SchemaValidate.lua", "StoreKernel.lua", "StorePreferences.lua", "StoreJournal.lua", "StoreEvidence.lua", "StoreRecords.lua", "StoreLoot.lua", "StoreExchange.lua", "StoreVendor.lua", "StoreReward.lua", "StoreScan.lua", "Schema.lua", "Client.lua", "Scan.lua", "Inventory.lua", "Loot.lua", "Reward.lua", "Vendor.lua", "Exchange.lua", "LastSeen.lua", "Collection.lua", "Presentation.lua", "Journal.lua", "BookWidgets.lua", "BookQuery.lua", "BookState.lua", "BookFrame.lua", "BookRender.lua", "Book.lua", "Settings.lua", "Events.lua", "Runtime.lua", "MerchantSession.lua", "MailSession.lua", "TradeSession.lua", "LootSession.lua", "QuestSession.lua", "CraftSession.lua", "Diagnostics.lua", "Commands.lua", "MinimapButton.lua", "Main.lua")
-
 AUTO_LOADED_FILES = ("Bindings.xml",)
+
 
 def manifest_files(path: Path) -> list[str]:
     return [
         line.strip()
         for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.startswith("##")
+        # Like the client: a line starting with # is metadata (##) or a comment, not a file.
+        if line.strip() and not line.lstrip().startswith("#")
     ]
 
 
-def check() -> list[Path]:
-    toc = ADDON / "AzerothLedger.toc"
-    assert manifest_files(toc) == list(SOURCE_ORDER), "main TOC load order changed"
-    assert manifest_files(TESTS / "AzerothLedger_Tests.toc") == ["Smoke.lua", "Vendor.lua", "Exchange.lua", "Evidence.lua", "Collection.lua", "Journal.lua", "Presentation.lua", "PerformanceFixture.lua", "Performance.lua"]
+def listed_files(folder: Path, extra: tuple[str, ...] = ()) -> list[Path]:
+    """The folder's TOC and what it lists, refusing missing files and files it does not list."""
+    toc = folder / f"{folder.name}.toc"
+    files = [toc, *(folder / name for name in (*manifest_files(toc), *extra))]
+    missing = [path.name for path in files if not path.is_file()]
+    assert not missing, f"{toc.name} lists missing files: {', '.join(missing)}"
+    unlisted = sorted(path.name for path in set(folder.iterdir()) - set(files))
+    assert not unlisted, f"unexpected files not listed in {toc.name}: {', '.join(unlisted)}"
+    return files
 
-    main = toc.read_text(encoding="utf-8")
-    companion = (TESTS / "AzerothLedger_Tests.toc").read_text(encoding="utf-8")
+
+def check(addon: Path = ADDON, tests: Path = TESTS) -> list[Path]:
+    files = listed_files(addon, AUTO_LOADED_FILES)
+    main = files[0].read_text(encoding="utf-8")
+    companion = listed_files(tests)[0].read_text(encoding="utf-8")
     assert "## SavedVariables: AzerothLedgerDB, AzerothLedgerMinimapButtonDB, AzerothLedgerTraceDB" in main
     assert "## Dependencies: AzerothLedger, WoWUnit" in companion
-
-    files = [toc, *(ADDON / name for name in (*SOURCE_ORDER, *AUTO_LOADED_FILES))]
-    assert sorted(ADDON.iterdir()) == sorted(files), "unexpected file in release addon"
-    assert all(path.is_file() for path in files)
     return files
 
 

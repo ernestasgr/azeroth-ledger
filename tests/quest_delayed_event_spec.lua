@@ -1,3 +1,4 @@
+local load = assert(loadfile("tests/support/addon.lua"))()
 local addon = {}
 local frame = { registered = {} }
 local link = "|Hitem:11475::::::::|h[Wine-stained Cloak]|h"
@@ -80,46 +81,7 @@ for name, implementation in pairs(questAPI) do
 end
 SlashCmdList = {}
 
-for _, source in ipairs({
-    "Item",
-    "Work",
-    "Trace",
-    "SchemaValidate",
-    "StoreKernel",
-    "StorePreferences",
-    "StoreJournal",
-    "StoreEvidence",
-    "StoreRecords",
-    "StoreLoot",
-    "StoreExchange",
-    "StoreVendor",
-    "StoreReward",
-    "StoreScan",
-    "Schema",
-    "Client",
-    "Scan",
-    "Loot",
-    "Reward",
-    "Vendor",
-    "Exchange",
-    "LastSeen",
-    "Collection",
-    "Inventory",
-    "Events",
-    "Runtime",
-    "MerchantSession",
-    "MailSession",
-    "TradeSession",
-    "LootSession",
-    "QuestSession",
-    "CraftSession",
-    "Diagnostics",
-    "Commands",
-    "MinimapButton",
-    "Main",
-}) do
-    assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
-end
+load.addon("Main", addon)
 
 local function event(name, ...)
     assert(frame.registered[name])

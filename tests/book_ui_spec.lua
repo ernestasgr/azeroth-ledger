@@ -1,33 +1,6 @@
+local load = assert(loadfile("tests/support/addon.lua"))()
 -- Native frame port replay: checks visible text and input behavior, not private book state.
-local addon = {}
-for _, source in ipairs({
-    "Item",
-    "Work",
-    "SchemaValidate",
-    "StoreKernel",
-    "StorePreferences",
-    "StoreJournal",
-    "StoreEvidence",
-    "StoreRecords",
-    "StoreLoot",
-    "StoreExchange",
-    "StoreVendor",
-    "StoreReward",
-    "StoreScan",
-    "Schema",
-    "Client",
-    "LastSeen",
-    "Collection",
-    "Journal",
-    "BookWidgets",
-    "BookQuery",
-    "BookState",
-    "BookFrame",
-    "BookRender",
-    "Book",
-}) do
-    assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
-end
+local addon = load.addon("Book")
 date = os.date
 local native = assert(loadfile("tests/support/native_ui.lua"))().create({
     rejectedTextures = { ["Interface\\Icons\\INV_Misc_Food_14"] = true },

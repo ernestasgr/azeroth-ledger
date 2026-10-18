@@ -1,26 +1,5 @@
-local addon = {}
-for _, name in ipairs({
-    "Item",
-    "Work",
-    "SchemaValidate",
-    "StoreKernel",
-    "StorePreferences",
-    "StoreJournal",
-    "StoreEvidence",
-    "StoreRecords",
-    "StoreLoot",
-    "StoreExchange",
-    "StoreVendor",
-    "StoreReward",
-    "StoreScan",
-    "Schema",
-    "Client",
-    "Scan",
-    "LastSeen",
-    "Collection",
-}) do
-    assert(loadfile("AzerothLedger/" .. name .. ".lua"))("AzerothLedger", addon)
-end
+local load = assert(loadfile("tests/support/addon.lua"))()
+local addon = load.addon("Collection")
 
 date = os.date
 local fixture = assert(loadfile("AzerothLedger_Tests/PerformanceFixture.lua"))()
@@ -80,9 +59,7 @@ assert(restored:breakdown("20000:0").sources["Mob #10000"] == 2)
 assert(#restored:find("20000:0").links == 2)
 print("performance_spec: budgeted browsing and permanent facts passed")
 
-for _, name in ipairs({ "Journal", "BookWidgets", "BookQuery", "BookState", "BookFrame", "BookRender", "Book" }) do
-    assert(loadfile("AzerothLedger/" .. name .. ".lua"))("AzerothLedger", addon)
-end
+load.addon("Book", addon, "Collection")
 local native = assert(loadfile("tests/support/native_ui.lua"))().create()
 local metadataReads = 0
 native.api.debugprofilestop = api.debugprofilestop
@@ -332,7 +309,6 @@ assert(failing:find("10001:0").observations[2].quantity == 5000)
 assert(addon.Schema.open(failedRaw, function() end):find("10001:0").observations[2].quantity == 5000)
 print("performance_spec: repeated-item history, retention and cooperative queries passed")
 
-assert(loadfile("AzerothLedger/Presentation.lua"))("AzerothLedger", addon)
 for _, gainCount in ipairs({ 5000, 50000 }) do
     local acquisitionRaw = repeated.repeatedFixture(gainCount, 5000)
     local acquisition = addon.Schema.open(acquisitionRaw, function(value)

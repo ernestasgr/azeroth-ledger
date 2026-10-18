@@ -1,27 +1,7 @@
+local load = assert(loadfile("tests/support/addon.lua"))()
 -- Pins Total gained, gain dates and first-check units for every channel that
 -- credits a gain, through the store's public interface and a save round trip.
-local addon = {}
-for _, name in ipairs({
-    "Item",
-    "Work",
-    "SchemaValidate",
-    "StoreKernel",
-    "StorePreferences",
-    "StoreJournal",
-    "StoreEvidence",
-    "StoreRecords",
-    "StoreLoot",
-    "StoreExchange",
-    "StoreVendor",
-    "StoreReward",
-    "StoreScan",
-    "Schema",
-    "Reward",
-    "Loot",
-    "LastSeen",
-}) do
-    assert(loadfile("AzerothLedger/" .. name .. ".lua"))("AzerothLedger", addon)
-end
+local addon = load.addon("LastSeen")
 date = os.date
 
 local link = "|Hitem:4540::::::::|h[Tough Hunk of Bread]|h"
