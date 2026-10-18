@@ -1,5 +1,5 @@
 local load = assert(loadfile("tests/support/addon.lua"))()
-local addon = load.addon("Collection")
+local addon = load.addon("Journal")
 date = os.date
 
 local questLink = "|Hitem:263409::::::::|h[Gardening Pants]|h"
@@ -89,9 +89,11 @@ local choiceRecord = assert(choice:find(questKey))
 assert(choiceRecord.totalGained == 1 and #choiceRecord.gains == 1)
 assert(choiceRecord.firstSeenUnits == 0)
 assert(choiceRecord.gains[1].method == "Quest" and choiceRecord.gains[1].context.id == 92463)
-local lines = table.concat(addon.Collection.lines(choice, "Ada", "Realm"), "\n")
-assert(lines:find("+1 Quest", 1, true) and lines:find("Garden Work", 1, true))
-assert(lines:find("Recent activity", 1, true))
+local choiceEntries = addon.Journal.query(choice)
+assert(#choiceEntries == 1 and choiceEntries[1].action == "Quest", "the Journal shows one quest reward")
+local choiceGain = choiceEntries[1].details[1]
+assert(choiceGain.quantity == 1 and choiceGain.method == "Quest", "the chosen reward counts once")
+assert(choiceGain.source == "Garden Work", "the reward names its quest")
 
 local fixed, fixedBags = scenario()
 fixedBags(2000, 2, 0, 0)

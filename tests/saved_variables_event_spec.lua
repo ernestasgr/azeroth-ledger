@@ -153,7 +153,7 @@ end)
 rawset(_G, "GetRealmName", function()
     return "Realm"
 end)
-addon.Collection.open = function()
+addon.Book.open = function()
     slashOpens = slashOpens + 1
 end
 _G.AzerothLedgerToggle()

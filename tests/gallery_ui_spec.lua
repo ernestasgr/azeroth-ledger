@@ -55,7 +55,7 @@ assert(store:scan({
     },
 }))
 local before = writes
-local frame = assert(addon.Collection.open(api, store, "Ada", "A"))
+local frame = assert(addon.Book.open(api, store, "Ada", "A"))
 frame.scripts.OnKeyDown(frame, "ENTER")
 local function find(text, kind)
     for index = #native.controls, 1, -1 do

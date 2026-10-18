@@ -19,7 +19,10 @@ WoWUnit = setmetatable(assertions, {
         return groups[name]
     end,
 })
-assert(loadfile("AzerothLedger_Tests/Collection.lua"))()
+local companion = {}
+for _, name in ipairs({ "CollectionFixture", "CollectionSources", "CollectionDetails", "Collection" }) do
+    assert(loadfile("AzerothLedger_Tests/" .. name .. ".lua"))("AzerothLedger_Tests", companion)
+end
 for _, group in pairs(groups) do
     for name, test in pairs(group) do
         test(group)

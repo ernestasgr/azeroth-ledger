@@ -1,5 +1,6 @@
 local load = assert(loadfile("tests/support/addon.lua"))()
-local addon = load.addon("BookQuery")
+local addon = load.addon("BookRender")
+local detailText = assert(loadfile("tests/support/detail_text.lua"))()
 date = os.date
 
 local fixture = assert(loadfile("AzerothLedger_Tests/PerformanceFixture.lua"))()
@@ -151,8 +152,6 @@ local function agree(expected)
     local rows = addon.Collection.query(ownershipStore, "Ada", "Realm", {}, addon.Client.itemMetadata).rows
     assert(detail.ownershipState == expected and rows[1].ownershipState == expected)
     assert(detail.ownership == rows[1].ownership)
-    local text = table.concat(addon.Collection.lines(ownershipStore, "Ada", "Realm"), "\n")
-    assert(text:find("Status: " .. detail.ownership, 1, true))
     assert(addon.Presentation.line(ownershipStore, link, "Ada", "Realm"):find("status " .. detail.ownership, 1, true))
     local historical =
         addon.Collection.query(ownershipStore, "Ada", "Realm", { ownership = "historical" }, addon.Client.itemMetadata)
@@ -175,7 +174,7 @@ local offline = addon.Collection.inspect(ownershipStore, key, "Ada", "Realm", { 
 assert(offline.characterCurrent == 1 and offline.ownershipState == "unknown")
 local empty = addon.LastSeen.project(ownershipStore, ownershipStore:find(key), "Ada", "Realm", { realm = "Absent" })
 assert(empty.state == "unknown" and empty.characterCurrent == nil)
-print("architecture_spec: list, details, text, tooltip, and historical filter agree")
+print("architecture_spec: list, details, tooltip, and historical filter agree")
 
 -- A failed check must retain the last readable bank fact with its own date.
 scan("Ada", "bags", 4000, true, 0)
@@ -189,13 +188,17 @@ assert(bank.quantity == nil and bank.at == 4001)
 assert(bank.observedQuantity == 5 and bank.observedAt == 4000, "Closing the bank hid its dated five-unit observation")
 local datedBank = "Ada-Realm • Bank: last found 5 on " .. date("%Y-%m-%d %H:%M", 4000)
 for _, text in ipairs({
-    table.concat(addon.Collection.lines(ownershipStore, "Ada", "Realm", "Ada"), "\n"),
-    table.concat(addon.Collection.details(ownershipStore, key, "Ada", "Realm", { character = "Ada" }), "\n"),
+    addon.Collection.checkText(bank),
     addon.Presentation.line(ownershipStore, link, "Ada", "Realm"),
 }) do
     assert(text:find(datedBank, 1, true), "A reader hid the dated bank observation: " .. text)
     assert(text:find("status Unknown", 1, true))
 end
+local bankText = detailText(addon, closed):match("Bank • Last found: [^\n]*\nLast seen: [^\n]*")
+assert(
+    bankText == "Bank • Last found: 5\nLast seen: " .. addon.BookRender.stamp(4000),
+    "The Book hid the dated bank observation"
+)
 print("architecture_spec: dated bank observation survives closure")
 
 scan("Ada", "bank", 4010, true, 2)
@@ -244,11 +247,16 @@ assert(neverHeld.checks[2].observedQuantity == 0 and neverHeld.checks[2].observe
 assert(neverHeld.checks[2].quantity == nil and neverHeld.ownershipState == "unknown")
 scan("Cara", "bank", 4050, true, 0)
 scan("Cara", "bank", 4051, false, 0)
-local neverSeenText =
-    table.concat(addon.Collection.details(ownershipStore, key, "Ada", "Realm", { character = "Cara" }), "\n")
+local neverSeen = addon.Collection.inspect(ownershipStore, key, "Ada", "Realm", { character = "Cara" })
+local caraBank
+for _, check in ipairs(neverSeen.checks) do
+    if check.character == "Cara" and check.area == "bank" then
+        caraBank = check
+    end
+end
 assert(
-    neverSeenText:find("Cara-Realm • Bank: last found 0 on " .. date("%Y-%m-%d %H:%M", 4050), 1, true),
-    "Text details hid an observed zero on a character who never held the item"
+    caraBank and caraBank.observedQuantity == 0 and caraBank.observedAt == 4050,
+    "Details hid an observed zero on a character who never held the item"
 )
 print("architecture_spec: changed stock, partial/offline checks, persisted zero, and complete absence passed")
 
@@ -396,13 +404,4 @@ end
 counts = addon.Collection.inspect(countsStore, countsKey, "Ada", "Realm")
 assert(counts.characterOverall == 2 and counts.allCharactersOverall == 5)
 assert(counts.characterCurrent == 7 and counts.allCharactersCurrent == 13)
-local countLines = table.concat(addon.Collection.details(countsStore, countsKey, "Ada", "Realm"), "\n")
-for _, expected in ipairs({
-    "Character overall: 2",
-    "All characters overall: 5",
-    "Character current: 7",
-    "All characters current: 13",
-}) do
-    assert(countLines:find(expected, 1, true), "Missing requested count: " .. expected)
-end
 print("architecture_spec: all four exact count scopes passed")

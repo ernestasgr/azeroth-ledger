@@ -1,5 +1,6 @@
 local load = assert(loadfile("tests/support/addon.lua"))()
-local addon = load.addon("Collection")
+local addon = load.addon("BookRender")
+local detailText = assert(loadfile("tests/support/detail_text.lua"))()
 date = os.date
 
 local timestamp = 2000
@@ -57,17 +58,22 @@ bankOpen = true
 timestamp = 2100
 assert(store:scan(addon.Scan.capture(api, "bank", bankOpen)))
 assert(store:area("Ada", "Realm", "bank").complete == true)
-local lines = addon.Collection.lines(store, "Ada", "Realm")
-assert(lines[1]:find("checked"))
-assert(lines[2]:find("checked"))
-assert(lines[4]:find("Character overall 400", 1, true))
-assert(lines[4]:find("All characters overall 400", 1, true))
-assert(not lines[4]:find("2672:0", 1, true), "Internal item keys should stay hidden by default")
-local developerLines = addon.Collection.lines(store, "Ada", "Realm", nil, nil, true)
-assert(developerLines[4]:find("internal item key 2672:0", 1, true))
-assert(table.concat(lines, "\n"):find("confirmed gain unknown", 1, true))
-local filtered = addon.Collection.lines(store, "Ada", "Realm", "Nobody", "Realm")
-assert(filtered[4] == "No items found yet.")
+local model = addon.Collection.inspect(store, "2672:0", "Ada", "Realm")
+assert(store:area("Ada", "Realm", "bags").complete, "the latest bags check must be complete")
+assert(model.checks[1].area == "bags" and model.checks[1].at == 2050, "the bags check keeps its date")
+assert(model.checks[2].area == "bank" and model.checks[2].at == 2100, "the bank check keeps its date")
+assert(model.characterOverall == 400 and model.allCharactersOverall == 400, "first-check units count overall")
+assert(not detailText(addon, model):find("2672:0", 1, true), "Internal item keys should stay hidden by default")
+assert(
+    detailText(addon, model, true):find("Internal item key: 2672:0", 1, true),
+    "Developer mode shows the internal item key"
+)
+assert(
+    detailText(addon, model):find("First confirmed gain: Unknown", 1, true),
+    "Units only seen in storage have no confirmed gain"
+)
+local nobody = addon.Collection.query(store, "Ada", "Realm", { character = "Nobody", realm = "Realm" })
+assert(#nobody.rows == 0, "a character with no items has an empty Collection")
 
 timestamp = 2200
 api.C_Container.GetContainerItemInfo = function()

@@ -32,7 +32,7 @@ def main() -> None:
         native.api.C_Item = { GetItemInfo = function(link)
             return "Fixture", link, 1, nil, nil, nil, nil, nil, nil, 1, nil, 7
         end }
-        local frame = addon.Collection.open(native.api, store, "Fixture", "Test")
+        local frame = addon.Book.open(native.api, store, "Fixture", "Test")
         local frames = 0
         repeat
             frames = frames + 1
