@@ -40,7 +40,8 @@ local function bags(at, quantity)
 end
 local function buy(at)
     assert(
-        store:vendorAction(
+        store:command(
+            "vendorAction",
             { kind = "purchase", key = key, itemID = 4540, link = link, quantity = 1 },
             at,
             { character = "Ada", realm = "Realm", level = 12, place = "Elwynn" }
@@ -188,7 +189,8 @@ local function scanSecond(quantity, at)
 end
 scanSecond(0, 1000)
 assert(
-    secondStore:vendorAction(
+    secondStore:command(
+        "vendorAction",
         { kind = "purchase", key = key, itemID = 4540, link = link, quantity = 1 },
         1001,
         { character = "Ada", realm = "Realm", level = 12, place = "Elwynn" }

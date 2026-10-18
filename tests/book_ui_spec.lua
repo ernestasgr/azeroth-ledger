@@ -362,7 +362,8 @@ find(
 local bread = "|Hitem:4540::::::::|h[Bread]|h"
 local breadKey = addon.Item.key(bread, 4540)
 assert(
-    store:vendorAction(
+    store:command(
+        "vendorAction",
         { kind = "purchase", key = breadKey, itemID = 4540, link = bread, quantity = 2 },
         1100,
         { character = "Ada", realm = "A", level = 12, place = "Elwynn" }
@@ -451,7 +452,8 @@ search:SetText("")
 frame.scripts.OnUpdate(frame, 0.1)
 find("1 entry")
 assert(
-    store:vendorAction(
+    store:command(
+        "vendorAction",
         { kind = "refund", key = breadKey, itemID = 4540, link = bread, quantity = 1 },
         1110,
         { character = "Ada", realm = "A", level = 12, place = "Elwynn" }
@@ -502,14 +504,14 @@ find(date("%d %b %Y  %H:%M", 4100))
 click("Review item changes")
 find("Item changes to review")
 find("No item changes need review in this view.")
-assert(store:lootOpen({
-    character = "Ada",
-    realm = "A",
-    level = 12,
-    place = "Forest",
-    at = 4110,
-    slots = { { key = "4540:0", quantity = 1 } },
-}))
+assert(
+    store:command(
+        "lootOpen",
+        { slots = { { key = "4540:0", quantity = 1 } } },
+        4110,
+        { character = "Ada", realm = "A", level = 12, place = "Forest" }
+    )
+)
 addon.Book.refresh(store)
 frame.scripts.OnUpdate(frame, 0.1)
 click("Loot pickup • Bread")
@@ -530,7 +532,8 @@ search:SetText("")
 frame.scripts.OnUpdate(frame, 0.1)
 for index = 1, 10 do
     assert(
-        store:vendorAction(
+        store:command(
+            "vendorAction",
             { kind = "purchase", key = "4540:0", itemID = 4540, link = bread, quantity = 1 },
             4170 + index,
             { character = "Ada", realm = "A", level = 12, place = "Forest" }

@@ -39,7 +39,7 @@ assert(
     #addon.Item.linkGroups({ crafted, (crafted:gsub("018D7859", "018D785A")) }) == 2,
     "Crafted links by different crafters were merged"
 )
-assert(fresh:rewardReceipt({
+assert(fresh:command("rewardReceipt", {
     key = "2853:0",
     quantity = 1,
     method = "Crafted",

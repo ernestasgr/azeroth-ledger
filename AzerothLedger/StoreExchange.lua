@@ -12,6 +12,14 @@ local StoreExchange = {}
 local exchangeStatuses = { pending = true, unresolved = true, settled = true, canceled = true }
 local mailKinds = { ["return"] = true, ["auction-purchase"] = true, unresolved = true }
 
+local function validChannel(channel)
+    return channel == "mail" or channel == "trade"
+end
+
+local function validDirection(direction)
+    return direction == "in" or direction == "out"
+end
+
 local function validMailKind(intent)
     return intent.mailKind == nil
         or (intent.channel == "mail" and intent.direction == "in" and mailKinds[intent.mailKind] == true)
@@ -39,7 +47,7 @@ local function validExchangeState(exchange)
             or action.id < 1
             or action.id >= exchange.nextID
             or ids[action.id]
-            or (action.channel ~= "mail" and action.channel ~= "trade")
+            or not validChannel(action.channel)
             or (action.direction ~= "in" and action.direction ~= "out")
             or type(action.key) ~= "string"
             or not isInteger(action.itemID)
@@ -75,7 +83,7 @@ local function validExchangeState(exchange)
             type(activity) ~= "table"
             or not isInteger(activity.id)
             or type(activity.key) ~= "string"
-            or (activity.channel ~= "mail" and activity.channel ~= "trade")
+            or not validChannel(activity.channel)
             or not isInteger(activity.quantity)
             or activity.quantity < 1
             or not isInteger(activity.at)
@@ -135,30 +143,7 @@ function StoreExchange.install(store, kernel, slice)
         return exchangeHealthy and savedState() or nil
     end
 
-    function store.exchangeIntent(_self, intent, at, actor)
-        if
-            not readable
-            or type(intent) ~= "table"
-            or (intent.channel ~= "mail" and intent.channel ~= "trade")
-            or (intent.direction ~= "in" and intent.direction ~= "out")
-            or not isInteger(intent.itemID)
-            or intent.itemID < 1
-            or addon.Item.key(intent.link, intent.itemID) ~= intent.key
-            or not isInteger(intent.quantity)
-            or intent.quantity < 1
-            or (intent.peerName ~= nil and not isName(intent.peerName))
-            or (intent.peerRealm ~= nil and not isName(intent.peerRealm))
-            or not validMailKind(intent)
-            or not isInteger(at)
-            or type(actor) ~= "table"
-            or not isName(actor.character)
-            or not isName(actor.realm)
-            or not isInteger(actor.level)
-            or type(actor.place) ~= "string"
-            or not validPlaceKind(actor.placeKind)
-        then
-            return false
-        end
+    local function exchangeIntent(intent, at, actor)
         local scope = kernel.area(areaKey(actor.character, actor.realm, "bags"))
         local state = exchangeState()
         if not state or type(scope) ~= "table" or not scope.complete or not validCheckID(scope.checkID) then
@@ -196,21 +181,11 @@ function StoreExchange.install(store, kernel, slice)
         return id
     end
 
-    function store.exchangeConfirm(_self, channel, direction, at, actor, ids)
-        if
-            not readable
-            or (channel ~= "mail" and channel ~= "trade")
-            or (direction ~= "in" and direction ~= "out")
-            or not isInteger(at)
-            or type(actor) ~= "table"
-            or not isName(actor.character)
-            or not isName(actor.realm)
-        then
-            return false
-        end
-        if not store:expireEvidence(at) then
-            return false
-        end
+    ---@param confirmation {channel: 'mail'|'trade', direction: 'in'|'out', ids?: ALExIds}
+    ---@param at integer
+    ---@param actor AzerothLedgerActor
+    local function exchangeConfirm(confirmation, at, actor)
+        local channel, direction, ids = confirmation.channel, confirmation.direction, confirmation.ids
         local state = exchangeState()
         if not state then
             return false
@@ -238,16 +213,9 @@ function StoreExchange.install(store, kernel, slice)
         return changed
     end
 
-    function store.exchangeCancel(_self, channel, actor)
+    local function exchangeCancel(channel, _, actor)
         local state = exchangeState()
-        if
-            not readable
-            or not state
-            or (channel ~= "mail" and channel ~= "trade")
-            or type(actor) ~= "table"
-            or not isName(actor.character)
-            or not isName(actor.realm)
-        then
+        if not state then
             return false
         end
         local changed = false
@@ -269,16 +237,9 @@ function StoreExchange.install(store, kernel, slice)
         return changed
     end
 
-    function store.exchangeMarkUnresolved(_self, id, actor)
+    local function exchangeMarkUnresolved(id, _, actor)
         local state = exchangeState()
-        if
-            not readable
-            or not state
-            or not isInteger(id)
-            or type(actor) ~= "table"
-            or not isName(actor.character)
-            or not isName(actor.realm)
-        then
+        if not state then
             return false
         end
         for _, action in ipairs(state.actions) do
@@ -655,7 +616,32 @@ function StoreExchange.install(store, kernel, slice)
         return handler
     end
 
-    return { engine = { stale = stale, expire = expire, visit = visit, check = check } }
+    local function validIntent(intent, actor)
+        return Evidence.validItemAction(intent, actor)
+            and validChannel(intent.channel)
+            and validDirection(intent.direction)
+            and (intent.peerName == nil or isName(intent.peerName))
+            and (intent.peerRealm == nil or isName(intent.peerRealm))
+            and validMailKind(intent)
+    end
+
+    return {
+        engine = { stale = stale, expire = expire, visit = visit, check = check },
+        ---@type table<string, AzerothLedgerCommand>
+        commands = {
+            exchangeIntent = { valid = validIntent, run = exchangeIntent, cost = 1 },
+            exchangeConfirm = {
+                valid = function(confirmation)
+                    return type(confirmation) == "table"
+                        and validChannel(confirmation.channel)
+                        and validDirection(confirmation.direction)
+                end,
+                run = exchangeConfirm,
+            },
+            exchangeCancel = { valid = validChannel, run = exchangeCancel },
+            exchangeMarkUnresolved = { valid = isInteger, run = exchangeMarkUnresolved },
+        },
+    }
 end
 
 addon.StoreExchange = StoreExchange

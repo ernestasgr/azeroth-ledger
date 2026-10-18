@@ -28,10 +28,7 @@ function TradeSession.new(runtime)
     local preparedIDs, peer
 
     local function cancel()
-        local character, realm = runtime.identity()
-        if character and realm then
-            runtime.store():exchangeCancel("trade", { character = character, realm = realm })
-        end
+        runtime.command("exchangeCancel", "trade")
     end
 
     local function prepare()

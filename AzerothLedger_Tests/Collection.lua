@@ -265,18 +265,13 @@ function tests.LootEquippedBeforeCheckingKeepsSourceSharesAndOneDiscovery(_self)
     scan("equipped", 1000, {})
     local first = { kind = "mob", guid = "Creature-0-1-1-1-1-001", name = "First mob" }
     local second = { kind = "mob", guid = "Creature-0-1-1-1-2-002", name = "Second mob" }
-    WoWUnit.IsTrue(store:lootOpen({
-        character = actor.character,
-        realm = actor.realm,
-        level = actor.level,
-        place = actor.place,
-        at = 1001,
+    WoWUnit.IsTrue(store:command("lootOpen", {
         slots = {
             { key = key, quantity = 1, source = first },
             { key = key, quantity = 1, source = second },
         },
-    }))
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 2 }, 1002, actor))
+    }, 1001, { character = actor.character, realm = actor.realm, level = actor.level, place = actor.place }))
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 2 }, 1002, actor))
     scan("bags", 1003, {})
     scan("equipped", 1003, {
         { itemID = 100, link = bear, quantity = 1 },
@@ -291,7 +286,7 @@ function tests.LootEquippedBeforeCheckingKeepsSourceSharesAndOneDiscovery(_self)
     WoWUnit.AreEqual(1, breakdown.sources["Second mob"])
     WoWUnit.AreEqual(1, #store:takeDiscoveries())
     WoWUnit.AreEqual(2, #store:find(key).links)
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 2 }, 1004, actor))
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 2 }, 1004, actor))
     scan("bags", 1005, { { itemID = 100, link = bear, quantity = 2 } })
     scan("equipped", 1005, {})
     WoWUnit.AreEqual(2, store:find(key).totalGained)
@@ -326,16 +321,17 @@ function tests.ContainerSpawnsShareOneSourceTotalWithoutLosingTheirGUIDs(_self)
         complete = true,
         items = {},
     }))
-    WoWUnit.IsTrue(store:lootOpen({
-        character = "Ada",
-        realm = "A",
-        at = 1001,
-        level = 1,
-        place = "Durotar",
-        slots = slots,
-    }))
     WoWUnit.IsTrue(
-        store:lootReceipt(
+        store:command(
+            "lootOpen",
+            { slots = slots },
+            1001,
+            { character = "Ada", realm = "A", level = 1, place = "Durotar" }
+        )
+    )
+    WoWUnit.IsTrue(
+        store:command(
+            "lootReceipt",
             { key = key, itemID = 11583, link = link, quantity = 5 },
             1002,
             { character = "Ada", realm = "A" }
@@ -496,7 +492,12 @@ function tests.IncompleteStorageRemainsUnknownAfterRefund(_self)
     scan("Ada", "bags", 1000, 0)
     local function vendor(kind, at)
         WoWUnit.IsTrue(
-            store:vendorAction({ kind = kind, key = key, itemID = 4540, link = bread, quantity = 1 }, at, actor)
+            store:command(
+                "vendorAction",
+                { kind = kind, key = key, itemID = 4540, link = bread, quantity = 1 },
+                at,
+                actor
+            )
         )
     end
     vendor("purchase", 1001)
@@ -697,15 +698,15 @@ function tests.CharacterTotalsSeparateInitialStockAndGainsFromAccountHistory(_se
     local key = addon.Item.key(meat, 2672)
     scan("Ben", "B", "bags", 1003, { { itemID = 2672, link = meat, quantity = 10 } })
     local actor = { character = "Ada", realm = "A", level = 12, place = "Forest" }
-    WoWUnit.IsTrue(store:lootOpen({
-        character = "Ada",
-        realm = "A",
-        level = 12,
-        at = 1010,
-        place = "Forest",
-        slots = { { key = key, quantity = 2 } },
-    }))
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 2 }, 1011, actor))
+    WoWUnit.IsTrue(
+        store:command(
+            "lootOpen",
+            { slots = { { key = key, quantity = 2 } } },
+            1010,
+            { character = "Ada", realm = "A", level = 12, place = "Forest" }
+        )
+    )
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 2 }, 1011, actor))
     scan("Ada", "A", "bags", 1012, { { itemID = 2672, link = meat, quantity = 402 } })
     local before = writes()
     local filter = { character = "Ben", realm = "B", search = "Meat" }
@@ -733,20 +734,20 @@ function tests.FirstGainOnAnotherCharacterIsNotAlsoInitialStock(_self)
         local key = addon.Item.key(meat, 2672)
         scan("Ben", "B", "bags", 1003, {})
         local actor = { character = "Ben", realm = "B", level = 12, place = "Forest" }
-        WoWUnit.IsTrue(store:lootOpen({
-            character = "Ben",
-            realm = "B",
-            level = 12,
-            at = 1010,
-            place = "Forest",
-            slots = { { key = key, quantity = 1 } },
-        }))
+        WoWUnit.IsTrue(
+            store:command(
+                "lootOpen",
+                { slots = { { key = key, quantity = 1 } } },
+                1010,
+                { character = "Ben", realm = "B", level = 12, place = "Forest" }
+            )
+        )
         if not delayed then
-            WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1011, actor))
+            WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 1 }, 1011, actor))
         end
         scan("Ben", "B", "bags", 1012, { { itemID = 2672, link = meat, quantity = 1 } })
         if delayed then
-            WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1013, actor))
+            WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 1 }, 1013, actor))
         end
         local detail = addon.Collection.inspect(store, key, "Ada", "A", { character = "Ben", realm = "B" })
         WoWUnit.AreEqual(nil, detail.characterOverall)
@@ -814,16 +815,14 @@ function tests.RecordedPlacesRequireGainEvidenceAndTimelineSurvivesPruning(_self
     local key = addon.Item.key(meat, 2672)
     local actor = { character = "Ada", realm = "A", level = 12, place = "Deadmines", placeKind = "dungeon" }
     WoWUnit.AreEqual(0, #addon.Collection.query(store, "Ada", "A", {}, metadata).places)
-    WoWUnit.IsTrue(store:lootOpen({
+    WoWUnit.IsTrue(store:command("lootOpen", { slots = { { key = key, quantity = 2 } } }, 1010, {
         character = actor.character,
         realm = actor.realm,
         level = actor.level,
-        at = 1010,
         place = actor.place,
         placeKind = actor.placeKind,
-        slots = { { key = key, quantity = 2 } },
     }))
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 2 }, 1011, actor))
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 2 }, 1011, actor))
     scan("Ada", "A", "bags", 1012, { { itemID = 2672, link = meat, quantity = 402 } })
     local result = addon.Collection.query(store, "Ada", "A", { place = "Deadmines", placeKind = "dungeon" }, metadata)
     WoWUnit.AreEqual(1, #result.rows)
@@ -917,7 +916,8 @@ function tests.LatestGainAndMethodFiltersFollowTheSelectedCharacter(_self)
     local store, scan = fixture()
     local key = addon.Item.key(wolf, 100)
     WoWUnit.IsTrue(
-        store:vendorAction(
+        store:command(
+            "vendorAction",
             { kind = "purchase", key = key, itemID = 100, link = wolf, quantity = 2 },
             2000,
             { character = "Ada", realm = "A", level = 12, place = "Forest" }

@@ -23,7 +23,12 @@ local function fixture()
     end
     local function action(kind, quantity)
         WoWUnit.IsTrue(
-            store:vendorAction({ kind = kind, key = key, itemID = 4540, link = link, quantity = quantity }, at, actor)
+            store:command(
+                "vendorAction",
+                { kind = kind, key = key, itemID = 4540, link = link, quantity = quantity },
+                at,
+                actor
+            )
         )
         at = at + 1
     end
@@ -145,7 +150,7 @@ function tests.TransferLimitPreservesStockAndDiscoveryDates(_self)
     scan("Ben", 1004, 0)
     local function exchange(character, peer, direction, at)
         local who = { character = character, realm = "Realm", level = 12, place = "Elwynn" }
-        WoWUnit.IsTrue(store:exchangeIntent({
+        WoWUnit.IsTrue(store:command("exchangeIntent", {
             channel = "mail",
             direction = direction,
             key = key,
@@ -155,7 +160,7 @@ function tests.TransferLimitPreservesStockAndDiscoveryDates(_self)
             peerName = peer,
             peerRealm = "Realm",
         }, at, who))
-        WoWUnit.IsTrue(store:exchangeConfirm("mail", direction, at + 1, who))
+        WoWUnit.IsTrue(store:command("exchangeConfirm", { channel = "mail", direction = direction }, at + 1, who))
     end
     exchange(actor.character, "Ben", "out", 1005)
     scan("Ada", 1007, 2)
@@ -208,7 +213,12 @@ function tests.DanglingHistoryIsIsolatedWithADiagnostic(_self)
     end
     scan(100, 2)
     WoWUnit.IsTrue(
-        store:vendorAction({ kind = "sale", key = key, itemID = 4540, link = link, quantity = 1 }, 101, actor)
+        store:command(
+            "vendorAction",
+            { kind = "sale", key = key, itemID = 4540, link = link, quantity = 1 },
+            101,
+            actor
+        )
     )
     scan(102, 1)
     saved.records[key] = "damaged"
@@ -308,7 +318,7 @@ function tests.ProvenExchangeChannelsSurviveReloadAndUnknownHistoryStaysUnknown(
             }))
         end
         scan(100, 0)
-        WoWUnit.IsTrue(store:exchangeIntent({
+        WoWUnit.IsTrue(store:command("exchangeIntent", {
             channel = channel,
             direction = "in",
             key = key,
@@ -318,7 +328,7 @@ function tests.ProvenExchangeChannelsSurviveReloadAndUnknownHistoryStaysUnknown(
             peerName = "Cara",
             peerRealm = "OtherRealm",
         }, 101, actor))
-        WoWUnit.IsTrue(store:exchangeConfirm(channel, "in", 102, actor))
+        WoWUnit.IsTrue(store:command("exchangeConfirm", { channel = channel, direction = "in" }, 102, actor))
         scan(103, 2)
         store = addon.Schema.open(saved, function(value)
             saved = value
@@ -383,7 +393,7 @@ function tests.SameNamedIntrinsicVariantsHaveSeparateReadOnlyHistory(_self)
     for index, suffix in ipairs({ 0, 99 }) do
         local variant = "|Hitem:4540:0:0:0:0:0:" .. suffix .. ":0|h[Bread]|h"
         local variantKey = addon.Item.key(variant, 4540)
-        WoWUnit.IsTrue(store:vendorAction({
+        WoWUnit.IsTrue(store:command("vendorAction", {
             kind = "purchase",
             key = variantKey,
             itemID = 4540,

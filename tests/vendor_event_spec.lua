@@ -140,14 +140,14 @@ BuyMerchantItem(1)
 event("BAG_UPDATE_DELAYED")
 assert(addon.store:find(key).totalGained == 2, "direct purchase without loot chat must count")
 
-assert(addon.store:lootOpen({
-    character = "Ada",
-    realm = "Realm",
-    level = 12,
-    place = "Elwynn Forest",
-    at = clock,
-    slots = { { key = key, quantity = 1 } },
-}))
+assert(
+    addon.store:command(
+        "lootOpen",
+        { slots = { { key = key, quantity = 1 } } },
+        clock,
+        { character = "Ada", realm = "Realm", level = 12, place = "Elwynn Forest" }
+    )
+)
 bagQuantity = 3
 event("CHAT_MSG_LOOT", "You receive item: " .. bread .. ".")
 event("BAG_UPDATE_DELAYED")

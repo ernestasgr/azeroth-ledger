@@ -71,6 +71,7 @@ end
 ---@field identity fun(): string?, string?
 ---@field player fun(): table?
 ---@field refresh fun(character: string, realm: string)
+---@field command fun(name: ALCommandName, payload: any, context?: table): any, table?
 ---@field exchangeIntent fun(intent: table): any
 ---@field exchangeConfirm fun(channel: string, direction: string, ids: table<string, true>?)
 ---@field reward fun(receipt: table?)
@@ -100,16 +101,24 @@ function Runtime.new(api, issues, store, inventory)
         addon.Collection.refresh(store(), character, realm)
     end
 
+    -- Sends one write to the store as the acting character at its time. A
+    -- session passes its own context when it adds fields such as a vendor name.
+    -- Returns the store's result and the context, or nothing without one.
+    function runtime.command(name, payload, context)
+        context = context or Runtime.player(api)
+        if context then
+            return store():command(name, payload, context.at, context), context
+        end
+    end
+
     function runtime.exchangeIntent(intent)
-        local context = Runtime.player(api)
-        if context and intent then
-            return store():exchangeIntent(intent, context.at, context)
+        if intent then
+            return (runtime.command("exchangeIntent", intent))
         end
     end
 
     function runtime.exchangeConfirm(channel, direction, ids)
-        local context = Runtime.player(api)
-        if context and store():exchangeConfirm(channel, direction, context.at, context, ids) then
+        if runtime.command("exchangeConfirm", { channel = channel, direction = direction, ids = ids }) then
             inventory:check("bags")
         end
     end
@@ -117,11 +126,11 @@ function Runtime.new(api, issues, store, inventory)
     -- Quest rewards can go straight into gear, so the gain is checked against
     -- bags and equipped slots together.
     function runtime.reward(receipt)
-        local context = Runtime.player(api)
-        if not receipt or not context then
+        if not receipt then
             return
         end
-        if store():rewardReceipt(receipt, context.at, context) then
+        local accepted, context = runtime.command("rewardReceipt", receipt)
+        if accepted and context then
             if receipt.method == "Quest" then
                 inventory:check("possessions")
             end

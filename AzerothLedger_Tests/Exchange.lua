@@ -30,11 +30,13 @@ local function intent(store, character, at, channel, direction, quantity, peer)
         peerName = peer,
         peerRealm = peer and "Realm" or nil,
     }
-    WoWUnit.IsTrue(store:exchangeIntent(entry, at, actor(character, at)))
+    WoWUnit.IsTrue(store:command("exchangeIntent", entry, at, actor(character, at)))
 end
 
 local function confirm(store, character, at, channel, direction)
-    WoWUnit.IsTrue(store:exchangeConfirm(channel, direction, at, actor(character, at)))
+    WoWUnit.IsTrue(
+        store:command("exchangeConfirm", { channel = channel, direction = direction }, at, actor(character, at))
+    )
 end
 
 function tests.AltMailWaitsForTakeAndSurvivesReplay(_self)
@@ -51,7 +53,10 @@ function tests.AltMailWaitsForTakeAndSurvivesReplay(_self)
     WoWUnit.AreEqual(0, store:find(key).totalGained)
     intent(store, "Ben", 105, "mail", "in", 3, "Ada")
     confirm(store, "Ben", 106, "mail", "in")
-    WoWUnit.AreEqual(false, store:exchangeConfirm("mail", "in", 106, actor("Ben", 106)))
+    WoWUnit.AreEqual(
+        false,
+        store:command("exchangeConfirm", { channel = "mail", direction = "in" }, 106, actor("Ben", 106))
+    )
     scan(store, "Ben", 107, 6)
     WoWUnit.AreEqual(0, store:find(key).totalGained)
     WoWUnit.AreEqual(1, #store:exchangeActivity())
@@ -93,7 +98,7 @@ function tests.CompletedTradeAndCanceledTrade(_self)
     intent(store, "Ben", 301, "trade", "in", 2, "Cara")
     scan(store, "Ben", 302, 1)
     WoWUnit.AreEqual(0, store:find(key).totalGained)
-    WoWUnit.IsTrue(store:exchangeCancel("trade", actor("Ben", 303)))
+    WoWUnit.IsTrue(store:command("exchangeCancel", "trade", 303, actor("Ben", 303)))
     intent(store, "Ben", 303, "trade", "in", 2, "Dana")
     confirm(store, "Ben", 304, "trade", "in")
     scan(store, "Ben", 305, 3)
@@ -185,7 +190,7 @@ end
 function tests.AmbiguousPlayerHasUnknownSourceAndMissingPlayerIsUnresolved(_self)
     local store = addon.Schema.open(nil, function() end)
     scan(store, "Ben", 700, 0)
-    WoWUnit.IsTrue(store:exchangeIntent({
+    WoWUnit.IsTrue(store:command("exchangeIntent", {
         channel = "mail",
         direction = "in",
         key = key,
@@ -198,7 +203,7 @@ function tests.AmbiguousPlayerHasUnknownSourceAndMissingPlayerIsUnresolved(_self
     scan(store, "Ben", 703, 1)
     WoWUnit.AreEqual(1, store:find(key).totalGained)
     WoWUnit.AreEqual(nil, store:find(key).gains[1].source)
-    WoWUnit.IsTrue(store:exchangeIntent({
+    WoWUnit.IsTrue(store:command("exchangeIntent", {
         channel = "mail",
         direction = "in",
         key = key,
@@ -219,7 +224,7 @@ function tests.PartialAltReceiptsAndOtherCharacterGains(_self)
     intent(store, "Ada", 801, "mail", "out", 3, "Ben")
     confirm(store, "Ada", 802, "mail", "out")
     scan(store, "Ada", 803, 0)
-    WoWUnit.IsTrue(store:exchangeIntent({
+    WoWUnit.IsTrue(store:command("exchangeIntent", {
         channel = "mail",
         direction = "in",
         key = key,
@@ -252,7 +257,7 @@ end
 function tests.SuccessConfirmsOnlySelectedAttachment(_self)
     local store = addon.Schema.open(nil, function() end)
     scan(store, "Ben", 1000, 0)
-    local first = store:exchangeIntent({
+    local first = store:command("exchangeIntent", {
         channel = "mail",
         direction = "in",
         key = key,
@@ -262,7 +267,7 @@ function tests.SuccessConfirmsOnlySelectedAttachment(_self)
         peerName = "Cara",
         peerRealm = "Realm",
     }, 1001, actor("Ben", 1001))
-    store:exchangeIntent({
+    store:command("exchangeIntent", {
         channel = "mail",
         direction = "in",
         key = key,
@@ -272,7 +277,9 @@ function tests.SuccessConfirmsOnlySelectedAttachment(_self)
         peerName = "Dana",
         peerRealm = "Realm",
     }, 1001, actor("Ben", 1001))
-    WoWUnit.IsTrue(store:exchangeConfirm("mail", "in", 1002, actor("Ben", 1002), first))
+    WoWUnit.IsTrue(
+        store:command("exchangeConfirm", { channel = "mail", direction = "in", ids = first }, 1002, actor("Ben", 1002))
+    )
     scan(store, "Ben", 1003, 2)
     WoWUnit.AreEqual(1, store:find(key).totalGained)
 end
@@ -297,7 +304,7 @@ function tests.ReturnedOwnMailDoesNotAddGainsOrDiscoveries(_self)
         peerRealm = "Realm",
         mailKind = "return",
     }
-    WoWUnit.IsTrue(store:exchangeIntent(returned, 1104, actor("Ada", 1104)))
+    WoWUnit.IsTrue(store:command("exchangeIntent", returned, 1104, actor("Ada", 1104)))
     confirm(store, "Ada", 1105, "mail", "in")
     scan(store, "Ada", 1106, 2)
     WoWUnit.AreEqual(0, store:find(key).totalGained)
@@ -307,7 +314,7 @@ function tests.ReturnedOwnMailDoesNotAddGainsOrDiscoveries(_self)
     WoWUnit.AreEqual("healthy", addon.Schema.open(saved, function() end):diagnostic().kind)
     -- The same outgoing units cannot prove a second return.
     scan(store, "Ada", 1107, 0)
-    WoWUnit.IsTrue(store:exchangeIntent(returned, 1108, actor("Ada", 1108)))
+    WoWUnit.IsTrue(store:command("exchangeIntent", returned, 1108, actor("Ada", 1108)))
     confirm(store, "Ada", 1109, "mail", "in")
     scan(store, "Ada", 1110, 2)
     WoWUnit.AreEqual(0, store:find(key).totalGained)
@@ -326,7 +333,7 @@ function tests.AuctionBuyerInvoiceCountsAndUnprovenReturnStaysUnresolved(_self)
         quantity = 1,
         mailKind = "auction-purchase",
     }
-    WoWUnit.IsTrue(store:exchangeIntent(entry, 1201, actor("Ben", 1201)))
+    WoWUnit.IsTrue(store:command("exchangeIntent", entry, 1201, actor("Ben", 1201)))
     confirm(store, "Ben", 1202, "mail", "in")
     scan(store, "Ben", 1203, 1)
     WoWUnit.AreEqual(1, store:find(key).totalGained)
@@ -334,7 +341,7 @@ function tests.AuctionBuyerInvoiceCountsAndUnprovenReturnStaysUnresolved(_self)
     WoWUnit.AreEqual(nil, store:find(key).gains[1].source)
     entry.mailKind = "return"
     entry.peerName = "Cara"
-    WoWUnit.IsTrue(store:exchangeIntent(entry, 1204, actor("Ben", 1204)))
+    WoWUnit.IsTrue(store:command("exchangeIntent", entry, 1204, actor("Ben", 1204)))
     confirm(store, "Ben", 1205, "mail", "in")
     scan(store, "Ben", 1206, 2)
     WoWUnit.AreEqual(1, store:find(key).totalGained)

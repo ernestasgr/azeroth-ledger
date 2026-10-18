@@ -29,7 +29,7 @@ function QuestSession.new(runtime)
         for _, receipt in ipairs(receipts) do
             receipt.preview = true
             receipt.choiceGroup = choiceGroup
-            changed = runtime.store():rewardReceipt(receipt, context.at, context) or changed
+            changed = runtime.command("rewardReceipt", receipt, context) or changed
         end
         return changed
     end
@@ -43,7 +43,7 @@ function QuestSession.new(runtime)
         end
         local id = questID(api, offer)
         if id then
-            runtime.store():questPrepared(id, context.at, context)
+            runtime.command("questPrepared", id, context)
         end
         if not offer then
             return
@@ -59,10 +59,9 @@ function QuestSession.new(runtime)
 
     local function detail()
         runtime.inventory:check("possessions")
-        local context = runtime.player()
         local id = questID(api)
-        if context and id then
-            runtime.store():questOffered(id, context.at, context)
+        if id then
+            runtime.command("questOffered", id)
         end
     end
 
@@ -72,7 +71,7 @@ function QuestSession.new(runtime)
             return
         end
         context.questName = addon.Reward.questName(api, id)
-        if runtime.store():questAccepted(id, context.at, context) then
+        if runtime.command("questAccepted", id, context) then
             runtime.inventory:check("possessions")
         end
     end
@@ -86,8 +85,7 @@ function QuestSession.new(runtime)
                 runtime.reward(addon.Reward.quest(api, ...))
             end,
             QUEST_TURNED_IN = function(id)
-                local context = runtime.player()
-                if context and runtime.store():questTurnedIn(id, context.at, context) then
+                if runtime.command("questTurnedIn", id) then
                     runtime.inventory:check("possessions")
                 end
             end,

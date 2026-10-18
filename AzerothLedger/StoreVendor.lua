@@ -145,27 +145,7 @@ function StoreVendor.install(store, kernel, slice)
         return nil
     end
 
-    function store.vendorAction(_self, action, at, actor)
-        if
-            not readable
-            or type(action) ~= "table"
-            or not vendorKinds[action.kind]
-            or not isInteger(action.itemID)
-            or action.itemID < 1
-            or addon.Item.key(action.link, action.itemID) ~= action.key
-            or not isInteger(action.quantity)
-            or action.quantity < 1
-            or not isInteger(at)
-            or type(actor) ~= "table"
-            or not isName(actor.character)
-            or not isName(actor.realm)
-            or not isInteger(actor.level)
-            or type(actor.place) ~= "string"
-            or not validPlaceKind(actor.placeKind)
-            or (actor.vendorName ~= nil and not isName(actor.vendorName))
-        then
-            return false
-        end
+    local function vendorAction(action, at, actor)
         local actionArea = action.area or "bags"
         if actionArea ~= "bags" and (actionArea ~= "equipped" or action.kind ~= "refund") then
             return false
@@ -312,20 +292,7 @@ function StoreVendor.install(store, kernel, slice)
         end
     end
 
-    function store.vendorReceipt(_self, receipt, at, actor)
-        if
-            not readable
-            or type(receipt) ~= "table"
-            or type(receipt.key) ~= "string"
-            or not isInteger(receipt.quantity)
-            or receipt.quantity < 1
-            or not isInteger(at)
-            or type(actor) ~= "table"
-            or not isName(actor.character)
-            or not isName(actor.realm)
-        then
-            return false
-        end
+    local function vendorReceipt(receipt, at, actor)
         local state = copyValue(vendorState())
         if not state then
             return false
@@ -457,7 +424,21 @@ function StoreVendor.install(store, kernel, slice)
         return handler
     end
 
-    return { engine = { stale = stale, expire = expire, visit = visit, check = check } }
+    local function validAction(action, actor)
+        return Evidence.validItemAction(action, actor)
+            and vendorKinds[action.kind] == true
+            and (action.area == nil or action.area == "bags" or action.area == "equipped")
+            and (actor.vendorName == nil or isName(actor.vendorName))
+    end
+
+    return {
+        engine = { stale = stale, expire = expire, visit = visit, check = check },
+        ---@type table<string, AzerothLedgerCommand>
+        commands = {
+            vendorAction = { valid = validAction, run = vendorAction, cost = 1 },
+            vendorReceipt = { valid = Evidence.validReceipt, run = vendorReceipt, cost = 1, unmatched = true },
+        },
+    }
 end
 
 addon.StoreVendor = StoreVendor

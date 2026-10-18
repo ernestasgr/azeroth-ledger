@@ -4,6 +4,7 @@ local _, addon = ...
 
 local V = addon.SchemaValidate
 local isInteger, isName, validPlaceKind = V.isInteger, V.isName, V.validPlaceKind
+local validGainActor = V.validGainActor
 local validRewardContext, copyValue = V.validRewardContext, V.copyValue
 local Evidence = addon.StoreEvidence
 
@@ -209,17 +210,6 @@ function StoreReward.install(store, kernel, slice)
     end
 
     local function prepare(questID, at, actor, stage)
-        if
-            not readable
-            or not isInteger(questID)
-            or questID < 1
-            or not isInteger(at)
-            or type(actor) ~= "table"
-            or not isName(actor.character)
-            or not isName(actor.realm)
-        then
-            return false
-        end
         local area = store:area(actor.character, actor.realm, "bags")
         local equippedArea = store:area(actor.character, actor.realm, "equipped")
         if
@@ -278,33 +268,19 @@ function StoreReward.install(store, kernel, slice)
     end
 
     -- Possessions before the reward window opens; QUEST_TURNED_IN confirms them.
-    function store.questPrepared(_self, questID, at, actor)
+    local function questPrepared(questID, at, actor)
         return prepare(questID, at, actor, nil)
     end
 
     -- Possessions before a quest is accepted. Quest givers can hand over
     -- items, such as a letter to deliver, that the offer never names.
-    function store.questOffered(_self, questID, at, actor)
+    local function questOffered(questID, at, actor)
         return prepare(questID, at, actor, "accept")
     end
 
     -- QUEST_ACCEPTED confirms the offer. The next paired possessions check
     -- credits each item that rose above the offer baseline to the quest.
-    function store.questAccepted(_self, questID, at, actor)
-        if
-            not readable
-            or not isInteger(questID)
-            or not isInteger(at)
-            or type(actor) ~= "table"
-            or not isName(actor.character)
-            or not isName(actor.realm)
-            or not isInteger(actor.level)
-            or type(actor.place) ~= "string"
-            or not validPlaceKind(actor.placeKind)
-            or (actor.questName ~= nil and not isName(actor.questName))
-        then
-            return false
-        end
+    local function questAccepted(questID, at, actor)
         local preparation = questPreparation(questID, at, actor, "accept")
         if not preparation or preparation.confirmed then
             return false
@@ -325,27 +301,7 @@ function StoreReward.install(store, kernel, slice)
     ---@param receipt AzerothLedgerRewardReceipt
     ---@param at integer
     ---@param actor AzerothLedgerGainActor
-    function store.rewardReceipt(_self, receipt, at, actor)
-        if
-            not readable
-            or type(receipt) ~= "table"
-            or type(receipt.key) ~= "string"
-            or (receipt.method ~= "Quest" and receipt.method ~= "Crafted")
-            or not isInteger(receipt.quantity)
-            or receipt.quantity < 1
-            or not isInteger(at)
-            or type(actor) ~= "table"
-            or not isName(actor.character)
-            or not isName(actor.realm)
-            or not isInteger(actor.level)
-            or type(actor.place) ~= "string"
-            or not validPlaceKind(actor.placeKind)
-            or (receipt.preview ~= nil and type(receipt.preview) ~= "boolean")
-            or (receipt.choiceGroup ~= nil and (type(receipt.choiceGroup) ~= "string" or receipt.choiceGroup == ""))
-            or (receipt.choiceGroup ~= nil and (receipt.method ~= "Quest" or not receipt.preview))
-        then
-            return false
-        end
+    local function rewardReceipt(receipt, at, actor)
         local area = store:area(actor.character, actor.realm, "bags")
         if not area or not area.complete or area.seenAt > at then
             return false
@@ -423,21 +379,7 @@ function StoreReward.install(store, kernel, slice)
         return true
     end
 
-    function store.questTurnedIn(_self, questID, at, actor)
-        if
-            not readable
-            or not isInteger(questID)
-            or questID < 1
-            or not isInteger(at)
-            or type(actor) ~= "table"
-            or not isName(actor.character)
-            or not isName(actor.realm)
-        then
-            return false
-        end
-        if not store:expireEvidence(at) then
-            return false
-        end
+    local function questTurnedIn(questID, at, actor)
         local changed = false
         local preparation = questPreparation(questID, at, actor, nil)
         if preparation and not preparation.confirmed then
@@ -711,9 +653,40 @@ function StoreReward.install(store, kernel, slice)
         return handler
     end
 
+    local function validQuest(questID)
+        return isInteger(questID) and questID > 0
+    end
+
+    local function validRewardReceipt(receipt, actor)
+        return Evidence.validReceipt(receipt)
+            and validGainActor(actor)
+            and (receipt.method == "Quest" or receipt.method == "Crafted")
+            and validRewardContext(receipt.context, receipt.method)
+            and (receipt.preview == nil or type(receipt.preview) == "boolean")
+            and (
+                receipt.choiceGroup == nil
+                or (isName(receipt.choiceGroup) and receipt.method == "Quest" and receipt.preview == true)
+            )
+    end
+
     return {
         engine = { stale = stale, expire = expire, visit = visit, check = check },
         confirmed = confirmedReward,
+        ---@type table<string, AzerothLedgerCommand>
+        commands = {
+            questPrepared = { valid = validQuest, run = questPrepared, cost = 1 },
+            questOffered = { valid = validQuest, run = questOffered },
+            questAccepted = {
+                valid = function(questID, actor)
+                    return isInteger(questID)
+                        and validGainActor(actor)
+                        and (actor.questName == nil or isName(actor.questName))
+                end,
+                run = questAccepted,
+            },
+            rewardReceipt = { valid = validRewardReceipt, run = rewardReceipt, cost = 1 },
+            questTurnedIn = { valid = validQuest, run = questTurnedIn },
+        },
     }
 end
 
