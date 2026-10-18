@@ -1,10 +1,50 @@
 local _, addon = ...
 
 local Scan = {}
-local containerIDs = {
+local classicContainers = {
     bags = { 0, 1, 2, 3, 4 },
     bank = { -1, 5, 6, 7, 8, 9, 10, 11 },
 }
+
+local function whole(value, fallback)
+    return type(value) == "number" and value >= 0 and value == math.floor(value) and value or fallback
+end
+
+-- Forever numbers containers like the mainline client: the reagent bag and
+-- keyring are carried, and the character bank is its tabs. Clients without
+-- those enums keep the Classic bank (-1) and bank bags (5-11).
+---@param api table
+---@param area 'bags'|'bank'|'equipped'
+---@return integer[]
+function Scan.containers(api, area)
+    local index = type(api.Enum) == "table" and api.Enum.BagIndex
+    if type(index) ~= "table" or type(index.CharacterBankTab_1) ~= "number" then
+        return classicContainers[area] or {}
+    end
+    local inventory = type(api.Constants) == "table" and api.Constants.InventoryConstants or {}
+    local ids = {}
+    if area == "bags" then
+        local backpack = whole(index.Backpack, 0)
+        for id = backpack, backpack + whole(inventory.NumBagSlots, 4) do
+            ids[#ids + 1] = id
+        end
+        if type(index.ReagentBag) == "number" then
+            for offset = 0, whole(inventory.NumReagentBagSlots, 1) - 1 do
+                ids[#ids + 1] = index.ReagentBag + offset
+            end
+        end
+        if type(index.Keyring) == "number" then
+            ids[#ids + 1] = index.Keyring
+        end
+    elseif area == "bank" then
+        local tab = 1
+        while type(index["CharacterBankTab_" .. tab]) == "number" do
+            ids[#ids + 1] = index["CharacterBankTab_" .. tab]
+            tab = tab + 1
+        end
+    end
+    return ids
+end
 
 ---@class AzerothLedgerContainerItemInfo
 ---@field itemID integer
@@ -173,7 +213,7 @@ function Scan.capture(api, area, bankOpen, cache, affected)
         snapshot.complete = false
         return snapshot
     end
-    for _, bag in ipairs(containerIDs[area] or {}) do
+    for _, bag in ipairs(Scan.containers(api, area)) do
         local cached = cache and cache[bag]
         if cached and cached.complete and affected and not affected[bag] then
             appendCached(snapshot, cached)

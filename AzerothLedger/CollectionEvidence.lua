@@ -102,14 +102,14 @@ function CollectionEvidence.query(store, filter, pause)
             if (entry.kind == "vendor" or entry.kind == "vendorAction") and entry.action then
                 action = "Vendor " .. entry.action
             elseif entry.kind == "exchange" or entry.kind == "exchangeIntent" then
-                action = entry.channel == "mail" and "Mail" or entry.channel == "trade" and "Trade" or "Mail or trade"
+                action = ({ mail = "Mail", trade = "Trade", guild = "Guild bank" })[entry.channel] or "Mail or trade"
                 if entry.direction == "in" then
                     action = action .. " received"
                 elseif entry.direction == "out" then
                     action = action .. " sent"
                 end
             elseif entry.method then
-                action = entry.method == "Crafted" and "Craft" or "Quest reward"
+                action = ({ Crafted = "Craft", Obtained = "Item received" })[entry.method] or "Quest reward"
             end
             if
                 (not filter.character or entry.character == filter.character)

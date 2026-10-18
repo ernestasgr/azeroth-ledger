@@ -4,6 +4,7 @@
 ## Dependencies: AzerothLedger, WoWUnit
 
 Smoke.lua
+Forever.lua
 Vendor.lua
 Exchange.lua
 Evidence.lua

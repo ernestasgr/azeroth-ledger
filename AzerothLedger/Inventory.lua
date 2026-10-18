@@ -61,9 +61,9 @@ function Inventory.new(api, publish, afterFlush)
             local affected = next(bags) and bags or nil
             capture("bags", at, affected)
             capture("equipped", at, equipment)
-            local bankChanged = not affected or affected[-1]
-            for bag = 5, 11 do
-                bankChanged = bankChanged or (affected and affected[bag])
+            local bankChanged = not affected
+            for _, bag in ipairs(addon.Scan.containers(api, "bank")) do
+                bankChanged = bankChanged or (affected ~= nil and affected[bag] == true)
             end
             if bankOpen and bankChanged then
                 capture("bank", at, affected)

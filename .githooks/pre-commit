@@ -1,5 +1,5 @@
 #!/bin/sh
-# Refuse staged files over 5,000 tokens. Enable with: git config core.hooksPath .githooks
+# Refuse staged files whose code is over 5,000 tokens. Enable with: git config core.hooksPath .githooks
 root=$(git rev-parse --show-toplevel)
 for python in "$root/.venv/Scripts/python" "$root/.venv/bin/python" python3 python; do
     if command -v "$python" >/dev/null 2>&1; then

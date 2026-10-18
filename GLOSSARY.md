@@ -12,15 +12,15 @@ Azeroth Ledger keeps a Collection of items found on your characters and a Journa
 
 **Seen**: The addon found the item in a character's bags, bank, or equipped gear. This alone does not say when or how you got it.
 
-**Looted**: The addon matched loot you picked up to the item appearing in your character's possessions. Nearby creatures and another player's loot do not count.
+**Looted**: The addon matched loot you picked up, or a group loot roll you won, to the item appearing in your character's possessions. Nearby creatures and another player's loot do not count.
 
-**Obtained**: The addon confirmed that your character got the item another way, such as from a quest reward, crafting, a vendor, mail, or trade. It may know that you got it without knowing exactly how.
+**Obtained**: The addon confirmed that your character got the item another way, such as from a quest reward, crafting or conjuring, a vendor, mail, trade, the guild bank, or an item an NPC handed you. It may know that you got it without knowing exactly how.
 
 **Total found**: Items found on the first check plus later confirmed gains. It does not tell you how many you have now.
 
 **Total gained**: The number of items confirmed gained from outside the characters you have checked, minus confirmed refunds. Items already present at the first check and moves between your own characters do not add to this total.
 
-**Transfer**: An item moved between your own characters. It appears in the Journal but does not count as a new gain.
+**Transfer**: An item moved between your own characters, by mail, trade, or the guild bank. It appears in the Journal but does not count as a new gain. Taking back your own guild bank deposit is not a gain either.
 
 **Vendor sale, refund, and buyback**: Selling an item does not change Total gained. A confirmed refund subtracts the purchase from Total gained. Buying back a sold item does not count as a new gain.
 

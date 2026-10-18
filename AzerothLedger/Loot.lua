@@ -7,6 +7,10 @@ local Loot = {}
 ---@class AzerothLedgerLootApi
 ---@field LOOT_ITEM_SELF? string
 ---@field LOOT_ITEM_SELF_MULTIPLE? string
+---@field LOOT_ITEM_PUSHED_SELF? string
+---@field LOOT_ITEM_PUSHED_SELF_MULTIPLE? string
+---@field LOOT_ITEM_CREATED_SELF? string
+---@field LOOT_ITEM_CREATED_SELF_MULTIPLE? string
 ---@field GetNumLootItems? fun(): integer
 ---@field GetLootSlotLink? fun(slot: integer): string?
 ---@field GetLootSlotInfo? fun(slot: integer): any, any, integer?
@@ -28,6 +32,14 @@ local function receiptPattern(formatString)
     pattern = pattern:gsub("%%%%s", "(.-)"):gsub("%%%%d", "(%%d+)")
     return "^" .. pattern .. "$"
 end
+
+-- The player's own item receipts: loot taken, an item handed over (a purchase,
+-- mail, a quest or an NPC), and an item made by a recipe or spell.
+local receiptFormats = {
+    { kind = "loot", single = "LOOT_ITEM_SELF", multiple = "LOOT_ITEM_SELF_MULTIPLE" },
+    { kind = "pushed", single = "LOOT_ITEM_PUSHED_SELF", multiple = "LOOT_ITEM_PUSHED_SELF_MULTIPLE" },
+    { kind = "created", single = "LOOT_ITEM_CREATED_SELF", multiple = "LOOT_ITEM_CREATED_SELF_MULTIPLE" },
+}
 
 local function pack(...)
     return { n = select("#", ...), ... }
@@ -133,16 +145,20 @@ function Loot.receipt(api, message)
     if type(message) ~= "string" then
         return nil
     end
-    local link, quantity
-    local multiple = receiptPattern(api.LOOT_ITEM_SELF_MULTIPLE)
-    if multiple then
-        link, quantity = message:match(multiple)
-    end
-    if not link then
-        local single = receiptPattern(api.LOOT_ITEM_SELF)
-        if single then
-            link = message:match(single)
+    local link, quantity, kind
+    for _, format in ipairs(receiptFormats) do
+        local pattern = receiptPattern(api[format.multiple])
+        if pattern then
+            link, quantity = message:match(pattern)
+        end
+        if not link then
+            pattern = receiptPattern(api[format.single])
+            link = pattern and message:match(pattern) or nil
             quantity = 1
+        end
+        if link then
+            kind = format.kind
+            break
         end
     end
     if not link then
@@ -154,7 +170,7 @@ function Loot.receipt(api, message)
         return nil
     end
     local key = addon.Item.key(link, itemID)
-    return key and { key = key, itemID = itemID, link = link, quantity = quantity } or nil
+    return key and { key = key, itemID = itemID, link = link, quantity = quantity, kind = kind } or nil
 end
 
 ---@param api AzerothLedgerLootApi
@@ -204,12 +220,16 @@ Loot.commands = { "lootOpen", "lootSourceProof", "lootClose", "lootReceipt", "ve
 ---@field commands ALCommands Built from `Loot.commands`
 ---@field refresh fun(character: string, realm: string)
 ---@field merchantOpen fun(): boolean
+---@field received fun(receipt: AzerothLedgerLootReceipt) An item handed over or made outside a merchant
+---@field clock fun(): integer?
 
 ---@param deps ALLootDependencies
 function Loot.new(deps)
     local api, commands, refresh = deps.api, deps.commands, deps.refresh
     -- Fast loot can finish at LOOT_READY; LOOT_OPENED must keep that pre-gain baseline.
     local captured = false
+    -- Loot lines no window matched, by item key, for a roll reported after them.
+    local unplaced = {}
 
     local function proveSources(slots)
         local proven, context = commands.lootSourceProof({ slots = slots })
@@ -235,10 +255,44 @@ function Loot.new(deps)
         if not parsed then
             return
         end
-        local write = deps.merchantOpen() and commands.vendorReceipt or commands.lootReceipt
+        local write
+        if deps.merchantOpen() and parsed.kind ~= "created" then
+            write = commands.vendorReceipt
+        elseif parsed.kind == "loot" then
+            write = commands.lootReceipt
+        else
+            deps.received(parsed)
+            return
+        end
         local accepted, context = write(parsed)
         if accepted and context then
             refresh(context.character, context.realm)
+        elseif write == commands.lootReceipt then
+            unplaced[parsed.key] = { receipt = parsed, at = deps.clock() }
+        end
+    end
+
+    -- A roll you won proves the item as a loot window would, so it opens a
+    -- one-slot cycle for the loot line that comes with it.
+    local function rollWon(link, quantity)
+        local itemID = type(link) == "string" and tonumber(link:match("|Hitem:(%d+)")) or nil
+        local key = itemID and addon.Item.key(link, itemID)
+        if not key then
+            return
+        end
+        if type(quantity) ~= "number" or quantity < 1 or quantity ~= math.floor(quantity) then
+            quantity = nil
+        end
+        if not commands.lootOpen({ slots = { { key = key, quantity = quantity } } }) then
+            return
+        end
+        local held, at = unplaced[key], deps.clock()
+        unplaced[key] = nil
+        if held and held.at and at and at - held.at <= 10 then
+            local accepted, context = commands.lootReceipt(held.receipt)
+            if accepted and context then
+                refresh(context.character, context.realm)
+            end
         end
     end
 
@@ -257,6 +311,7 @@ function Loot.new(deps)
                 commands.lootClose()
             end,
             CHAT_MSG_LOOT = receipt,
+            LOOT_ITEM_ROLL_WON = rollWon,
         },
     }
 end

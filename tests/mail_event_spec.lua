@@ -53,6 +53,29 @@ local restored = addon.Schema.open(AzerothLedgerDB, function() end)
 assert(restored:diagnostic().kind == "healthy")
 assert(addon.Journal.query(restored)[1].action == "Auction purchase")
 
+-- A Black Market win arrives as system mail with no invoice. Won this session,
+-- it is a purchase; the same mail with no win stays unconfirmed.
+for _, wonHere in ipairs({ true, false }) do
+    addon, state = mailbox()
+    state.messages = { { sender = "Madam Swyndle", canReply = false, items = { { quantity = 1 } } } }
+    if wonHere then
+        state:event("BLACK_MARKET_WON", 7, 4540)
+    end
+    state:event("MAIL_SHOW")
+    _G.TakeInboxItem(1, 1)
+    state:event("CHAT_MSG_LOOT", "You receive item: |Hitem:4540::::::::|h[Bread]|h.")
+    state.messages[1].items = {}
+    state.bags = { { quantity = 1 } }
+    state:event("MAIL_SUCCESS")
+    state:event("BAG_UPDATE_DELAYED")
+    state:event("BAG_UPDATE_DELAYED")
+    record = addon.store:find("4540:0")
+    assert(record.totalGained == (wonHere and 1 or 0), "only a Black Market win makes system mail a purchase")
+    if wonHere then
+        assert(addon.Journal.query(addon.store)[1].action == "Auction purchase")
+    end
+end
+
 -- Duplicate success/chat/bag signals cannot re-credit an individual take.
 addon, state = mailbox()
 state.messages = { { sender = "Cara-Realm", items = { { quantity = 3 } } } }

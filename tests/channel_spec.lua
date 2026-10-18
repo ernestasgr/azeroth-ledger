@@ -168,6 +168,11 @@ local exchange = addon.Exchange.new(strict("exchange dependencies", {
         GetTradePlayerItemLink = function() end,
         GetTradePlayerItemInfo = function() end,
         ERR_TRADE_COMPLETE = "Trade complete.",
+        C_Timer = {
+            After = function(_, callback)
+                callback()
+            end,
+        },
     }),
     issues = issues,
     commands = commands(addon.Exchange.commands, calls),
@@ -185,5 +190,35 @@ assert(named(calls, "exchangeIntent").payload.quantity == 2, "an accepted trade 
 exchange.events.UI_INFO_MESSAGE(nil, "Trade complete.")
 assert(named(calls, "exchangeConfirm").payload.channel == "trade", "a completed trade confirms the exchange")
 assert(checks[#checks] == "bags", "a confirmed exchange checks bags for the traded items")
+
+-- The server completes a trade when the second player accepts, so the client
+-- may never report both accepted: one acceptance prepares the items.
+local function count(name)
+    local total = 0
+    for _, call in ipairs(calls) do
+        total = total + (call.name == name and 1 or 0)
+    end
+    return total
+end
+exchange.events.TRADE_SHOW()
+local intents, confirms = count("exchangeIntent"), count("exchangeConfirm")
+exchange.events.TRADE_ACCEPT_UPDATE(0, 1)
+assert(count("exchangeIntent") > intents, "the partner's acceptance records the trade")
+exchange.events.UI_INFO_MESSAGE(nil, "Trade complete.")
+assert(count("exchangeConfirm") > confirms, "the trade completed on your acceptance")
+
+-- An acceptance withdrawn ends the prepared items.
+exchange.events.TRADE_SHOW()
+local cancels = count("exchangeCancel")
+exchange.events.TRADE_ACCEPT_UPDATE(1, 0)
+exchange.events.TRADE_ACCEPT_UPDATE(0, 0)
+assert(count("exchangeCancel") > cancels, "a withdrawn acceptance cancels the prepared trade")
+
+-- A partner who cancels after your acceptance closes the window with no trade.
+exchange.events.TRADE_SHOW()
+cancels = count("exchangeCancel")
+exchange.events.TRADE_ACCEPT_UPDATE(1, 0)
+exchange.events.TRADE_CLOSED()
+assert(count("exchangeCancel") > cancels, "a closed window with no completed trade cancels it")
 
 print("channel_spec: passed")

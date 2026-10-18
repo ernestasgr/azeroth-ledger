@@ -158,12 +158,17 @@ Reward.commands = { "rewardReceipt", "questPrepared", "questOffered", "questAcce
 ---@field commands ALCommands Built from `Reward.commands`
 ---@field check fun(area: string)
 ---@field refresh fun(character: string, realm: string)
+---@field exchangeOpen fun(): boolean Whether a mailbox or trade window explains a received item
+
+-- Seconds after a quest window closes in which a received item is the quest's.
+local questQuiet = 5
 
 ---@param deps ALRewardDependencies
 function Reward.new(deps)
     local api, clock, commands, check, refresh = deps.api, deps.clock, deps.commands, deps.check, deps.refresh
     local offers = 0
     local recipeID
+    local questOpen, questAt = false, nil
 
     -- Quest rewards can go straight into gear, so the gain is checked against
     -- bags and equipped slots together.
@@ -236,15 +241,56 @@ function Reward.new(deps)
         recipeID = nil
     end
 
+    local function questWindow(open)
+        questOpen, questAt = open, clock()
+    end
+
+    local function questBusy()
+        local at = clock()
+        return questOpen or (questAt ~= nil and at ~= nil and at - questAt <= questQuiet)
+    end
+
+    -- A receipt the loot channel could not place. A recipe's item is left to
+    -- its craft result; anything else made by you was conjured by a spell. An
+    -- item handed over outside a quest, mailbox or trade came from an NPC or
+    -- from using another item.
+    ---@param parsed AzerothLedgerLootReceipt
+    local function received(parsed)
+        local receipt
+        if parsed.kind == "created" and not recipeID then
+            receipt = { key = parsed.key, quantity = parsed.quantity, method = "Crafted" }
+        elseif parsed.kind == "pushed" and not questBusy() and not deps.exchangeOpen() then
+            receipt = { key = parsed.key, quantity = parsed.quantity, method = "Obtained" }
+        end
+        receive(receipt)
+    end
+
     return {
+        received = received,
         events = {
-            QUEST_DETAIL = detail,
-            QUEST_ACCEPTED = accepted,
-            QUEST_COMPLETE = offered,
+            QUEST_DETAIL = function()
+                questWindow(true)
+                detail()
+            end,
+            QUEST_PROGRESS = function()
+                questWindow(true)
+            end,
+            QUEST_FINISHED = function()
+                questWindow(false)
+            end,
+            QUEST_ACCEPTED = function(id)
+                questWindow(questOpen)
+                accepted(id)
+            end,
+            QUEST_COMPLETE = function()
+                questWindow(true)
+                offered()
+            end,
             QUEST_LOOT_RECEIVED = function(...)
                 receive(Reward.quest(api, ...))
             end,
             QUEST_TURNED_IN = function(id)
+                questWindow(questOpen)
                 if commands.questTurnedIn(id) then
                     check("possessions")
                 end

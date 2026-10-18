@@ -10,14 +10,19 @@ LastSeen.lua
 LastSeenChecks.lua
 Trace.lua
 SchemaValidate.lua
+StoreRecordCheck.lua
+StoreGainMath.lua
 StoreKernel.lua
 StorePreferences.lua
 StoreJournal.lua
 StoreEvidence.lua
 StoreRecords.lua
 StoreLoot.lua
+StoreExchangeState.lua
+StoreTransfer.lua
 StoreExchange.lua
 StoreVendor.lua
+StoreRewardState.lua
 StoreReward.lua
 StoreScan.lua
 StoreCommand.lua
@@ -29,6 +34,7 @@ Loot.lua
 Reward.lua
 Vendor.lua
 Exchange.lua
+GuildBank.lua
 CollectionEvidence.lua
 Collection.lua
 Presentation.lua

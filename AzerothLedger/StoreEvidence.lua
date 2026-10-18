@@ -16,6 +16,9 @@ local copyRecord, sameSource = V.copyRecord, V.sameSource
 
 local StoreEvidence = {}
 
+-- Reward methods a retained receipt may name.
+local rewardMethods = { Quest = true, Crafted = true, Obtained = true }
+
 local function validEvidence(state)
     if
         type(state) ~= "table"
@@ -249,8 +252,10 @@ function StoreEvidence.install(store, kernel, slice)
                 itemID = isInteger(detail.itemID) and detail.itemID > 0 and detail.itemID or nil,
                 quantity = isInteger(quantity) and quantity > 0 and quantity or nil,
                 action = type(detail.kind) == "string" and detail.kind or nil,
-                method = (detail.method == "Quest" or detail.method == "Crafted") and detail.method or nil,
-                channel = (detail.channel == "mail" or detail.channel == "trade") and detail.channel or nil,
+                method = rewardMethods[detail.method] and detail.method or nil,
+                channel = (detail.channel == "mail" or detail.channel == "trade" or detail.channel == "guild")
+                        and detail.channel
+                    or nil,
                 direction = (detail.direction == "in" or detail.direction == "out") and detail.direction or nil,
                 area = type(detail.area) == "string" and detail.area or nil,
                 location = type(detail.location) == "string" and detail.location or nil,
