@@ -1,6 +1,7 @@
 local load = assert(loadfile("tests/support/addon.lua"))()
+local client = assert(loadfile("tests/support/client.lua"))().install()
+local frame = client.frame
 local addon = {}
-local frame = { registered = {} }
 local link = "|Hitem:4540::::::::|h[Tough Hunk of Bread]|h"
 local minimapButton
 local minimapButtonDatabase = { minimapPos = 135 }
@@ -53,16 +54,6 @@ rawset(_G, "GetCursorPosition", function()
     return 150, 100
 end)
 
-function frame:RegisterEvent(event)
-    self.registered[event] = true
-end
-
-function frame:SetScript(script, handler)
-    if script == "OnEvent" then
-        self.onEvent = handler
-    end
-end
-
 load.addon("Schema", addon)
 
 addon.Client = {
@@ -75,7 +66,6 @@ addon.Scan = {
         return { capture = function() end }
     end,
 }
-SlashCmdList = {}
 
 local key = assert(addon.Item.key(link, 4540))
 local saved = {
@@ -121,16 +111,16 @@ addon.Collection = {
 }
 assert(frame.registered.ADDON_LOADED)
 assert(AzerothLedgerDB == nil, "addon must not initialize SavedVariables while Lua files load")
-frame.onEvent(frame, "ADDON_LOADED", "AnotherAddon")
+client.event("ADDON_LOADED", "AnotherAddon")
 assert(addon.store == nil, "another addon's load event must not initialize the ledger")
 
 AzerothLedgerDB = saved
-frame.onEvent(frame, "ADDON_LOADED", "AzerothLedger")
+client.event("ADDON_LOADED", "AzerothLedger")
 local restored = assert(addon.store:find(key), "saved record must load when ADDON_LOADED fires")
 assert(restored.totalGained == 1)
 assert(restored.gains[1].source.name == "Dermot Johns")
 assert(AzerothLedgerDB.records[key].gains[1].source.name == "Dermot Johns")
-frame.onEvent(frame, "PLAYER_LOGIN")
+client.event("PLAYER_LOGIN")
 assert(minimapButton, "PLAYER_LOGIN must create the Ledger minimap button")
 assert(minimapButton.position, "minimap button must be positioned beside the minimap")
 assert(minimapButtonDatabase.minimapPos == 135, "existing minimap position must be retained")
@@ -169,6 +159,6 @@ assert(minimapButton.scripts.OnUpdate == nil, "dragging must stop cursor trackin
 assert(minimapButtonDatabase.minimapPos == 0, "dragging must save the new minimap position")
 assert(_G.BINDING_NAME_AZEROTHLEDGER_TOGGLE == "Toggle Ledger")
 assert(frame.registered.PLAYER_LOGOUT)
-frame.onEvent(frame, "PLAYER_LOGOUT")
+client.event("PLAYER_LOGOUT")
 assert(savedBook == 1)
 print("saved_variables_event_spec: native binding entry, slash command and reload save passed")

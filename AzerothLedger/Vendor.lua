@@ -1,5 +1,9 @@
 local _, addon = ...
 
+-- The vendor channel: purchases, sales, refunds, and buybacks while a merchant
+-- window is open. Sales and refunds read the slot before the client empties it,
+-- so bag and equipped slots are cached at each scan and taken once when the
+-- action fires.
 local Vendor = {}
 
 ---@class AzerothLedgerVendorContainerApi
@@ -150,6 +154,131 @@ function Vendor.buybacks(api)
         result[index] = Vendor.buyback(api, index)
     end
     return result
+end
+
+-- The store commands this channel writes through.
+---@type ALCommandName[]
+Vendor.commands = { "vendorAction" }
+
+---@class ALVendorDependencies
+---@field api AzerothLedgerMerchantApi|table
+---@field clock fun(): integer?
+---@field issues string[]
+---@field commands ALCommands Built from `Vendor.commands`
+---@field check fun(area: string)
+---@field refresh fun(character: string, realm: string)
+
+---@param deps ALVendorDependencies
+function Vendor.new(deps)
+    local api, clock, issues, commands = deps.api, deps.clock, deps.issues, deps.commands
+    local check, refresh = deps.check, deps.refresh
+    local Runtime = addon.Runtime
+    local open = false
+    local vendorName, bagSlots, equippedSlots, buybacks
+
+    local function act(action)
+        local context = Runtime.player(api, clock)
+        if context then
+            context.vendorName = vendorName or Runtime.npcName(api)
+        end
+        if open and action and context and commands.vendorAction(action, context) then
+            refresh(context.character, context.realm)
+        end
+    end
+
+    local function takeEquipped(slot)
+        local cached = equippedSlots and equippedSlots[slot]
+        if cached then
+            equippedSlots[slot] = nil
+        end
+        return cached or Vendor.equipped(api, slot)
+    end
+
+    local function takeContainer(kind, bag, slot, isEquipped)
+        if isEquipped then
+            return takeEquipped(slot)
+        end
+        local slotKey = tostring(bag) .. ":" .. tostring(slot)
+        local cached = bagSlots and bagSlots[slotKey]
+        if cached then
+            bagSlots[slotKey] = nil
+            cached.kind = kind
+            return cached
+        end
+        return Vendor.container(api, kind, bag, slot, isEquipped)
+    end
+
+    local function takeBuyback(index)
+        local cached = buybacks and buybacks[index]
+        if cached then
+            buybacks[index] = nil
+        end
+        return cached or Vendor.buyback(api, index)
+    end
+
+    local function checkPossessions()
+        check("bags")
+        check("equipped")
+    end
+
+    local hook = addon.Events.hook
+    hook(api, issues, "vendor", api, "BuyMerchantItem", function(index, count)
+        act(Vendor.purchase(api, index, count))
+    end)
+    hook(api, issues, "vendor", api, "PickupMerchantItem", function(index)
+        act(Vendor.purchase(api, index))
+    end)
+    hook(api, issues, "vendor", api, "BuybackItem", function(index)
+        act(takeBuyback(index))
+    end)
+    if type(api.C_Container) == "table" then
+        hook(api, issues, "vendor", api.C_Container, "UseContainerItem", function(bag, slot)
+            if open then
+                act(takeContainer("sale", bag, slot))
+            end
+        end)
+        hook(api, issues, "vendor", api.C_Container, "ContainerRefundItemPurchase", function(bag, slot, isEquipped)
+            act(takeContainer("refund", bag, slot, isEquipped))
+        end)
+    end
+
+    local channel = {}
+
+    function channel.isOpen()
+        return open
+    end
+
+    -- Refreshes the slot cache from the same scan the store just accepted.
+    ---@param snapshot AzerothLedgerSnapshot
+    function channel.snapshot(snapshot)
+        if not open then
+            return
+        end
+        if snapshot.area == "bags" then
+            bagSlots = Vendor.slots(api)
+        elseif snapshot.area == "equipped" then
+            equippedSlots = Vendor.equippedSlots(api)
+        end
+    end
+
+    channel.events = {
+        MERCHANT_SHOW = function()
+            open = true
+            vendorName = Runtime.npcName(api)
+            checkPossessions()
+            buybacks = Vendor.buybacks(api)
+        end,
+        MERCHANT_UPDATE = function()
+            buybacks = Vendor.buybacks(api)
+        end,
+        MERCHANT_CLOSED = function()
+            checkPossessions()
+            open = false
+            vendorName, bagSlots, equippedSlots, buybacks = nil, nil, nil, nil
+        end,
+    }
+
+    return channel
 end
 
 addon.Vendor = Vendor

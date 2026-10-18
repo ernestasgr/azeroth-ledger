@@ -1,19 +1,11 @@
 local load = assert(loadfile("tests/support/addon.lua"))()
 local addon
 local link = "|Hitem:90::::::::|h[Simple Letter]|h"
-local frame
+local fake = assert(loadfile("tests/support/client.lua"))()
+local client
 local clock = 1000
 local inBags = false
 
-CreateFrame = function()
-    return frame
-end
-GetBuildInfo = function()
-    return "1.60.1", 70009, "date", 16001
-end
-GetLocale = function()
-    return "enUS"
-end
 GetServerTime = function()
     return clock
 end
@@ -48,31 +40,16 @@ _G.C_QuestLog = {
 rawset(_G, "GetQuestID", function()
     return 42
 end)
-SlashCmdList = {}
 
 local function boot(present)
-    addon = {}
-    frame = { registered = {} }
-    function frame:RegisterEvent(event)
-        self.registered[event] = true
-    end
-    function frame:SetScript(name, handler)
-        if name == "OnEvent" then
-            self.onEvent = handler
-        end
-    end
+    client = fake.install()
     AzerothLedgerDB = nil
     clock, inBags = 1000, present
-    load.addon("Main", addon)
-    frame.onEvent(frame, "ADDON_LOADED", "AzerothLedger")
-    frame.onEvent(frame, "PLAYER_LOGIN")
-    frame.onEvent(frame, "BAG_UPDATE_DELAYED")
+    addon = client.boot({}, load)
 end
 
 local function event(name, ...)
-    if frame.registered[name] then
-        frame.onEvent(frame, name, ...)
-    end
+    client.event(name, ...)
 end
 
 local key = "90:0"

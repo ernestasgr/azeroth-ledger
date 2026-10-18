@@ -1,6 +1,7 @@
 local load = assert(loadfile("tests/support/addon.lua"))()
+local client = assert(loadfile("tests/support/client.lua"))().install({ build = 70205 })
+local frame = client.frame
 local addon
-local frame = { registered = {} }
 local timers = {}
 local clock = 1000
 local cached = false
@@ -13,25 +14,6 @@ local function setGlobal(name, value)
     rawset(_G, name, value)
 end
 
-function frame:RegisterEvent(event)
-    self.registered[event] = true
-end
-
-function frame:SetScript(name, handler)
-    if name == "OnEvent" then
-        self.onEvent = handler
-    end
-end
-
-setGlobal("CreateFrame", function()
-    return frame
-end)
-setGlobal("GetBuildInfo", function()
-    return "1.60.1", 70205, "date", 16001
-end)
-setGlobal("GetLocale", function()
-    return "enUS"
-end)
 setGlobal("GetServerTime", function()
     return clock
 end)
@@ -70,13 +52,8 @@ setGlobal("C_Container", {
         return nil
     end,
 })
-setGlobal("SlashCmdList", {})
 
-local function event(name, ...)
-    if frame.registered[name] then
-        frame.onEvent(frame, name, ...)
-    end
-end
+local event = client.event
 
 local function runTimers()
     local pending = timers

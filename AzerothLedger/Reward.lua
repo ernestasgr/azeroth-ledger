@@ -1,5 +1,10 @@
 local _, addon = ...
 
+-- The quest and craft reward channel. Quest offers and accepts, reward offers,
+-- delayed quest loot, and turn-ins: offered rewards are stored as previews, and
+-- a choice group ties the choosable rewards of one offer. Items a quest giver
+-- hands over on accept are measured against the possessions checked when the
+-- quest was offered. The recipe begun by the current cast names a crafted result.
 local Reward = {}
 
 ---@class AzerothLedgerRewardApi
@@ -129,6 +134,131 @@ function Reward.craft(api, result, recipeID)
         end
     end
     return reward
+end
+
+local function questID(api, offer)
+    if offer and offer.questID then
+        return offer.questID
+    end
+    if type(api.GetQuestID) == "function" then
+        local ok, id = pcall(api.GetQuestID)
+        if ok then
+            return id
+        end
+    end
+end
+
+-- The store commands this channel writes through.
+---@type ALCommandName[]
+Reward.commands = { "rewardReceipt", "questPrepared", "questOffered", "questAccepted", "questTurnedIn" }
+
+---@class ALRewardDependencies
+---@field api AzerothLedgerRewardApi
+---@field clock fun(): integer?
+---@field commands ALCommands Built from `Reward.commands`
+---@field check fun(area: string)
+---@field refresh fun(character: string, realm: string)
+
+---@param deps ALRewardDependencies
+function Reward.new(deps)
+    local api, clock, commands, check, refresh = deps.api, deps.clock, deps.commands, deps.check, deps.refresh
+    local offers = 0
+    local recipeID
+
+    -- Quest rewards can go straight into gear, so the gain is checked against
+    -- bags and equipped slots together.
+    local function receive(receipt)
+        if not receipt then
+            return
+        end
+        local accepted, context = commands.rewardReceipt(receipt)
+        if accepted and context then
+            if receipt.method == "Quest" then
+                check("possessions")
+            end
+            refresh(context.character, context.realm)
+        end
+    end
+
+    local function preview(receipts, context, choiceGroup)
+        local changed = false
+        for _, receipt in ipairs(receipts) do
+            receipt.preview = true
+            receipt.choiceGroup = choiceGroup
+            changed = commands.rewardReceipt(receipt, context) or changed
+        end
+        return changed
+    end
+
+    local function offered()
+        check("possessions")
+        local offer = Reward.offer(api)
+        local context = addon.Runtime.player(api, clock)
+        if not context then
+            return
+        end
+        local id = questID(api, offer)
+        if id then
+            commands.questPrepared(id, context)
+        end
+        if not offer then
+            return
+        end
+        offers = offers + 1
+        local choiceGroup = table.concat({ context.character, context.realm, offer.questID, context.at, offers }, ":")
+        local changed = preview(offer.choices, context, choiceGroup)
+        changed = preview(offer.fixed, context, nil) or changed
+        if changed then
+            refresh(context.character, context.realm)
+        end
+    end
+
+    local function detail()
+        check("possessions")
+        local id = questID(api)
+        if id then
+            commands.questOffered(id)
+        end
+    end
+
+    local function accepted(id)
+        local context = addon.Runtime.player(api, clock)
+        if not context or type(id) ~= "number" then
+            return
+        end
+        context.questName = Reward.questName(api, id)
+        if commands.questAccepted(id, context) then
+            check("possessions")
+        end
+    end
+
+    local function stopped()
+        recipeID = nil
+    end
+
+    return {
+        events = {
+            QUEST_DETAIL = detail,
+            QUEST_ACCEPTED = accepted,
+            QUEST_COMPLETE = offered,
+            QUEST_LOOT_RECEIVED = function(...)
+                receive(Reward.quest(api, ...))
+            end,
+            QUEST_TURNED_IN = function(id)
+                if commands.questTurnedIn(id) then
+                    check("possessions")
+                end
+            end,
+            TRADE_SKILL_CRAFT_BEGIN = function(id)
+                recipeID = id
+            end,
+            TRADE_SKILL_ITEM_CRAFTED_RESULT = function(result)
+                receive(Reward.craft(api, result, recipeID))
+            end,
+            UPDATE_TRADESKILL_CAST_STOPPED = stopped,
+            TRADE_SKILL_CLOSE = stopped,
+        },
+    }
 end
 
 addon.Reward = Reward

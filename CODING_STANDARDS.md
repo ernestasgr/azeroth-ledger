@@ -6,7 +6,7 @@ These are judgement calls for review. `tools/verify.py` already enforces formatt
 
 The ledger records only what the client proves. Any rule that attributes an item to a source, a gain, or a character must cite the event or read that proves it.
 
-- When the proof is missing or ambiguous, the code marks the item unresolved or **Unknown**. It never picks the likeliest source. For example, `MailSession` marks overlapping takes unresolved.
+- When the proof is missing or ambiguous, the code marks the item unresolved or **Unknown**. It never picks the likeliest source. For example, the mail channel in `Exchange.lua` marks overlapping takes unresolved.
 - Treat a client read as **untrusted** until the client signals it is settled. A read taken at login before the first `BAG_UPDATE_DELAYED` proves nothing (see `Inventory.lua`). A new event dependency needs its Forever ordering confirmed from a trace or the client's `BlizzardInterfaceCode`, and that source is named in a comment or the PR.
 - Parse what the client actually sends, not the textbook shape. Item links carry extra fields such as a crafter GUID, and sender names can carry a surname or omit the realm. Parsers accept the observed variants, and a spec covers each one.
 
@@ -24,8 +24,8 @@ Code, tests, comments and player-facing text use the terms in `GLOSSARY.md` (Col
 
 ## Module boundaries
 
-- `*Session.lua` modules turn client events into store calls. `Store*.lua` modules own the rules and saved data. `Main.lua` only wires modules together. A rule that leaks into a Session or into `Main.lua` is a finding.
-- Sessions and readers take the client through an injected `api` table, not globals, so specs can drive them.
+- Each event channel (`Loot.lua`, `Reward.lua`, `Vendor.lua`, `Exchange.lua`) turns its client events and reads into store commands. `Store*.lua` modules own the rules and saved data. `Main.lua` only wires modules together. A rule that leaks into a channel or into `Main.lua` is a finding.
+- A channel's `new` takes only the dependencies it uses: the client through an injected `api` table, not globals, the clock, the store commands it declares in its `commands` list (built by `Runtime.commands`), and any narrow callback it needs, such as a Collection refresh or an inventory check. It never gets the whole store, so specs can drive it with fakes.
 - Each module starts with `local _, addon = ...`, then a comment saying what the module owns or what it proves.
 
 ## Saved data

@@ -1,7 +1,7 @@
 local _, addon = ...
 
--- Player, clock, and store actions shared by the event sessions. Readers return
--- nil when the client cannot answer, so a session skips its work instead of
+-- Player, clock, and store commands shared by the event channels. Readers return
+-- nil when the client cannot answer, so a channel skips its work instead of
 -- recording evidence without a character, realm, or time.
 local Runtime = {}
 
@@ -34,10 +34,11 @@ end
 -- The acting character with the time, level, and place of an action:
 -- { character, realm, at, level, place, placeKind? }.
 ---@param api table
+---@param clock? fun(): integer?
 ---@return table?
-function Runtime.player(api)
+function Runtime.player(api, clock)
     local character, realm = Runtime.identity(api)
-    local at = Runtime.now(api)
+    local at = clock and clock() or Runtime.now(api)
     if not character or not realm or not at then
         return nil
     end
@@ -62,83 +63,29 @@ function Runtime.revision(api, addonName)
     return "dev"
 end
 
----@class ALRuntime
----@field api table
----@field issues string[]
----@field store fun(): ALStore
----@field inventory table
----@field now fun(): integer?
----@field identity fun(): string?, string?
----@field player fun(): table?
----@field refresh fun(character: string, realm: string)
----@field command fun(name: ALCommandName, payload: any, context?: table): any, table?
----@field exchangeIntent fun(intent: table): any
----@field exchangeConfirm fun(channel: string, direction: string, ids: table<string, true>?)
----@field reward fun(receipt: table?)
+---@alias ALCommandWriter fun(payload?: any, context?: table): any, table?
+---@alias ALCommands table<ALCommandName, ALCommandWriter>
 
--- Binds the readers to one client and the lazily opened store.
+-- The store commands one channel writes through, and no others. Each sends its
+-- payload as the acting character at the clock's time; a channel passes its own
+-- context when it adds fields such as a vendor name. A command returns the
+-- store's result and the context, or nothing when no character can act.
 ---@param api table
----@param issues string[]
+---@param clock fun(): integer?
 ---@param store fun(): ALStore
----@param inventory table
----@return ALRuntime
-function Runtime.new(api, issues, store, inventory)
-    local runtime = { api = api, issues = issues, store = store, inventory = inventory }
-
-    function runtime.now()
-        return Runtime.now(api)
-    end
-
-    function runtime.identity()
-        return Runtime.identity(api)
-    end
-
-    function runtime.player()
-        return Runtime.player(api)
-    end
-
-    function runtime.refresh(character, realm)
-        addon.Book.refresh(store(), character, realm)
-    end
-
-    -- Sends one write to the store as the acting character at its time. A
-    -- session passes its own context when it adds fields such as a vendor name.
-    -- Returns the store's result and the context, or nothing without one.
-    function runtime.command(name, payload, context)
-        context = context or Runtime.player(api)
-        if context then
-            return store():command(name, payload, context.at, context), context
-        end
-    end
-
-    function runtime.exchangeIntent(intent)
-        if intent then
-            return (runtime.command("exchangeIntent", intent))
-        end
-    end
-
-    function runtime.exchangeConfirm(channel, direction, ids)
-        if runtime.command("exchangeConfirm", { channel = channel, direction = direction, ids = ids }) then
-            inventory:check("bags")
-        end
-    end
-
-    -- Quest rewards can go straight into gear, so the gain is checked against
-    -- bags and equipped slots together.
-    function runtime.reward(receipt)
-        if not receipt then
-            return
-        end
-        local accepted, context = runtime.command("rewardReceipt", receipt)
-        if accepted and context then
-            if receipt.method == "Quest" then
-                inventory:check("possessions")
+---@param names ALCommandName[]
+---@return ALCommands
+function Runtime.commands(api, clock, store, names)
+    local commands = {}
+    for _, name in ipairs(names) do
+        commands[name] = function(payload, context)
+            context = context or Runtime.player(api, clock)
+            if context then
+                return store():command(name, payload, context.at, context), context
             end
-            runtime.refresh(context.character, context.realm)
         end
     end
-
-    return runtime
+    return commands
 end
 
 addon.Runtime = Runtime
