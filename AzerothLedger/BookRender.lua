@@ -8,7 +8,7 @@ local State = addon.BookState
 local Frame = addon.BookFrame
 local colors = Widgets.colors
 
-local browseChoices = addon.Schema.bookChoices()
+local browseChoices = addon.StorePreferences.bookChoices()
 Render.browseChoices = browseChoices
 
 local previewMessages = {
@@ -257,12 +257,13 @@ function Render.detailLines(view, result, model, key)
             write("pair", labelFor(label), tostring(totals[label]))
         end
     end
-    breakdown("How you got it", model.breakdown.methods, "No confirmed gains in this view.", function(label)
-        return addon.Collection.methodLabel(label)
-    end)
-    breakdown("Where it came from", model.breakdown.sources, "No source details recorded in this view.", function(label)
-        return addon.Collection.sourceLabel(label)
-    end)
+    breakdown("How you got it", model.breakdown.methods, "No confirmed gains in this view.", addon.LastSeen.methodLabel)
+    breakdown(
+        "Where it came from",
+        model.breakdown.sources,
+        "No source details recorded in this view.",
+        addon.LastSeen.sourceLabel
+    )
     write("section", "Item history")
     write(
         "note",
@@ -394,10 +395,10 @@ local function header(book, model)
     book.itemCategory:SetText(info.category .. "  •  " .. model.scopeLabel)
     Widgets.itemIcon(book.itemIcon, info.icon)
     book.itemLink = record.links[#record.links]
-    local present = model.ownershipState == "present"
+    local colour = colors[addon.LastSeen.ownership(model.ownershipState).colour]
     book.ownership:SetText("Status: " .. model.ownership)
-    Widgets.tint(book.ownership, present and colors.green or colors.gold)
-    Widgets.tint(book.ownershipDot, present and colors.green or colors.gold, true)
+    Widgets.tint(book.ownership, colour)
+    Widgets.tint(book.ownershipDot, colour, true)
     book.characterOverall:SetText(exactQuantity(model.characterOverall))
     book.allCharactersOverall:SetText(exactQuantity(model.allCharactersOverall))
     book.characterCurrent:SetText(exactQuantity(model.characterCurrent))

@@ -417,7 +417,7 @@ function tests.ContainerNamesRequireTheExactLootedGUID(_self)
     WoWUnit.AreEqual("Cactus Apple", addon.Loot.open(api)[1].source.name)
     npcMatches, readable = false, false
     WoWUnit.AreEqual(nil, addon.Loot.open(api)[1].source.name)
-    WoWUnit.AreEqual("Container #171938", addon.Schema.sourceText(addon.Loot.open(api)[1].source))
+    WoWUnit.AreEqual("Container #171938", addon.LastSeen.sourceText(addon.Loot.open(api)[1].source))
 end
 
 function tests.IconAndCheckboxContentCannotBeCoveredByTheirBackings(_self)

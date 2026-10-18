@@ -2,7 +2,7 @@ local _, addon = ...
 
 local Widgets = {}
 Widgets.colors = {}
-for _, definition in ipairs(addon.Schema.colorOptions()) do
+for _, definition in ipairs(addon.StorePreferences.colorOptions()) do
     Widgets.colors[definition.key] = definition.default
 end
 local colors = Widgets.colors

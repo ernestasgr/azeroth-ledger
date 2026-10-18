@@ -1,6 +1,7 @@
 local _, addon = ...
 
 local Collection = {}
+local Wording = addon.LastSeen
 
 local evidenceActions = {
     loot = "Loot pickup",
@@ -181,39 +182,8 @@ local function matchesFilter(filterCharacter, filterRealm, name, realm)
     return (not filterCharacter or name == filterCharacter) and (not filterRealm or realm == filterRealm)
 end
 
-local function sourceText(source)
-    return addon.Schema.sourceText(source)
-end
-
-local function contextText(context)
-    return context and (context.name or (context.kind .. " " .. context.id)) or "Unknown"
-end
-
 local storageAreas = { "bags", "bank", "equipped" }
 local storageLabels = { bags = "Bags", bank = "Bank", equipped = "Equipped" }
-local methodNames = {
-    Seen = "Already had at first check",
-    Appeared = "Appeared after an earlier check",
-    Transfer = "Transfer from another character",
-}
-local sourceNames = {
-    ["Initial stock"] = "Already had before first check",
-    ["Appeared later"] = "Unknown, appeared after an earlier check",
-    ["Your characters"] = "Your other characters",
-}
-
----@param method string
----@return string
-function Collection.methodLabel(method)
-    return methodNames[method] or method
-end
-
----@param source string
----@return string
-function Collection.sourceLabel(source)
-    return sourceNames[source] or source
-end
-
 ---@param check ALStorageCheck
 ---@return string
 function Collection.checkText(check)
@@ -233,17 +203,6 @@ function Collection.checkText(check)
 end
 
 local inspectRecord
-
-local function ownershipText(lastSeen)
-    if lastSeen.state == "present" then
-        return "Present"
-    elseif lastSeen.state == "unknown" then
-        return "Unknown"
-    end
-    return "Historical only as of " .. stamp(lastSeen.asOf)
-end
-
-Collection.ownershipText = ownershipText
 
 ---@param store AzerothLedgerStore
 ---@param character string
@@ -320,7 +279,7 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm,
                 .. (lastSeen.characterCurrent or "Unknown")
                 .. "; All characters current "
                 .. (lastSeen.allCharactersCurrent or "Unknown")
-            lines[#lines + 1] = "  Status: " .. ownershipText(lastSeen)
+            lines[#lines + 1] = "  Status: " .. Wording.ownershipText(lastSeen)
             for _, check in ipairs(lastSeen.checks) do
                 lines[#lines + 1] = "  " .. Collection.checkText(check)
             end
@@ -360,7 +319,7 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm,
                 for _, method in ipairs(methodLabels) do
                     if methods[method] > 0 then
                         lines[#lines + 1] = "  How you got it: "
-                            .. Collection.methodLabel(method)
+                            .. Wording.methodLabel(method)
                             .. " "
                             .. methods[method]
                     end
@@ -372,7 +331,7 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm,
                 table.sort(labels)
                 for _, label in ipairs(labels) do
                     if sources[label] > 0 then
-                        lines[#lines + 1] = "  From " .. Collection.sourceLabel(label) .. " " .. sources[label]
+                        lines[#lines + 1] = "  From " .. Wording.sourceLabel(label) .. " " .. sources[label]
                     end
                 end
             end
@@ -420,11 +379,11 @@ function Collection.lines(store, character, realm, filterCharacter, filterRealm,
                         .. gain.level
                         .. " • "
                         .. gain.place
-                        .. (gain.method == "Looted" and (" • source " .. sourceText(source)) or "")
-                        .. (gain.method == "Vendor" and source and (" • vendor " .. sourceText(source)) or "")
-                        .. (gain.method == "Obtained" and (" • source " .. sourceText(source)) or "")
-                        .. (gain.method == "Quest" and (" • quest " .. contextText(gain.context)) or "")
-                        .. (gain.method == "Crafted" and (" • recipe " .. contextText(gain.context)) or "")
+                        .. (gain.method == "Looted" and (" • source " .. Wording.sourceText(source)) or "")
+                        .. (gain.method == "Vendor" and source and (" • vendor " .. Wording.sourceText(source)) or "")
+                        .. (gain.method == "Obtained" and (" • source " .. Wording.sourceText(source)) or "")
+                        .. (gain.method == "Quest" and (" • quest " .. Wording.gainSourceText(gain)) or "")
+                        .. (gain.method == "Crafted" and (" • recipe " .. Wording.gainSourceText(gain)) or "")
                     lines[#lines + 1] = detail
                     recent[#recent + 1] = { at = gain.at, text = name .. detail }
                 end
@@ -588,17 +547,17 @@ local function query(store, character, realm, filter, metadata, pause)
             end
         end
         local methodMatches = not filter.method
-            or (record.firstSeenUnits > 0 and filter.method == (record.firstSeenLater and "Appeared" or "Seen"))
+            or (record.firstSeenUnits > 0 and filter.method == Wording.firstCheckMethod(record.firstSeenLater))
         local lastGained
         local sourceQuantity, recordSources = 0, {}
         for _, gain in ipairs(record.gains) do
             if matchesFilter(filter.character, filter.realm, gain.character, gain.realm) then
                 local quantity = gain.quantity - (gain.refunded or 0)
-                addon.Schema.addSource(sources, gain, quantity)
+                Wording.addSource(sources, gain, quantity)
                 if filter.search and filter.search ~= "" then
-                    addon.Schema.addSource(recordSources, gain, quantity)
+                    Wording.addSource(recordSources, gain, quantity)
                 end
-                if filter.source and filter.source == addon.Schema.sourceIdentity(gain) then
+                if filter.source and filter.source == Wording.sourceIdentity(gain) then
                     sourceQuantity = sourceQuantity + quantity
                 end
                 lastGained = math.max(lastGained or gain.at, gain.at)
@@ -632,7 +591,7 @@ local function query(store, character, realm, filter, metadata, pause)
         local name = record.links[1]:match("%[([^%]]+)%]") or ("Item " .. record.itemID)
         local searchText = string.lower(name .. " " .. record.key .. " " .. table.concat(record.links, " "))
         local lastSeen = addon.LastSeen.project(store, record, character, realm, filter)
-        local status = ownershipText(lastSeen)
+        local status = Wording.ownershipText(lastSeen)
         local currentUnits
         if filter.character then
             currentUnits = lastSeen.characterCurrent
@@ -681,7 +640,7 @@ local function query(store, character, realm, filter, metadata, pause)
             pause()
         end
     end
-    result.sources = addon.Schema.sourceGroups(sources, pause)
+    result.sources = Wording.sourceGroups(sources, pause)
     local search, matchingSources = string.lower(filter.search or ""), {}
     if search ~= "" then
         for _, source in ipairs(result.sources) do
@@ -866,7 +825,7 @@ inspectRecord = function(store, record, character, realm, filter, lastSeen, paus
         currentAt = lastSeen.currentAt,
         evidence = strength,
         checks = lastSeen.checks,
-        ownership = ownershipText(lastSeen),
+        ownership = Wording.ownershipText(lastSeen),
         ownershipState = lastSeen.state,
     }
 end

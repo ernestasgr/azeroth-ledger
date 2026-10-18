@@ -5,6 +5,7 @@ local _, addon = ...
 local V = addon.SchemaValidate
 local CURRENT_SCHEMA, areas, isInteger, isName = V.CURRENT_SCHEMA, V.areas, V.isInteger, V.isName
 local areaKey, copyRecord = V.areaKey, V.copyRecord
+local Wording = addon.LastSeen
 
 local StoreRecords = {}
 
@@ -43,11 +44,12 @@ function StoreRecords.install(store, kernel, slices)
         -- Units that arrived after an earlier complete check, with no
         -- confirmed way, are not stock the character already had.
         local later = record.firstSeenLater
+        local firstCheck = Wording.firstCheckMethod(later)
         local result = {
             initial = initial,
             gained = scoped and 0 or record.totalGained,
-            methods = initial and { [later and "Appeared" or "Seen"] = initial } or {},
-            sources = initial and { [later and "Appeared later" or "Initial stock"] = initial } or {},
+            methods = initial and { [firstCheck] = initial } or {},
+            sources = initial and { [Wording.method(firstCheck).source] = initial } or {},
         }
         -- A scoped view explains its characters' own first units. Only a single
         -- character's view lists units moved in from your other characters: wider
@@ -64,8 +66,8 @@ function StoreRecords.install(store, kernel, slices)
                         if appeared == nil and seen.firstSeen == record.firstSeen then
                             appeared = later
                         end
-                        local method = appeared and "Appeared" or "Seen"
-                        local source = appeared and "Appeared later" or "Initial stock"
+                        local method = Wording.firstCheckMethod(appeared)
+                        local source = Wording.method(method).source
                         result.methods[method] = (result.methods[method] or 0) + seen.firstSeenUnits
                         result.sources[source] = (result.sources[source] or 0) + seen.firstSeenUnits
                     end
@@ -73,7 +75,7 @@ function StoreRecords.install(store, kernel, slices)
             end
             if transferred > 0 and scope.character then
                 result.methods.Transfer = transferred
-                result.sources["Your characters"] = transferred
+                result.sources[Wording.method("Transfer").source] = transferred
             end
         end
         local groups = {}
@@ -84,13 +86,13 @@ function StoreRecords.install(store, kernel, slices)
                     result.gained = result.gained + quantity
                 end
                 result.methods[gain.method] = (result.methods[gain.method] or 0) + quantity
-                V.addSource(groups, gain, quantity)
+                Wording.addSource(groups, gain, quantity)
             end
             if pause then
                 pause()
             end
         end
-        for _, group in ipairs(V.sourceGroups(groups, pause)) do
+        for _, group in ipairs(Wording.sourceGroups(groups, pause)) do
             result.sources[group.label] = group.quantity
         end
         if initial then
@@ -197,7 +199,7 @@ function StoreRecords.install(store, kernel, slices)
                         break
                     end
                 end
-                source = V.sourceGroups({
+                source = Wording.sourceGroups({
                     [facts.onlySource] = {
                         key = facts.onlySource,
                         neutral = group.neutral,

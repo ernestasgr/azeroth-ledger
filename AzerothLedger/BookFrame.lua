@@ -21,8 +21,12 @@ local HELP_TEXT = "The Ledger tracks characters after you log in on them. "
     .. "Character overall shows Unknown if saved history cannot separate a confirmed gain "
     .. "from the first recorded stock.\n\n"
     .. "Current counts use saved quantities, which can be from different times. "
-    .. "Areas with no saved check add no known quantity.\n\n"
-    .. "Historical only means the item was not found after all relevant bags, bank, and gear were checked."
+    .. "Areas with no saved check add no known quantity.\n"
+for _, choice in ipairs(addon.LastSeen.ownershipChoices()) do
+    if choice.value then
+        HELP_TEXT = HELP_TEXT .. "\n" .. addon.LastSeen.ownership(choice.value).help
+    end
+end
 
 local function font(api)
     return api.STANDARD_TEXT_FONT or FONT
@@ -595,7 +599,7 @@ local function help(book, actions, top, side)
     book.help:EnableMouse(true)
     Widgets.text(api, book.help, "About your Ledger", 18, 18, 400, 20, colors.gold)
     local explanation = Widgets.text(api, book.help, HELP_TEXT, 18, 58, 400, 13)
-    explanation:SetHeight(360)
+    explanation:SetHeight(380)
     Widgets.button(book, book.help, "Got it", 18, 444, 130, 32, actions.dismissHelp)
     book.help:Hide()
     Widgets.button(book, top, "Help (F1)", 520, 24, 90, 30, actions.help)

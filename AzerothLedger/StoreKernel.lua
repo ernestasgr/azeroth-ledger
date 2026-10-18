@@ -246,7 +246,7 @@ local function changeTooltip(facts, gain, direction)
     if quantity <= 0 then
         return
     end
-    local identity, neutral, name = V.sourceIdentity(gain)
+    local identity, neutral, name = addon.LastSeen.sourceIdentity(gain)
     local group = facts.sources[identity] or { quantity = 0, neutral = neutral, names = {} }
     local before = group.quantity
     group.quantity = group.quantity + direction * quantity

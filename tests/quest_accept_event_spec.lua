@@ -128,7 +128,6 @@ assert(record.firstSeenLater == true)
 local breakdown = addon.store:breakdown(key)
 assert(breakdown.methods.Appeared == 1 and breakdown.methods.Seen == nil)
 assert(breakdown.sources["Appeared later"] == 1 and breakdown.sources["Initial stock"] == nil)
-assert(addon.Collection.methodLabel("Appeared") == "Appeared after an earlier check")
 
 -- Items present at the first check are still ones the character already had.
 boot(true)

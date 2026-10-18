@@ -28,19 +28,7 @@ function Presentation.line(store, link, character, realm)
         return nil
     end
     local lastSeen = addon.LastSeen.project(store, record, character, realm)
-    local facts = {}
-    if record.firstSeenUnits > 0 or not summary.hasGains then
-        facts[#facts + 1] = record.firstSeenLater and record.firstSeenUnits > 0 and "Appeared later" or "Seen"
-    end
-    local methods = summary.methods
-    if methods.Looted then
-        facts[#facts + 1] = "Looted"
-    end
-    for _, method in ipairs({ "Quest", "Crafted", "Vendor", "Obtained" }) do
-        if methods[method] then
-            facts[#facts + 1] = method == "Obtained" and "Obtained (way unknown)" or ("Obtained (" .. method .. ")")
-        end
-    end
+    local facts = addon.LastSeen.tooltipFacts(record, summary)
     local observations = {}
     local showDetails = store:display().tooltipDetails
     for _, check in ipairs(lastSeen.checks) do
@@ -53,7 +41,7 @@ function Presentation.line(store, link, character, realm)
         .. " • total gained "
         .. record.totalGained
         .. " • status "
-        .. addon.Collection.ownershipText(lastSeen)
+        .. addon.LastSeen.ownershipText(lastSeen)
         .. " • source "
         .. summary.source
         .. (#observations > 0 and ("\n" .. table.concat(observations, "\n")) or "")

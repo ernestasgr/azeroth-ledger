@@ -6,6 +6,7 @@
 
 Item.lua
 Work.lua
+LastSeen.lua
 Trace.lua
 SchemaValidate.lua
 StoreKernel.lua
@@ -27,7 +28,6 @@ Loot.lua
 Reward.lua
 Vendor.lua
 Exchange.lua
-LastSeen.lua
 Collection.lua
 Presentation.lua
 Journal.lua

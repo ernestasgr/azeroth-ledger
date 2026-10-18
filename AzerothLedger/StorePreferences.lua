@@ -6,7 +6,12 @@ local V = addon.SchemaValidate
 local displayDefaults, copyValue, validDisplayField = V.displayDefaults, V.copyValue, V.validDisplayField
 local bookPreferences, validDisplay = V.bookPreferences, V.validDisplay
 
-local StorePreferences = {}
+local StorePreferences = {
+    -- Settings and the book build their controls from the options this file saves.
+    displayOptions = V.displayOptions,
+    colorOptions = V.colorOptions,
+    bookChoices = V.bookChoices,
+}
 
 -- Display options, which also decide whether discoveries queue toasts, and the
 -- saved book layout. A damaged layout is replaced, not counted as damage.
