@@ -20,7 +20,7 @@ Use the [generated Blizzard API documentation](https://github.com/Gethe/wow-ui-s
 
 Run checks with `.venv/Scripts/python tools/verify.py`: it runs all of CI's checks, and passing spec paths runs only those specs (fast red/green). CI runs the same script. If `.venv` is missing, run `py -3.14 -m venv .venv` and then `.venv/Scripts/python -m pip install -r requirements-dev.txt`.
 
-Enable the pre-commit hook once per clone with `git config core.hooksPath .githooks`. It refuses staged files over 5,000 tokens (bytes / 4) and prints how to split them. Lockfiles, build output, binaries and files marked `linguist-generated` in `.gitattributes` are skipped.
+Enable the pre-commit hook once per clone with `git config core.hooksPath .githooks`. It refuses staged files whose code is over 5,000 tokens (bytes / 4) and prints how to split them. Whole-line comments and Lua `---@` type annotations don't count. Lockfiles, build output, binaries and files marked `linguist-generated` in `.gitattributes` are skipped.
 
 For a bug seen in-game, start with `.venv/Scripts/python tools/inspect_saved.py --item <id or name>`. It prints the newest account save's record, the journal entries for the item, and its event trace lines.
 

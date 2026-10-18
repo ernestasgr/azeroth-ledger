@@ -65,6 +65,34 @@ class CheckFileSizeTests(unittest.TestCase):
         self.stage("art/icon.png", LIMIT_BYTES * 2)
         self.assertEqual([], self.refused())
 
+    def stage_text(self, path: str, text: str) -> None:
+        file = self.root / path
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(text, encoding="utf-8", newline="\n")
+        subprocess.run(["git", "add", path], cwd=self.root, check=True)
+
+    def test_lua_comments_and_type_annotations_do_not_count(self) -> None:
+        line = "x" * 76 + "\n"
+        comments = ("-- " + line) * 400 + ("---@field name string " + line) * 400
+        block = "--[[\n" + line * 400 + "]]\n" + "--[==[\n" + line * 400 + "]==]\n"
+        self.stage_text("AzerothLedger/Typed.lua", comments + block + "local value = 1\n")
+        self.assertEqual([], self.refused())
+
+    def test_lua_code_still_counts(self) -> None:
+        code = ("local value = '" + "x" * 60 + "' -- trailing note\n") * 300
+        self.stage_text("AzerothLedger/Code.lua", code)
+        self.assertEqual(["AzerothLedger/Code.lua"], self.refused())
+
+    def test_python_comments_do_not_count(self) -> None:
+        line = "x" * 76 + "\n"
+        self.stage_text("tools/noted.py", ("    # " + line) * 400 + "VALUE = 1\n")
+        self.assertEqual([], self.refused())
+
+    def test_comment_markers_inside_strings_are_code(self) -> None:
+        code = ('text = "-- ' + "x" * 70 + '"\n') * 300
+        self.stage_text("AzerothLedger/Strings.lua", code)
+        self.assertEqual(["AzerothLedger/Strings.lua"], self.refused())
+
     def test_refusal_explains_how_to_split(self) -> None:
         self.stage("AzerothLedger/Big.lua", LIMIT_BYTES * 2)
         with mock.patch("sys.argv", ["check_file_size.py"]), mock.patch("builtins.print") as printed:

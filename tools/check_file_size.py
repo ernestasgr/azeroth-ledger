@@ -1,6 +1,8 @@
 """Refuse staged files over the token limit so no file outgrows an agent's reading budget.
 
-Tokens are estimated as bytes / 4 of the staged content (not the working tree).
+Tokens are estimated as bytes / 4 of the staged content's code (not the working tree).
+Whole-line comments, Lua block comments and Lua `---@` type annotations don't count:
+they explain code rather than add to what an agent must hold in mind.
 Lockfiles, generated files and binaries are skipped: agents don't author them.
 Mark other generated files with `linguist-generated` in .gitattributes.
 
@@ -11,6 +13,7 @@ Mark other generated files with `linguist-generated` in .gitattributes.
 from __future__ import annotations
 
 import fnmatch
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -37,9 +40,10 @@ NOT_AGENT_AUTHORED = (
 )
 
 SPLIT_INSTRUCTIONS = f"""\
-Each file must stay under {MAX_TOKENS:,} tokens ({MAX_TOKENS * BYTES_PER_TOKEN:,} bytes) so an
-agent can read it whole. Split each file above before committing. Don't minify, strip
-comments or squeeze formatting to get under the limit.
+Each file's code must stay under {MAX_TOKENS:,} tokens ({MAX_TOKENS * BYTES_PER_TOKEN:,} bytes) so an
+agent can read it whole. Whole-line comments and type annotations don't count. Split each
+file above before committing. Don't minify, inline comments or squeeze formatting to get
+under the limit.
 
 How to split:
   1. Find the seams: group the file's functions by the one responsibility each serves
@@ -91,8 +95,39 @@ def agent_authored(path: str, attrs: dict[str, str]) -> bool:
     return attrs.get("text") != "unset" and attrs.get("linguist-generated") not in ("set", "true")
 
 
+# Line comments by file type; Lua also has `--[[ ... ]]` and `--[==[ ... ]==]` blocks.
+LINE_COMMENTS = {".lua": "--", ".py": "#"}
+LUA_BLOCK_OPEN = re.compile(r"^\s*--\[(=*)\[")
+
+
+def code_bytes(path: str, content: bytes) -> int:
+    marker = next((m for suffix, m in LINE_COMMENTS.items() if path.endswith(suffix)), None)
+    if marker is None:
+        return len(content)
+    total, closing = 0, None
+    for line in content.splitlines(keepends=True):
+        text = line.decode("utf-8", errors="replace")
+        if closing is not None:
+            if closing in text:
+                closing = None
+            continue
+        block = LUA_BLOCK_OPEN.match(text) if marker == "--" else None
+        if block:
+            end = "]" + block.group(1) + "]"
+            if end not in text[block.end():]:
+                closing = end
+            continue
+        if text.lstrip().startswith(marker):
+            continue
+        total += len(line)
+    return total
+
+
 def staged_tokens(path: str) -> int:
-    return int(git("cat-file", "-s", f":{path}")) // BYTES_PER_TOKEN
+    content = subprocess.run(
+        ["git", "cat-file", "blob", f":{path}"], cwd=ROOT, check=True, capture_output=True
+    ).stdout
+    return code_bytes(path, content) // BYTES_PER_TOKEN
 
 
 def oversized(paths: list[str]) -> list[tuple[str, int]]:
@@ -107,7 +142,9 @@ def main() -> None:
     if not too_big:
         return
     lines = [f"  {path}: ~{tokens:,} tokens (limit {MAX_TOKENS:,})" for path, tokens in too_big]
-    print("Commit refused: staged files over the token limit (bytes / 4).", *lines, "", SPLIT_INSTRUCTIONS, sep="\n")
+    print(
+        "Commit refused: staged files over the token limit (code bytes / 4).", *lines, "", SPLIT_INSTRUCTIONS, sep="\n"
+    )
     raise SystemExit(1)
 
 
