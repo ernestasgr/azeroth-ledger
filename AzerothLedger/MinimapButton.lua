@@ -96,7 +96,8 @@ function MinimapButton.create(api, onClick)
     end
     local saved = database(api)
 
-    local button = createFrame("Button", nil, minimap)
+    -- Named so minimap button collectors such as EllesmereUI can find it.
+    local button = createFrame("Button", "AzerothLedgerMinimapButton", minimap)
     button:SetSize(SIZE, SIZE)
     button:SetFrameStrata("MEDIUM")
     button:SetFrameLevel(minimap:GetFrameLevel() + 1)
