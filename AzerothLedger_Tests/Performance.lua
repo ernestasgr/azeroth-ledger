@@ -109,7 +109,7 @@ SlashCmdList.AZEROTHLEDGERPERFORMANCE = function(message)
             return addon.Presentation.line(store, "|Hitem:10001::::::::|h[Item 00001]|h", "Fixture", "Test")
         end)
     end
-    addon.Collection.open(_G, store, "Fixture", "Test")
+    addon.Book.open(_G, store, "Fixture", "Test")
     print(
         "Azeroth Ledger: "
             .. (repeated and "3 synthetic items with 50,000 gains each." or "10,000 synthetic items.")

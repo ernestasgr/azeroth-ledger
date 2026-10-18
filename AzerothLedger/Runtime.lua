@@ -98,7 +98,7 @@ function Runtime.new(api, issues, store, inventory)
     end
 
     function runtime.refresh(character, realm)
-        addon.Collection.refresh(store(), character, realm)
+        addon.Book.refresh(store(), character, realm)
     end
 
     -- Sends one write to the store as the acting character at its time. A

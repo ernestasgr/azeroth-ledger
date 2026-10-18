@@ -4,6 +4,15 @@ local tests = WoWUnit("AzerothLedgerVendor")
 local bread = "|Hitem:4540::::::::|h[Tough Hunk of Bread]|h"
 local key = addon.Item.key(bread, 4540)
 
+-- The newest Journal entry for an action, as the Book's Journal shows it.
+local function journalEntry(store, action)
+    for _, entry in ipairs(addon.Journal.query(store)) do
+        if entry.action == action then
+            return entry
+        end
+    end
+end
+
 function tests.MerchantAdapterKeepsExactItemAndUnitCount(_self)
     local api = {
         GetMerchantItemLink = function()
@@ -134,9 +143,8 @@ function tests.NamedVendorSurvivesRestoreAndRefund(_self)
     local gain = store:find(key).gains[1]
     WoWUnit.AreEqual("vendor", gain.source.kind)
     WoWUnit.AreEqual("Dermot Johns", gain.source.name)
-    local lines = table.concat(addon.Collection.lines(store, "Ada", "Realm"), "\n")
-    WoWUnit.IsTrue(lines:find("From Vendor: Dermot Johns 1", 1, true) ~= nil)
-    WoWUnit.IsTrue(lines:find("vendor Dermot Johns", 1, true) ~= nil)
+    WoWUnit.AreEqual(1, addon.Collection.inspect(store, key, "Ada", "Realm").breakdown.sources["Vendor: Dermot Johns"])
+    WoWUnit.AreEqual("Dermot Johns", addon.Journal.query(store)[1].details[1].source)
     WoWUnit.IsTrue(action("refund", 1, "Dermot Johns"))
     bags(0)
     WoWUnit.AreEqual(0, store:find(key).totalGained)
@@ -158,11 +166,13 @@ function tests.SaleThenPurchaseNeedsActionAndIncrease(_self)
     WoWUnit.AreEqual(5, record.totalGained)
     WoWUnit.AreEqual("Vendor", record.gains[1].method)
     WoWUnit.AreEqual(1, #record.gains)
-    local lines = table.concat(addon.Collection.lines(store, "Ada", "Realm"), "\n")
-    WoWUnit.IsTrue(lines:find("How you got it: Vendor 5", 1, true) ~= nil)
-    WoWUnit.IsTrue(lines:find("From Unknown 5", 1, true) ~= nil)
-    WoWUnit.IsTrue(lines:find("+5 Vendor", 1, true) ~= nil)
-    WoWUnit.IsTrue(lines:find("Sale x2", 1, true) ~= nil)
+    local breakdown = addon.Collection.inspect(store, key, "Ada", "Realm").breakdown
+    WoWUnit.AreEqual(5, breakdown.methods.Vendor)
+    WoWUnit.AreEqual(5, breakdown.sources.Unknown)
+    local purchase = journalEntry(store, "Purchase")
+    WoWUnit.AreEqual(5, purchase.quantity)
+    WoWUnit.AreEqual(5, purchase.details[1].quantity)
+    WoWUnit.AreEqual(2, journalEntry(store, "Sale").quantity)
     WoWUnit.AreEqual(1, #store:vendorActivity())
 end
 
@@ -188,10 +198,10 @@ function tests.PurchaseRefundAndDuplicateReversal(_self)
     bags(0)
     WoWUnit.AreEqual(0, store:find(key).totalGained)
     WoWUnit.IsTrue(#store:vendorUnresolved() > 0)
-    local lines = table.concat(addon.Collection.lines(store, "Ada", "Realm"), "\n")
-    WoWUnit.IsTrue(lines:find("Refund x3", 1, true) ~= nil)
-    WoWUnit.IsTrue(lines:find("Method total: Vendor 3", 1, true) == nil)
-    WoWUnit.IsTrue(lines:find("Source total: Vendor 3", 1, true) == nil)
+    WoWUnit.AreEqual(3, journalEntry(store, "Refund").quantity)
+    local breakdown = addon.Collection.inspect(store, key, "Ada", "Realm").breakdown
+    WoWUnit.AreEqual(0, breakdown.methods.Vendor)
+    WoWUnit.AreEqual(nil, breakdown.sources.Unknown)
 end
 
 function tests.SaleBuybackAndIndependentPurchase(_self)
@@ -211,8 +221,7 @@ function tests.SaleBuybackAndIndependentPurchase(_self)
     WoWUnit.IsTrue(receipt(1))
     bags(2)
     WoWUnit.AreEqual(2, store:find(key).totalGained)
-    local lines = table.concat(addon.Collection.lines(store, "Ada", "Realm"), "\n")
-    WoWUnit.IsTrue(lines:find("Buyback x1", 1, true) == nil)
+    WoWUnit.AreEqual(nil, journalEntry(store, "Buyback"))
     WoWUnit.AreEqual(0, #store:vendorActivity())
 end
 

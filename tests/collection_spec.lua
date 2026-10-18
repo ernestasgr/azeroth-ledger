@@ -1,5 +1,6 @@
 local load = assert(loadfile("tests/support/addon.lua"))()
-local addon = load.addon("Collection")
+local addon = load.addon("BookRender")
+local detailText = assert(loadfile("tests/support/detail_text.lua"))()
 date = os.date
 
 local function equal(expected, actual)
@@ -89,17 +90,25 @@ local function check(character, area, at, complete, quantity)
     }))
 end
 local function visible(character, expected)
-    local lines = addon.Collection.lines(ownership, "Ada", "Realm A", character, "Realm A")
-    local joined = table.concat(lines, "\n")
-    assert(joined:find(expected, 1, true), joined)
+    local rows = addon.Collection.query(ownership, "Ada", "Realm A", { character = character, realm = "Realm A" }).rows
+    assert(#rows == 1, "the item appears once in its character's Collection")
+    assert(rows[1].ownership:find(expected, 1, true), "the Collection row must show the status " .. expected)
 end
 local function status(character, expected)
     local key = ownership:list()[1].key
     local detail =
         addon.Collection.inspect(ownership, key, "Ada", "Realm A", { character = character, realm = "Realm A" })
     assert(detail.ownershipState == expected, "the last checks must prove the item is " .. expected)
-    -- The status line shows the owning module's label for that state.
-    visible(character, "Status: " .. addon.LastSeen.ownership(expected).label)
+    -- The Collection row shows the owning module's label for that state.
+    visible(character, addon.LastSeen.ownership(expected).label)
+end
+-- The Book's Last checks section shows the bank's latest check quantity.
+local function bankCheck(expected)
+    local key = ownership:list()[1].key
+    local model = addon.Collection.inspect(ownership, key, "Ada", "Realm A", { character = "Ada" })
+    local text = detailText(addon, model)
+    local bank = text:match("Bank • Last found[^\n]*\n[^\n]*\nLatest check: ([^\n]*)")
+    equal(expected, bank)
 end
 check("Ada", "bags", 6000, true, 1)
 check("Ada", "bank", 6000, true, 0)
@@ -121,13 +130,13 @@ status("Ada", "unknown")
 check("Ada", "bank", 6040, true, 0)
 check("Ada", "equipped", 6040, true, 0)
 status("Ada", "historical")
-visible("Ada", "Latest check 0")
+bankCheck("0")
 check("Ada", "bank", 6050, false, 0)
 status("Ada", "unknown")
-visible("Ada", "Latest check Unknown")
+bankCheck("Unknown")
 check("Ada", "bank", 6060, false, 2)
 status("Ada", "present")
-visible("Ada", "Latest check 2")
+bankCheck("2")
 check("Ada", "bank", 6070, false, 0)
 status("Ada", "unknown")
 
@@ -208,13 +217,10 @@ equal(2, lootRecord.totalGained)
 equal(2, lootRecord.firstSeenUnits + lootRecord.totalGained)
 equal(2011, lootRecord.firstSeen)
 equal(2012, lootRecord.firstGained)
-local foundUnknownSource = false
-for _, line in ipairs(addon.Collection.lines(lootStore, "Ada", "Realm")) do
-    if line:find("source Unknown", 1, true) then
-        foundUnknownSource = true
-    end
-end
-assert(foundUnknownSource)
+local lootEntries = addon.Journal.query(lootStore)
+equal(1, #lootEntries)
+equal("Looted", lootEntries[1].details[1].method)
+equal("Unknown source", lootEntries[1].details[1].source)
 equal(nil, lootRecord.gains[1].source)
 equal("Elwynn Forest", lootRecord.gains[1].place)
 local restoredLoot = addon.Schema.open(lootSaved, function(value)

@@ -58,7 +58,7 @@ local inventory = addon.Inventory.new(_G, function(snapshot)
         addon.Diagnostics.traceStored(store, snapshot, accepted)
     end
     notify("snapshot", snapshot)
-    addon.Collection.refresh(store, snapshot.character, snapshot.realm)
+    addon.Book.refresh(store, snapshot.character, snapshot.realm)
 end, function()
     notify("flushed")
 end)

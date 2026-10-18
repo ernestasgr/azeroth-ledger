@@ -7,6 +7,10 @@ Smoke.lua
 Vendor.lua
 Exchange.lua
 Evidence.lua
+EvidenceProof.lua
+CollectionFixture.lua
+CollectionSources.lua
+CollectionDetails.lua
 Collection.lua
 Journal.lua
 Presentation.lua

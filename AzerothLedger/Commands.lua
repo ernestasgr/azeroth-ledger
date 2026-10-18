@@ -109,14 +109,7 @@ function Commands.routes(context)
             run = function(filter)
                 local character, realm = addon.Runtime.identity(context.api)
                 if character and realm then
-                    addon.Collection.open(
-                        context.api,
-                        context.store(),
-                        character,
-                        realm,
-                        filter.character,
-                        filter.realm
-                    )
+                    addon.Book.open(context.api, context.store(), character, realm, filter.character, filter.realm)
                 end
             end,
         },

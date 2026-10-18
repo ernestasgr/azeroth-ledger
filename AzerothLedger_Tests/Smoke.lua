@@ -84,9 +84,11 @@ end
 
 function tests.CollectionOpensWithDatedObservations(_self)
     local store = replay()
-    local lines = addon.Collection.lines(store, "Ada", "Realm A")
-    WoWUnit.IsTrue(lines[2]:find("needs a check", 1, true) ~= nil)
-    local frame = addon.Collection.open(_G, store, "Ada", "Realm A")
+    local meat = addon.Collection.inspect(store, addon.Item.key(plain, 2672), "Ada", "Realm A")
+    local bank = meat.checks[2]
+    WoWUnit.AreEqual("bank", bank.area)
+    WoWUnit.AreEqual(nil, bank.quantity)
+    local frame = addon.Book.open(_G, store, "Ada", "Realm A")
     WoWUnit.IsTrue(frame and frame:IsShown())
     frame:Hide()
 end
@@ -139,8 +141,9 @@ function tests.StorageMovesAndUnreadableChecks(_self)
         WoWUnit.IsTrue(store:scan(addon.Scan.capture(api, area, bankOpen)))
     end
     local function ownership(expected)
-        local lines = addon.Collection.lines(store, character, "Realm", "Ada", "Realm")
-        WoWUnit.IsTrue(table.concat(lines, "\n"):find("Status: " .. expected, 1, true) ~= nil)
+        local rows = addon.Collection.query(store, character, "Realm", { character = "Ada", realm = "Realm" }).rows
+        WoWUnit.AreEqual(1, #rows)
+        WoWUnit.IsTrue(rows[1].ownership:find(expected, 1, true) == 1)
     end
     scan("bags", true)
     scan("bank", true)
@@ -414,6 +417,8 @@ function tests.SingleCraftShowsRecipeAndIgnoresDuplicateLootChannel(_self)
     WoWUnit.AreEqual(1, #record.gains)
     WoWUnit.AreEqual("Crafted", record.gains[1].method)
     WoWUnit.AreEqual(2963, record.gains[1].context.id)
-    local lines = table.concat(addon.Collection.lines(store, "Ada", "Realm"), "\n")
-    WoWUnit.IsTrue(lines:find("recipe Bolt of Linen Cloth", 1, true) ~= nil)
+    local entries = addon.Journal.query(store)
+    WoWUnit.AreEqual(1, #entries)
+    WoWUnit.AreEqual("Crafted", entries[1].details[1].method)
+    WoWUnit.AreEqual("Bolt of Linen Cloth", entries[1].details[1].source)
 end

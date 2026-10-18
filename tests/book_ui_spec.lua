@@ -2,10 +2,8 @@ local load = assert(loadfile("tests/support/addon.lua"))()
 -- Native frame port replay: checks visible text and input behavior, not private book state.
 local addon = load.addon("Book")
 date = os.date
-local native = assert(loadfile("tests/support/native_ui.lua"))().create({
-    rejectedTextures = { ["Interface\\Icons\\INV_Misc_Food_14"] = true },
-})
-local controls = native.controls
+local ui = assert(loadfile("tests/support/book_ui.lua"))()()
+local controls = ui.controls
 local function assertIconsAboveBackings()
     local layers = { BACKGROUND = 1, BORDER = 2, ARTWORK = 3, OVERLAY = 4, HIGHLIGHT = 5 }
     for _, icon in ipairs(controls) do
@@ -27,35 +25,7 @@ local function assertIconsAboveBackings()
         end
     end
 end
-local ready = true
-local api = native.api
-local browsingTime = 100000
-api.GetServerTime = function()
-    return browsingTime
-end
-api.IsControlKeyDown = function()
-    return true
-end
-api.C_Item = {
-    GetItemInfo = function(link)
-        if not ready then
-            return nil
-        end
-        local id = tonumber(link:match("item:(%d+)"))
-        return "Name",
-            link,
-            1,
-            nil,
-            nil,
-            nil,
-            nil,
-            nil,
-            nil,
-            "Interface\\Icons\\INV_Misc_Food_14",
-            nil,
-            id == 2672 and 7 or 2
-    end,
-}
+local api = ui.api
 local writes = 0
 local store = addon.Schema.open(nil, function()
     writes = writes + 1
@@ -78,24 +48,13 @@ assert(store:scan({
     seenAt = 1001,
     items = { { itemID = 2672, link = "|cffffffff|Hitem:2672:0:0:0:0:0:0:0:15:7|h[Meat]|h|r", quantity = 10 } },
 }))
-local frame = assert(addon.Collection.open(api, store, "Ada", "A"))
+local frame = assert(addon.Book.open(api, store, "Ada", "A"))
 frame.scripts.OnKeyDown(frame, "ENTER")
 local openingFade = assert(frame.animationGroups[1])
 assert(openingFade.playing and openingFade.animations[1].duration <= 0.5)
 openingFade:Finish()
 assert(frame.alpha == 1, "opening must finish fully opaque")
-local function find(text, kind)
-    for index = #controls, 1, -1 do
-        local control = controls[index]
-        if control.text == text and control:IsVisible() and (not kind or control.kind == kind) then
-            return control
-        end
-    end
-    error("Missing visible control: " .. text)
-end
-local function click(text)
-    find(text, "Button"):Click()
-end
+local find, click = ui.find, ui.click
 local search
 local scroll
 for _, control in ipairs(controls) do
@@ -181,7 +140,7 @@ local before = writes
 find("2 saved links represent 1 distinct item version.", "FontString")
 scroll.scripts.OnMouseWheel(scroll, -1)
 assert(scroll:GetVerticalScroll() == 48)
-addon.Collection.refresh(store, "Ada", "A")
+addon.Book.refresh(store, "Ada", "A")
 frame.scripts.OnUpdate()
 assert(scroll:GetVerticalScroll() == 48, "an inventory refresh must preserve the reader's scroll position")
 click("Next")
@@ -259,7 +218,7 @@ frame.scripts.OnEvent()
 local smaller = frame:GetScale()
 click("−")
 assert(frame:GetScale() < smaller, "window size must change immediately even when fitted to a smaller screen")
-ready = false
+ui.ready = false
 frame.scripts.OnEvent()
 frame.scripts.OnUpdate()
 find("15 items awaiting item data")
@@ -267,7 +226,7 @@ click("Any quality")
 click("Next")
 click("Unknown quality")
 find("15 items")
-ready = true
+ui.ready = true
 frame.scripts.OnEvent()
 frame.scripts.OnUpdate()
 find("0 items")
@@ -286,7 +245,7 @@ find("410", "FontString")
 local detailHeader = find("CHARACTER OVERALL", "FontString").parent
 local detailFade = assert(detailHeader.animationGroups[1])
 local detailPlays = detailFade.plays
-addon.Collection.refresh(store, "Ada", "A")
+addon.Book.refresh(store, "Ada", "A")
 frame.scripts.OnUpdate(frame, 0.1)
 assert(detailFade.plays == detailPlays, "background refresh must not replay the detail transition")
 click("Meat")
@@ -344,10 +303,10 @@ for _, control in ipairs(controls) do
         assert(control.alpha == 1, "interrupted fades must restore opacity")
     end
 end
-addon.Collection.open(api, store, "Ada", "A")
+addon.Book.open(api, store, "Ada", "A")
 assert(#frame.animationGroups == 1 and openingFade.playing, "reopening must reuse the opening animation")
 local openingPlays = openingFade.plays
-addon.Collection.open(api, store, "Ada", "A")
+addon.Book.open(api, store, "Ada", "A")
 assert(openingFade.plays == openingPlays, "opening an already visible book must not restart the fade")
 click("Journal")
 click("Clear filters")
@@ -376,7 +335,7 @@ assert(store:scan({
     seenAt = 1101,
     items = { { itemID = 4540, link = bread, quantity = 2 } },
 }))
-addon.Collection.refresh(store, "Ada", "A")
+addon.Book.refresh(store, "Ada", "A")
 frame.scripts.OnUpdate(frame, 0.1)
 find("1 entry")
 assertIconsAboveBackings()
@@ -401,10 +360,10 @@ find("1 entry")
 click("Any date")
 click("Last 24 hours")
 find("0 entries")
-browsingTime = 604900
+ui.time = 604900
 click("Last 24 hours")
 click("Last 7 days")
-ready = false
+ui.ready = false
 frame.scripts.OnEvent()
 frame.scripts.OnUpdate()
 find("1 entry")
@@ -413,7 +372,7 @@ local dateAndLoading = date("%d %b %Y  %H:%M", 100)
     .. date("%d %b %Y  %H:%M", 604900)
     .. " (inclusive)\n1 items awaiting item data"
 find(dateAndLoading)
-ready = true
+ui.ready = true
 frame.scripts.OnEvent()
 frame.scripts.OnUpdate()
 click("Clear filters")
@@ -491,7 +450,7 @@ for _, area in ipairs({ "bags", "equipped", "bank" }) do
     }))
 end
 assert(store:scan({ character = "Ada", realm = "A", area = "bank", complete = false, seenAt = 4100, items = {} }))
-addon.Collection.open(api, store, "Ada", "A", "Ada", "A")
+addon.Book.open(api, store, "Ada", "A", "Ada", "A")
 frame.scripts.OnUpdate(frame, 0.1)
 click("Bread")
 find("Unknown")
@@ -549,231 +508,3 @@ find("1 / 2")
 click("Collection")
 find("Bread", "Button")
 print("book_ui_spec: passed (native frame port replay; live client pending)")
-
-local queued = {
-    schema = 2,
-    records = {},
-    areas = {},
-    evidence = { nextID = 2001, discarded = 5, firstDiscarded = 100, lastDiscarded = 200, unresolved = {} },
-}
-for index = 1, 2000 do
-    queued.evidence.unresolved[index] = {
-        id = index,
-        kind = "identity",
-        reason = "unreadable",
-        at = 1000 + index,
-        character = "EvidenceOnly",
-        realm = "EvidenceRealm",
-        detail = { itemID = 999, quantity = 1, area = "bank" },
-    }
-end
-local queueWrites = 0
-local queueStore = addon.Schema.open(queued, function()
-    queueWrites = queueWrites + 1
-end)
-local profileTime = 0
-api.debugprofilestop = function()
-    profileTime = profileTime + 0.2
-    return profileTime
-end
-addon.Book.open(api, queueStore, "Ada", "A")
-frame.scripts.OnKeyDown(frame, "ENTER")
-click("Review item changes")
-frame.scripts.OnKeyDown(frame, "DOWN")
-for _ = 1, 10000 do
-    frame.scripts.OnUpdate(frame, 0.1)
-end
-find("2000 items to review")
-find("1 / 286")
-find(
-    "5 older item changes without details • "
-        .. date("%d %b %Y  %H:%M", 100)
-        .. " – "
-        .. date("%d %b %Y  %H:%M", 200)
-)
-local loading = find(
-    "5 older item changes without details • "
-        .. date("%d %b %Y  %H:%M", 100)
-        .. " – "
-        .. date("%d %b %Y  %H:%M", 200)
-)
-local warningControl = find(
-    "Warning: 5 item changes need review; details discarded • "
-        .. date("%d %b %Y", 100)
-        .. " – "
-        .. date("%d %b %Y", 200),
-    "Button"
-)
-assert(loading.points[1].y > warningControl.points[1].y, "Discarded details and warning must occupy separate lines")
-frame.scripts.OnKeyDown(frame, "PAGEDOWN")
-for _ = 1, 10000 do
-    frame.scripts.OnUpdate(frame, 0.1)
-end
-find("2 / 286")
-click("All characters")
-click("EvidenceOnly-EvidenceRealm")
-for _ = 1, 10000 do
-    frame.scripts.OnUpdate(frame, 0.1)
-end
-find("2000 items to review")
-assert(queueWrites == 0)
-print("book_ui_spec: large evidence queue, loading keyboard access and overflow layout passed")
-
-api.debugprofilestop = nil
-local sourceSaved
-local sourceStore = addon.Schema.open(nil, function(value)
-    sourceSaved = value
-end)
-assert(sourceStore:scan({
-    character = "Ada",
-    realm = "A",
-    area = "bags",
-    complete = true,
-    seenAt = 1000,
-    items = { { itemID = 2672, link = "|Hitem:2672::::::::|h[Meat]|h", quantity = 2 } },
-}))
-local sourceRecord = sourceSaved.records["2672:0"]
-sourceRecord.totalGained, sourceRecord.firstGained, sourceRecord.lastGained = 5, 1001, 1001
-sourceRecord.gains = {
-    {
-        id = "mob-gain",
-        at = 1001,
-        quantity = 5,
-        character = "Ada",
-        realm = "A",
-        level = 1,
-        place = "Forest",
-        method = "Looted",
-        source = { kind = "mob", guid = "Creature-0-1-2-3-4-001", name = "Boar" },
-    },
-}
-local sourceWrites = 0
-sourceStore = addon.Schema.open(sourceSaved, function()
-    sourceWrites = sourceWrites + 1
-end)
-addon.Book.open(api, sourceStore, "Ada", "A")
-frame.scripts.OnKeyDown(frame, "ENTER")
-click("Collection")
-click("Clear filters")
-click("All sources")
-click("Boar")
-find("Boar", "Button")
-find("ALL CURRENT")
-find("Unknown")
-find("Shows items gained from this source, not everything it can drop.")
-local sourceSearch = find("", "EditBox")
-sourceSearch:SetText("Boar")
-sourceSearch.scripts.OnEnterPressed(sourceSearch)
-find("Meat", "Button")
-click("All realms")
-click("A")
-find("ALL CURRENT")
-click("Clear filters")
-find("All sources", "Button")
-find("ALL CURRENT")
-assert(sourceWrites == 0)
-print("book_ui_spec: source navigation, source search and clearing passed")
-
--- Hovering a historical item can complete an uncached item-info request. Keep
--- the already-rendered Collection visible while that metadata refresh runs.
-assert(sourceStore:scan({
-    character = "Ada",
-    realm = "A",
-    area = "bags",
-    complete = true,
-    seenAt = 2000,
-    items = {},
-}))
-assert(sourceStore:scan({
-    character = "Ada",
-    realm = "A",
-    area = "equipped",
-    complete = true,
-    seenAt = 2000,
-    items = {},
-}))
-assert(sourceStore:scan({
-    character = "Ada",
-    realm = "A",
-    area = "bank",
-    complete = true,
-    seenAt = 2000,
-    items = {},
-}))
-local historicalFrame = assert(addon.Book.open(api, sourceStore, "Ada", "A"))
-for _ = 1, 20 do
-    historicalFrame.scripts.OnUpdate(historicalFrame, 0.1)
-end
-local historicalRow
-for _, control in ipairs(controls) do
-    if control.kind == "Button" and control.key == "2672:0" and control:IsVisible() then
-        historicalRow = control
-        break
-    end
-end
-assert(historicalRow, "A sold item should remain in Collection history")
-local historicalProfileTime = 0
-rawset(api, "debugprofilestop", function()
-    historicalProfileTime = historicalProfileTime + 1
-    return historicalProfileTime
-end)
-api.GameTooltip = {
-    SetOwner = function() end,
-    SetHyperlink = function()
-        ready = false
-        historicalFrame.scripts.OnEvent(historicalFrame, "GET_ITEM_INFO_RECEIVED", 2672, true)
-    end,
-    Show = function() end,
-    Hide = function() end,
-}
-historicalRow.scripts.OnEnter(historicalRow)
-historicalFrame.scripts.OnUpdate(historicalFrame, 0.1)
-for _, control in ipairs(controls) do
-    assert(
-        control.text ~= "Loading your Collection…" or not control:IsVisible(),
-        "Hovering a sold item must not blank the Collection while item metadata refreshes"
-    )
-end
-print("book_ui_spec: historical-item hover keeps the Collection visible")
-
--- A current count is unknown until bags and equipped gear have complete checks
--- at the same time.
-local partialStore = addon.Schema.open(nil, function() end)
-local bootsLink = "|Hitem:990010::::::::|h[Neophyte's Boots]|h"
-assert(partialStore:scan({
-    character = "Ada",
-    realm = "A",
-    area = "equipped",
-    complete = true,
-    seenAt = 3000,
-    items = { { itemID = 990010, link = bootsLink, quantity = 1 } },
-}))
-assert(partialStore:scan({
-    character = "Ada",
-    realm = "A",
-    area = "bags",
-    complete = true,
-    seenAt = 3001,
-    items = {},
-}))
-local partialFrame = assert(addon.Book.open(api, partialStore, "Ada", "A", "Ada", "A"))
-for _ = 1, 20 do
-    partialFrame.scripts.OnUpdate(partialFrame, 0.1)
-end
-local partialRow
-for _, control in ipairs(controls) do
-    if control.kind == "Button" and control.text == "Neophyte's Boots" and control:IsVisible() then
-        partialRow = control
-        break
-    end
-end
-assert(partialRow, "the previously seen item should remain in the scoped Collection")
-local partialCount
-for _, control in ipairs(controls) do
-    if control.parent == partialRow and control.text == "Unknown" and control:IsVisible() then
-        partialCount = control
-        break
-    end
-end
-assert(partialCount, "a partial storage check must not be presented as an exact count")
-print("book_ui_spec: item rows show exact current counts or Unknown")
