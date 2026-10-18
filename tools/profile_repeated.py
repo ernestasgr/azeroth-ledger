@@ -106,9 +106,15 @@ def main() -> None:
             local _, tooltipMs, tooltipInstructions = counted(function()
                 return addon.Presentation.line(store, "|Hitem:10001::::::::|h[Item 00001]|h", "Fixture", "Test")
             end)
-            assert(store:rewardReceipt({ key="10001:0", quantity=1, method="Crafted",
-                context={kind="recipe",id=123} }, 60001,
-                {character="Fixture",realm="Test",level=1,place="Test zone"}))
+            -- A baseline older than store:command still names each write and has no login.
+            local craft = { key="10001:0", quantity=1, method="Crafted", context={kind="recipe",id=123} }
+            local crafter = {character="Fixture",realm="Test",level=1,place="Test zone"}
+            if store.command then
+                assert(store:setCharacter("Fixture", "Test"))
+                assert(store:command("rewardReceipt", craft, 60001, crafter))
+            else
+                assert(store:rewardReceipt(craft, 60001, crafter))
+            end
             local accepted, gainMs, gainInstructions = counted(function()
                 return store:scan({character="Fixture",realm="Test",area="bags",seenAt=60002,complete=true,
                     items={{itemID=10001,link="|Hitem:10001::::::::|h[Item 00001]|h",quantity=count+2}}})

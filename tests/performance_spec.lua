@@ -314,9 +314,11 @@ for _, gainCount in ipairs({ 5000, 50000 }) do
     local acquisition = addon.Schema.open(acquisitionRaw, function(value)
         acquisitionRaw = value
     end)
+    assert(acquisition:setCharacter("Fixture", "Test"))
     local gainActor = { character = "Fixture", realm = "Test", level = 1, place = "Test zone" }
     assert(
-        acquisition:rewardReceipt(
+        acquisition:command(
+            "rewardReceipt",
             { key = "10001:0", quantity = 1, method = "Crafted", context = { kind = "recipe", id = 123 } },
             1001 + gainCount,
             gainActor
@@ -363,8 +365,10 @@ retryStore = addon.Schema.open(retryRaw, function(value)
     end
     retryRaw = value
 end)
+assert(retryStore:setCharacter("Fixture", "Test"))
 assert(
-    retryStore:rewardReceipt(
+    retryStore:command(
+        "rewardReceipt",
         { key = "10001:0", quantity = 3, method = "Crafted", context = { kind = "recipe", id = 123 } },
         6001,
         { character = "Fixture", realm = "Test", level = 1, place = "Test zone" }
@@ -400,19 +404,21 @@ for _, channel in ipairs({ "vendor", "mail", "loot" }) do
         end
         failureRaw = value
     end)
+    assert(failureStore:setCharacter("Fixture", "Test"))
     local actor = { character = "Fixture", realm = "Test", level = 1, place = "Test zone" }
     local link = "|Hitem:10001::::::::|h[Item 00001]|h"
     if channel == "vendor" then
         assert(
-            failureStore:vendorAction(
+            failureStore:command(
+                "vendorAction",
                 { kind = "purchase", key = "10001:0", itemID = 10001, link = link, quantity = 1 },
                 6001,
                 actor
             )
         )
-        assert(failureStore:vendorReceipt({ key = "10001:0", quantity = 1 }, 6001, actor))
+        assert(failureStore:command("vendorReceipt", { key = "10001:0", quantity = 1 }, 6001, actor))
     elseif channel == "mail" then
-        local id = assert(failureStore:exchangeIntent({
+        local id = assert(failureStore:command("exchangeIntent", {
             channel = "mail",
             direction = "in",
             key = "10001:0",
@@ -422,7 +428,7 @@ for _, channel in ipairs({ "vendor", "mail", "loot" }) do
             peerName = "Outside",
             peerRealm = "Test",
         }, 6001, actor))
-        assert(failureStore:exchangeConfirm("mail", "in", 6001, actor, id))
+        assert(failureStore:command("exchangeConfirm", { channel = "mail", direction = "in", ids = id }, 6001, actor))
     else
         assert(failureStore:scan({
             character = "Fixture",
@@ -432,12 +438,7 @@ for _, channel in ipairs({ "vendor", "mail", "loot" }) do
             complete = true,
             items = {},
         }))
-        assert(failureStore:lootOpen({
-            character = "Fixture",
-            realm = "Test",
-            level = 1,
-            place = "Test zone",
-            at = 6001,
+        assert(failureStore:command("lootOpen", {
             slots = {
                 {
                     key = "10001:0",
@@ -445,8 +446,8 @@ for _, channel in ipairs({ "vendor", "mail", "loot" }) do
                     source = { kind = "mob", guid = "Creature-0-0-0-0-123-0", name = "Fixture mob" },
                 },
             },
-        }))
-        assert(failureStore:lootReceipt({ key = "10001:0", quantity = 1 }, 6001, actor))
+        }, 6001, { character = "Fixture", realm = "Test", level = 1, place = "Test zone" }))
+        assert(failureStore:command("lootReceipt", { key = "10001:0", quantity = 1 }, 6001, actor))
     end
     local snapshot = {
         character = "Fixture",
@@ -480,6 +481,7 @@ local lateStore = addon.Schema.open(lateRaw, function(value)
     end
     lateRaw = value
 end)
+assert(lateStore:setCharacter("Fixture", "Test"))
 assert(lateStore:scan({
     character = "Fixture",
     realm = "Test",
@@ -488,12 +490,7 @@ assert(lateStore:scan({
     complete = true,
     items = {},
 }))
-assert(lateStore:lootOpen({
-    character = "Fixture",
-    realm = "Test",
-    level = 1,
-    place = "Test zone",
-    at = 6001,
+assert(lateStore:command("lootOpen", {
     slots = {
         {
             key = "10001:0",
@@ -501,7 +498,7 @@ assert(lateStore:lootOpen({
             source = { kind = "mob", guid = "Creature-0-0-0-0-123-0", name = "Fixture mob" },
         },
     },
-}))
+}, 6001, { character = "Fixture", realm = "Test", level = 1, place = "Test zone" }))
 assert(lateStore:scan({
     character = "Fixture",
     realm = "Test",
@@ -519,6 +516,6 @@ instructions = 0
 debug.sethook(function()
     instructions = instructions + 1000
 end, "", 1000)
-assert(lateStore:lootReceipt(lateReceipt, 6003, lateActor))
+assert(lateStore:command("lootReceipt", lateReceipt, 6003, lateActor))
 debug.sethook()
 assert(instructions < 250000 and lateStore:find("10001:0").totalGained == 5001)

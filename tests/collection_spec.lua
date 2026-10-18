@@ -132,6 +132,7 @@ local lootSaved
 local lootStore = addon.Schema.open(nil, function(value)
     lootSaved = value
 end)
+assert(lootStore:setCharacter("Ada", "Realm"))
 local lootLink = "|Hitem:4865::::::::|h[Ruined Pelt]|h"
 local lootKey = addon.Item.key(lootLink, 4865)
 local receiptAPI = {
@@ -177,14 +178,14 @@ equal(nil, ambiguousSlots[1].source)
 assert(
     lootStore:scan({ character = "Ada", realm = "Realm", area = "bags", seenAt = 2000, complete = true, items = {} })
 )
-assert(lootStore:lootOpen({
-    character = "Ada",
-    realm = "Realm",
-    at = 2010,
-    level = 12,
-    place = "Elwynn Forest",
-    slots = { { key = lootKey } },
-}))
+assert(
+    lootStore:command(
+        "lootOpen",
+        { slots = { { key = lootKey } } },
+        2010,
+        { character = "Ada", realm = "Realm", level = 12, place = "Elwynn Forest" }
+    )
+)
 assert(lootStore:scan({
     character = "Ada",
     realm = "Realm",
@@ -194,7 +195,7 @@ assert(lootStore:scan({
     items = { { itemID = 4865, link = lootLink, quantity = 2 } },
 }))
 equal(0, lootStore:find(lootKey).totalGained)
-assert(lootStore:lootReceipt(receipt, 2012, { character = "Ada", realm = "Realm" }))
+assert(lootStore:command("lootReceipt", receipt, 2012, { character = "Ada", realm = "Realm" }))
 local lootRecord = lootStore:find(lootKey)
 equal(0, lootRecord.firstSeenUnits)
 equal(0, lootRecord.characters[1].firstSeenUnits)
@@ -214,7 +215,8 @@ equal("Elwynn Forest", lootRecord.gains[1].place)
 local restoredLoot = addon.Schema.open(lootSaved, function(value)
     lootSaved = value
 end)
-assert(not restoredLoot:lootReceipt(receipt, 2013, { character = "Ada", realm = "Realm" }))
+assert(restoredLoot:setCharacter("Ada", "Realm"))
+assert(not restoredLoot:command("lootReceipt", receipt, 2013, { character = "Ada", realm = "Realm" }))
 assert(restoredLoot:scan({
     character = "Ada",
     realm = "Realm",
@@ -227,6 +229,7 @@ equal(2, restoredLoot:find(lootKey).totalGained)
 equal(1, #restoredLoot:find(lootKey).gains)
 
 local partial = addon.Schema.open(nil, function() end)
+assert(partial:setCharacter("Ada", "Realm"))
 assert(partial:scan({
     character = "Ada",
     realm = "Realm",
@@ -235,17 +238,17 @@ assert(partial:scan({
     complete = true,
     items = { { itemID = 4865, link = lootLink, quantity = 5 } },
 }))
-assert(partial:lootOpen({
-    character = "Ada",
-    realm = "Realm",
-    at = 3010,
-    level = 12,
-    place = "Elwynn Forest",
-    slots = { { key = lootKey } },
-}))
+assert(
+    partial:command(
+        "lootOpen",
+        { slots = { { key = lootKey } } },
+        3010,
+        { character = "Ada", realm = "Realm", level = 12, place = "Elwynn Forest" }
+    )
+)
 local one = addon.Loot.receipt(receiptAPI, "You receive loot: " .. lootLink .. ".")
-assert(partial:lootReceipt(one, 3011, { character = "Ada", realm = "Realm" }))
-assert(partial:lootReceipt(one, 3011, { character = "Ada", realm = "Realm" }))
+assert(partial:command("lootReceipt", one, 3011, { character = "Ada", realm = "Realm" }))
+assert(partial:command("lootReceipt", one, 3011, { character = "Ada", realm = "Realm" }))
 assert(partial:scan({
     character = "Ada",
     realm = "Realm",
@@ -259,6 +262,7 @@ equal(5, partial:find(lootKey).firstSeenUnits)
 equal(6, partial:find(lootKey).firstSeenUnits + partial:find(lootKey).totalGained)
 
 local delayed = addon.Schema.open(nil, function() end)
+assert(delayed:setCharacter("Ada", "Realm"))
 local function delayedBags(at, units)
     assert(delayed:scan({
         character = "Ada",
@@ -270,34 +274,35 @@ local function delayedBags(at, units)
     }))
 end
 delayedBags(4000, 5)
-assert(delayed:lootOpen({
-    character = "Ada",
-    realm = "Realm",
-    at = 4010,
-    level = 12,
-    place = "Elwynn Forest",
-    slots = { { key = lootKey, quantity = 1 } },
-}))
+assert(
+    delayed:command(
+        "lootOpen",
+        { slots = { { key = lootKey, quantity = 1 } } },
+        4010,
+        { character = "Ada", realm = "Realm", level = 12, place = "Elwynn Forest" }
+    )
+)
 delayedBags(4150, 6)
-assert(not delayed:lootClose(4151))
-assert(not delayed:lootClose(4152))
-assert(delayed:lootOpen({
-    character = "Ada",
-    realm = "Realm",
-    at = 4153,
-    level = 12,
-    place = "Elwynn Forest",
-    slots = { { key = lootKey, quantity = 1 } },
-}))
-assert(not delayed:lootReceipt(one, 4154, { character = "Ben", realm = "Realm" }))
-assert(delayed:lootReceipt(one, 4154, { character = "Ada", realm = "Realm" }))
+assert(not delayed:command("lootClose", nil, 4151, { character = "Ada", realm = "Realm" }))
+assert(not delayed:command("lootClose", nil, 4152, { character = "Ada", realm = "Realm" }))
+assert(
+    delayed:command(
+        "lootOpen",
+        { slots = { { key = lootKey, quantity = 1 } } },
+        4153,
+        { character = "Ada", realm = "Realm", level = 12, place = "Elwynn Forest" }
+    )
+)
+assert(not delayed:command("lootReceipt", one, 4154, { character = "Ben", realm = "Realm" }))
+assert(delayed:command("lootReceipt", one, 4154, { character = "Ada", realm = "Realm" }))
 equal(0, delayed:find(lootKey).totalGained)
 delayedBags(4155, 6)
-assert(delayed:lootReceipt(one, 4156, { character = "Ada", realm = "Realm" }))
+assert(delayed:command("lootReceipt", one, 4156, { character = "Ada", realm = "Realm" }))
 equal(0, delayed:find(lootKey).totalGained)
 equal(0, #delayed:find(lootKey).gains)
 
 local twoWindow = addon.Schema.open(nil, function() end)
+assert(twoWindow:setCharacter("Ada", "Realm"))
 local function twoWindowBags(at, units)
     assert(twoWindow:scan({
         character = "Ada",
@@ -309,28 +314,28 @@ local function twoWindowBags(at, units)
     }))
 end
 twoWindowBags(5000, 5)
-assert(twoWindow:lootOpen({
-    character = "Ada",
-    realm = "Realm",
-    at = 5010,
-    level = 12,
-    place = "Elwynn Forest",
-    slots = { { key = lootKey, quantity = 1 } },
-}))
+assert(
+    twoWindow:command(
+        "lootOpen",
+        { slots = { { key = lootKey, quantity = 1 } } },
+        5010,
+        { character = "Ada", realm = "Realm", level = 12, place = "Elwynn Forest" }
+    )
+)
 twoWindowBags(5011, 7)
-assert(twoWindow:lootReceipt(one, 5012, { character = "Ada", realm = "Realm" }))
+assert(twoWindow:command("lootReceipt", one, 5012, { character = "Ada", realm = "Realm" }))
 equal(1, twoWindow:find(lootKey).totalGained)
-assert(twoWindow:lootClose(5013))
-assert(twoWindow:lootOpen({
-    character = "Ada",
-    realm = "Realm",
-    at = 5014,
-    level = 12,
-    place = "Elwynn Forest",
-    slots = { { key = lootKey, quantity = 1 } },
-}))
+assert(twoWindow:command("lootClose", nil, 5013, { character = "Ada", realm = "Realm" }))
+assert(
+    twoWindow:command(
+        "lootOpen",
+        { slots = { { key = lootKey, quantity = 1 } } },
+        5014,
+        { character = "Ada", realm = "Realm", level = 12, place = "Elwynn Forest" }
+    )
+)
 twoWindowBags(5015, 8)
-assert(twoWindow:lootReceipt(one, 5016, { character = "Ada", realm = "Realm" }))
+assert(twoWindow:command("lootReceipt", one, 5016, { character = "Ada", realm = "Realm" }))
 equal(2, twoWindow:find(lootKey).totalGained)
 equal(2, #twoWindow:find(lootKey).gains)
 

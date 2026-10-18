@@ -12,43 +12,33 @@ function LootSession.new(runtime, merchantOpen)
     -- Fast loot can finish at LOOT_READY; LOOT_OPENED must keep that pre-gain baseline.
     local captured = false
 
-    local function proveSources(context, slots)
-        if runtime.store():lootSourceProof(slots, context.at, context) then
+    local function proveSources(slots)
+        local proven, context = runtime.command("lootSourceProof", { slots = slots })
+        if proven and context then
             runtime.refresh(context.character, context.realm)
         end
     end
 
     local function opened()
-        local context = runtime.player()
         local slots = addon.Loot.open(api)
-        if not context or not slots then
+        if not slots then
             return
         end
-        context.slots = slots
         if captured then
-            proveSources(context, slots)
+            proveSources(slots)
         elseif #slots > 0 then
-            captured = runtime.store():lootOpen(context)
+            captured = runtime.command("lootOpen", { slots = slots }) == true
         end
     end
 
     local function receipt(message)
         local parsed = addon.Loot.receipt(api, message)
-        local at = runtime.now()
-        local character, realm = runtime.identity()
-        if not parsed or not at or not character or not realm then
+        if not parsed then
             return
         end
-        local actor = { character = character, realm = realm }
-        local store = runtime.store()
-        local accepted
-        if merchantOpen() then
-            accepted = store:vendorReceipt(parsed, at, actor)
-        else
-            accepted = store:lootReceipt(parsed, at, actor)
-        end
-        if accepted then
-            runtime.refresh(character, realm)
+        local accepted, context = runtime.command(merchantOpen() and "vendorReceipt" or "lootReceipt", parsed)
+        if accepted and context then
+            runtime.refresh(context.character, context.realm)
         end
     end
 
@@ -57,18 +47,14 @@ function LootSession.new(runtime, merchantOpen)
             LOOT_READY = opened,
             LOOT_OPENED = opened,
             LOOT_SLOT_CHANGED = function()
-                local context = runtime.player()
                 local slots = addon.Loot.open(api)
-                if context and slots then
-                    proveSources(context, slots)
+                if slots then
+                    proveSources(slots)
                 end
             end,
             LOOT_CLOSED = function()
                 captured = false
-                local at = runtime.now()
-                if at then
-                    runtime.store():lootClose(at)
-                end
+                runtime.command("lootClose")
             end,
             CHAT_MSG_LOOT = receipt,
         },

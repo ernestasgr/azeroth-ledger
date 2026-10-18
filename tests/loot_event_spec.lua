@@ -286,19 +286,14 @@ event("LOOT_OPENED", true, false)
 assert(addon.store:find("6889:0").totalGained == 3, "Exhausted older loot cycle swallowed a new pending receipt")
 event("LOOT_CLOSED")
 
+-- The client names the crafted result after the cast that began its recipe.
+local function craft(recipeID, itemID, itemLink)
+    event("TRADE_SKILL_CRAFT_BEGIN", recipeID)
+    event("TRADE_SKILL_ITEM_CRAFTED_RESULT", { itemID = itemID, hyperlink = itemLink, quantity = 1 })
+    event("UPDATE_TRADESKILL_CAST_STOPPED")
+end
 local function craftEgg(recipeID)
-    assert(
-        addon.store:rewardReceipt(
-            {
-                key = "6889:0",
-                quantity = 1,
-                method = "Crafted",
-                context = { kind = "recipe", id = recipeID or 7 },
-            },
-            clock,
-            { character = "Mindria", realm = "Classic Beta PvE", level = 1, place = "Teldrassil", placeKind = "zone" }
-        )
-    )
+    craft(recipeID or 7, 6889, eggLink)
 end
 clock, eggReadable = 1840, false
 event("LOOT_READY", true, false)
@@ -559,12 +554,12 @@ do
         event("LOOT_READY", true, false)
         event("LOOT_READY", true, false)
         if scenario == "competing craft" then
-            assert(addon.store:rewardReceipt({ key = swordKey, quantity = 1, method = "Crafted" }, clock, {
-                character = "Mindria",
-                realm = "Classic Beta PvE",
-                level = 1,
-                place = "Teldrassil",
-            }))
+            craft(nil, 100, sword)
+            local crafts = 0
+            addon.store:visitEvidence(function(entry)
+                crafts = crafts + (entry.method == "Crafted" and entry.key == swordKey and 1 or 0)
+            end)
+            assert(crafts == 1, "The crafted sword must wait for its possessions check")
         end
         if scenario ~= "late receipt" and scenario ~= "no receipt" then
             receipt()
@@ -637,6 +632,7 @@ end
 -- loot close; its exact source proof must still settle the measured receipt.
 local lateStore = addon.Schema.open(nil, function() end)
 local lateActor = { character = "Mindria", realm = "Classic Beta PvE" }
+assert(lateStore:setCharacter(lateActor.character, lateActor.realm))
 local lateContext = {
     character = lateActor.character,
     realm = lateActor.realm,
@@ -678,8 +674,8 @@ end)
 local firstLateSlots = assert(addon.Loot.open(_G))
 assert(#firstLateSlots == 1, "The first snapshot should contain only the readable loot slot")
 lateContext.slots = firstLateSlots
-assert(lateStore:lootOpen(lateContext))
-assert(lateStore:lootReceipt({ key = "6889:0", quantity = 2 }, 7001, lateActor))
+assert(lateStore:command("lootOpen", lateContext, lateContext.at, lateContext))
+assert(lateStore:command("lootReceipt", { key = "6889:0", quantity = 2 }, 7001, lateActor))
 assert(lateStore:scan({
     character = lateActor.character,
     realm = lateActor.realm,
@@ -688,11 +684,11 @@ assert(lateStore:scan({
     seenAt = 7002,
     items = { { itemID = 6889, link = eggLink, quantity = 2 } },
 }))
-assert(lateStore:lootClose(7002))
+assert(lateStore:command("lootClose", nil, 7002, lateActor))
 lateSlotReadable = true
 local lateSlots = assert(addon.Loot.open(_G))
 assert(#lateSlots == 2, "The later snapshot should expose both same-item loot slots")
-assert(lateStore:lootSourceProof(lateSlots, 7003, lateActor))
+assert(lateStore:command("lootSourceProof", { slots = lateSlots }, 7003, lateActor))
 local lateRecord = assert(lateStore:find("6889:0"))
 local lateBreakdown = lateStore:breakdown("6889:0")
 assert(lateRecord.firstSeenUnits == 0, "The late second slot must not leave a loot unit as initial stock")

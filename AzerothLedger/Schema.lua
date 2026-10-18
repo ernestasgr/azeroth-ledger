@@ -70,7 +70,9 @@ function Schema.open(raw, save)
         checks[index] = entry.engine
     end
     addon.StoreScan.install(store, kernel, evidence, checks)
-    addon.StoreEvidence.guardCandidates(store, kernel, evidence)
+    -- Each domain declares its writes; the entry point is the only way in.
+    local commands = addon.StoreCommand.merge({ loot.commands, reward.commands, exchange.commands, vendor.commands })
+    addon.StoreCommand.install(store, kernel, evidence, commands)
     return store
 end
 

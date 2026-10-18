@@ -18,6 +18,7 @@ StoreExchange.lua
 StoreVendor.lua
 StoreReward.lua
 StoreScan.lua
+StoreCommand.lua
 Schema.lua
 Client.lua
 Scan.lua

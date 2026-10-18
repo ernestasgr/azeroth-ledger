@@ -538,22 +538,10 @@ end
 ---@field setMarker fun(self: AzerothLedgerStore, marker: string): boolean
 ---@field setEnvironment fun(self: AzerothLedgerStore, environment: AzerothLedgerEnvironment): boolean
 ---@field scan fun(self: AzerothLedgerStore, snapshot: AzerothLedgerSnapshot): boolean
----@field lootOpen fun(self: AzerothLedgerStore, context: AzerothLedgerLootContext): boolean
----@field lootClose fun(self: AzerothLedgerStore, at: integer): boolean
----@field lootReceipt fun(self: AzerothLedgerStore, receipt: ALClaim, at: integer, actor: AzerothLedgerActor): boolean
----@field rewardReceipt fun(self: AzerothLedgerStore, receipt: ALReward, at: integer, actor: ALGainActor): boolean
----@field questPrepared fun(self: AzerothLedgerStore, questID: integer, at: integer, actor: ALActor): boolean
----@field questTurnedIn fun(self: AzerothLedgerStore, questID: integer, at: integer, actor: ALActor): boolean
----@field questOffered fun(self: AzerothLedgerStore, questID: integer, at: integer, actor: ALActor): boolean
----@field questAccepted fun(self: AzerothLedgerStore, questID: integer, at: integer, actor: table): boolean
----@field vendorAction fun(self: AzerothLedgerStore, action: ALVendorIntent, at: integer, actor: ALGainActor): boolean
----@field vendorReceipt fun(self: AzerothLedgerStore, receipt: ALClaim, at: integer, actor: ALActor): boolean
+---@field command fun(self: ALStore, name: ALCommandName, payload: any, at: integer, actor: ALActor): any
+---@field setCharacter fun(self: ALStore, character: string, realm: string): boolean
 ---@field vendorActivity fun(self: AzerothLedgerStore): AzerothLedgerVendorActivity[]
 ---@field vendorUnresolved fun(self: AzerothLedgerStore): AzerothLedgerVendorEvidence[]
----@field exchangeIntent fun(self: ALStore, intent: ALExIntent, at: integer, actor: ALGainActor): integer|boolean
----@field exchangeConfirm fun(self: ALStore, c: string, d: string, at: integer, a: ALActor, ids?: ALExIds): boolean
----@field exchangeCancel fun(self: AzerothLedgerStore, channel: 'mail'|'trade', actor: ALActor): boolean
----@field exchangeMarkUnresolved fun(self: AzerothLedgerStore, id: integer, actor: ALActor): boolean
 ---@field mailProgress fun(self: AzerothLedgerStore, ids: table<integer, boolean>): 'waiting'|'measured'|'ended'
 ---@field exchangeActivity fun(self: AzerothLedgerStore): AzerothLedgerExchangeActivity[]
 ---@field exchangeUnresolved fun(self: AzerothLedgerStore): AzerothLedgerExchangeAction[]
@@ -573,9 +561,26 @@ end
 ---@field expireEvidence fun(self: AzerothLedgerStore, at: integer): boolean
 ---@field correctGain fun(self: AzerothLedgerStore, proof: AzerothLedgerGainCorrection): boolean
 ---@field breakdown fun(self: ALStore, key: string, scope?: ALCountScope, pause?: fun()): AzerothLedgerBreakdown?
----@field lootSourceProof fun(self: ALStore, slots: ALLootSlots, at: integer, actor: ALActor): boolean
 
 ---@alias ALLootSlots AzerothLedgerLootSlot[]
+
+-- The writes store:command accepts. Each is declared by the domain that owns it.
+---@alias ALCommandName
+---| 'lootOpen' # {slots}; the actor carries level and place
+---| 'lootSourceProof' # {slots} read after the window opened
+---| 'lootReceipt' # {key, quantity}
+---| 'lootClose' # nil
+---| 'questPrepared' # quest id
+---| 'questOffered' # quest id
+---| 'questAccepted' # quest id; the actor may carry questName
+---| 'questTurnedIn' # quest id
+---| 'rewardReceipt' # AzerothLedgerRewardReceipt
+---| 'vendorAction' # AzerothLedgerVendorIntent; the actor may carry vendorName
+---| 'vendorReceipt' # {key, quantity}
+---| 'exchangeIntent' # AzerothLedgerExchangeIntent
+---| 'exchangeConfirm' # {channel, direction, ids?}
+---| 'exchangeCancel' # channel
+---| 'exchangeMarkUnresolved' # exchange id
 
 ---@class ALCountScope
 ---@field character? string
@@ -813,6 +818,11 @@ end
 
 local function validPlaceKind(kind)
     return kind == nil or kind == "zone" or kind == "dungeon"
+end
+
+-- The level and place a gain records for the acting character.
+local function validGainActor(actor)
+    return isInteger(actor.level) and type(actor.place) == "string" and validPlaceKind(actor.placeKind)
 end
 
 local function validRewardContext(context, method)
@@ -1121,6 +1131,7 @@ Validate.validLootSource = validLootSource
 Validate.compactObservations = compactObservations
 Validate.copyRecord = copyRecord
 Validate.validPlaceKind = validPlaceKind
+Validate.validGainActor = validGainActor
 Validate.validRewardContext = validRewardContext
 Validate.validDisplayField = validDisplayField
 Validate.validDisplay = validDisplay

@@ -9,6 +9,7 @@ local function fixture()
     local store = addon.Schema.open(nil, function(value)
         saved = value
     end)
+    WoWUnit.IsTrue(store:setCharacter("Ada", "Realm"))
     local function scan(at, quantity)
         WoWUnit.IsTrue(store:scan({
             character = actor.character,
@@ -20,14 +21,12 @@ local function fixture()
         }))
     end
     local function open(at, source)
-        return store:lootOpen({
-            character = actor.character,
-            realm = actor.realm,
-            level = actor.level,
-            place = actor.place,
-            at = at,
-            slots = { { key = key, quantity = 1, source = source } },
-        })
+        return store:command(
+            "lootOpen",
+            { slots = { { key = key, quantity = 1, source = source } } },
+            at,
+            { character = actor.character, realm = actor.realm, level = actor.level, place = actor.place }
+        )
     end
     scan(1000, 5)
     return store, scan, open, function()
@@ -41,7 +40,7 @@ function tests.ExpiredLootEvidenceCannotBecomeAGain(_self)
     WoWUnit.AreEqual(0, store:find(key).totalGained)
     scan(1070, 6)
     WoWUnit.AreEqual(0, store:find(key).totalGained)
-    WoWUnit.IsTrue(not store:lootReceipt({ key = key, quantity = 1 }, 1070, actor))
+    WoWUnit.IsTrue(not store:command("lootReceipt", { key = key, quantity = 1 }, 1070, actor))
     WoWUnit.AreEqual(0, store:find(key).totalGained)
     WoWUnit.AreEqual("expired", store:unresolved()[1].reason)
 end
@@ -72,11 +71,11 @@ function tests.CompletedLootDoesNotHideTheNextSource(_self)
     local first = { kind = "mob", guid = "Creature-0-1-2-3-4-5", name = "Boar" }
     local second = { kind = "mob", guid = "Creature-0-1-2-3-5-6", name = "Wolf" }
     WoWUnit.IsTrue(open(1010, first))
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1011, actor))
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 1 }, 1011, actor))
     scan(1012, 6)
-    WoWUnit.IsTrue(store:lootClose(1012))
+    WoWUnit.IsTrue(store:command("lootClose", nil, 1012, actor))
     WoWUnit.IsTrue(open(1020, second))
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1021, actor))
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 1 }, 1021, actor))
     scan(1022, 7)
     WoWUnit.AreEqual(1, store:breakdown(key).sources.Boar)
     WoWUnit.AreEqual(1, store:breakdown(key).sources.Wolf)
@@ -87,18 +86,13 @@ end
 function tests.SameCorpseSlotsKeepTheSourceOfPartialLoot(_self)
     local store, scan = fixture()
     local source = { kind = "mob", guid = "Creature-0-1-2-3-4-5", name = "Boar" }
-    WoWUnit.IsTrue(store:lootOpen({
-        character = actor.character,
-        realm = actor.realm,
-        level = actor.level,
-        place = actor.place,
-        at = 1010,
+    WoWUnit.IsTrue(store:command("lootOpen", {
         slots = {
             { key = key, quantity = 2, source = source },
             { key = key, quantity = 2, source = source },
         },
-    }))
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 2 }, 1011, actor))
+    }, 1010, { character = actor.character, realm = actor.realm, level = actor.level, place = actor.place }))
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 2 }, 1011, actor))
     scan(1012, 7)
     WoWUnit.AreEqual(2, store:find(key).totalGained)
     WoWUnit.AreEqual(2, store:breakdown(key).sources.Boar)
@@ -108,9 +102,9 @@ end
 function tests.UnsettledLootStillCompetesForTheNextSource(_self)
     local store, scan, open = fixture()
     WoWUnit.IsTrue(open(1010, { kind = "mob", guid = "Creature-0-1-2-3-4-5", name = "Boar" }))
-    WoWUnit.IsTrue(store:lootClose(1011))
+    WoWUnit.IsTrue(store:command("lootClose", nil, 1011, actor))
     WoWUnit.IsTrue(open(1020, { kind = "mob", guid = "Creature-0-1-2-3-5-6", name = "Wolf" }))
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1021, actor))
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 1 }, 1021, actor))
     scan(1022, 6)
     WoWUnit.AreEqual(1, store:breakdown(key).sources.Unknown)
     WoWUnit.AreEqual(nil, store:breakdown(key).sources.Wolf)
@@ -120,19 +114,21 @@ function tests.CompletedLootDoesNotHideALaterReadableSlot(_self)
     local store, scan, open = fixture()
     local source = { kind = "mob", guid = "Creature-0-1-2-3-4-5", name = "Boar" }
     WoWUnit.IsTrue(open(1010, source))
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1011, actor))
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 1 }, 1011, actor))
     scan(1012, 6)
-    WoWUnit.IsTrue(store:lootClose(1012))
-    WoWUnit.IsTrue(store:lootOpen({
-        character = actor.character,
-        realm = actor.realm,
-        level = actor.level,
-        place = actor.place,
-        at = 1020,
-        slots = {},
-    }))
-    WoWUnit.IsTrue(store:lootSourceProof({ { key = key, quantity = 1, source = source } }, 1021, actor))
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1022, actor))
+    WoWUnit.IsTrue(store:command("lootClose", nil, 1012, actor))
+    WoWUnit.IsTrue(
+        store:command(
+            "lootOpen",
+            { slots = {} },
+            1020,
+            { character = actor.character, realm = actor.realm, level = actor.level, place = actor.place }
+        )
+    )
+    WoWUnit.IsTrue(
+        store:command("lootSourceProof", { slots = { { key = key, quantity = 1, source = source } } }, 1021, actor)
+    )
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 1 }, 1022, actor))
     scan(1023, 7)
     WoWUnit.AreEqual(2, store:breakdown(key).sources.Boar)
     WoWUnit.AreEqual(nil, store:breakdown(key).sources.Unknown)
@@ -141,7 +137,7 @@ end
 function tests.LaterSourceProofMovesTheSameUnitsOnce(_self)
     local store, scan, open = fixture()
     WoWUnit.IsTrue(open(1010))
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1011, actor))
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 1 }, 1011, actor))
     WoWUnit.AreEqual(0, store:find(key).totalGained)
     scan(1012, 6)
     local record = store:find(key)
@@ -215,14 +211,14 @@ function tests.UnreadableVariantsWaitForIdentifiableData(_self)
 end
 
 function tests.CandidateOverflowRetainsDetailsAndWarnsAtAccountLimit(_self)
-    local store, _, open = fixture()
+    local store, _, open, saved = fixture()
     WoWUnit.IsTrue(open(1010))
     for _ = 1, 255 do
-        WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1011, actor))
+        WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 1 }, 1011, actor))
         WoWUnit.AreEqual(0, store:find(key).totalGained)
     end
     for _ = 1, 2001 do
-        WoWUnit.IsTrue(not store:lootReceipt({ key = key, quantity = 1 }, 1012, actor))
+        WoWUnit.IsTrue(not store:command("lootReceipt", { key = key, quantity = 1 }, 1012, actor))
         WoWUnit.AreEqual(0, store:find(key).totalGained)
     end
     WoWUnit.AreEqual(2000, #store:unresolved())
@@ -237,27 +233,32 @@ function tests.CandidateOverflowRetainsDetailsAndWarnsAtAccountLimit(_self)
         end
     end
     WoWUnit.IsTrue(warning)
-    -- The cap is per character, while the unresolved limit is account-wide.
+    -- The cap is per character, while the unresolved limit is account-wide:
+    -- once Ben logs in, Ada's overflow does not limit him.
+    store = addon.Schema.open(saved(), function() end)
+    WoWUnit.IsTrue(store:setCharacter("Ben", "Realm"))
+    WoWUnit.AreEqual(2000, #store:unresolved())
     WoWUnit.IsTrue(
         store:scan({ character = "Ben", realm = "Realm", area = "bags", seenAt = 1012, complete = true, items = {} })
     )
-    WoWUnit.IsTrue(store:lootOpen({
-        character = "Ben",
-        realm = "Realm",
-        at = 1012,
-        level = 12,
-        place = "Forest",
-        slots = { { key = key, quantity = 1 } },
-    }))
+    WoWUnit.IsTrue(
+        store:command(
+            "lootOpen",
+            { slots = { { key = key, quantity = 1 } } },
+            1012,
+            { character = "Ben", realm = "Realm", level = 12, place = "Forest" }
+        )
+    )
     WoWUnit.AreEqual(0, store:find(key).totalGained)
 end
 
 function tests.ReloadEndsUnmatchedCorrelation(_self)
     local store, _, open, saved = fixture()
     WoWUnit.IsTrue(open(1010))
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1011, actor))
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 1 }, 1011, actor))
     WoWUnit.AreEqual(0, store:find(key).totalGained)
     local restored = addon.Schema.open(saved(), function() end)
+    WoWUnit.IsTrue(restored:setCharacter("Ada", "Realm"))
     WoWUnit.AreEqual("reload", restored:unresolved()[1].reason)
     WoWUnit.IsTrue(restored:scan({
         character = "Ada",
@@ -268,7 +269,7 @@ function tests.ReloadEndsUnmatchedCorrelation(_self)
         items = { { itemID = 2672, link = link, quantity = 6 } },
     }))
     WoWUnit.AreEqual(0, restored:find(key).totalGained)
-    WoWUnit.IsTrue(not restored:lootReceipt({ key = key, quantity = 1 }, 1013, actor))
+    WoWUnit.IsTrue(not restored:command("lootReceipt", { key = key, quantity = 1 }, 1013, actor))
     WoWUnit.AreEqual(0, restored:find(key).totalGained)
 end
 
@@ -276,18 +277,13 @@ function tests.CompetingSourcesAllocateOnlyProvenShares(_self)
     local store, scan = fixture()
     local first = { kind = "mob", guid = "Creature-0-1-2-3-4-5", name = "Boar" }
     local second = { kind = "container", guid = "GameObject-0-1-2-3-6-7", name = "Chest" }
-    WoWUnit.IsTrue(store:lootOpen({
-        character = "Ada",
-        realm = "Realm",
-        at = 1010,
-        level = 12,
-        place = "Forest",
+    WoWUnit.IsTrue(store:command("lootOpen", {
         slots = {
             { key = key, quantity = 1, source = first },
             { key = key, quantity = 2, source = second },
         },
-    }))
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 3 }, 1011, actor))
+    }, 1010, { character = "Ada", realm = "Realm", level = 12, place = "Forest" }))
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 3 }, 1011, actor))
     scan(1012, 6)
     WoWUnit.AreEqual(1, store:find(key).totalGained)
     WoWUnit.AreEqual(nil, store:find(key).gains[1].source)
@@ -298,7 +294,7 @@ function tests.CompetingSourcesAllocateOnlyProvenShares(_self)
     WoWUnit.AreEqual(1, store:breakdown(key).sources.Boar)
     WoWUnit.AreEqual(2, store:breakdown(key).sources.Chest)
     WoWUnit.AreEqual(nil, store:breakdown(key).sources.Unknown)
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 3 }, 1014, actor))
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 3 }, 1014, actor))
     WoWUnit.AreEqual(3, store:find(key).totalGained)
     WoWUnit.AreEqual(2, #store:find(key).gains)
 end
@@ -306,16 +302,20 @@ end
 function tests.DelayedSlotProofAndMetadataEnrichWithoutNewUnits(_self)
     local store, scan, open, saved = fixture()
     WoWUnit.IsTrue(open(1010))
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1011, actor))
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 1 }, 1011, actor))
     scan(1012, 6)
     local before = store:find(key)
     WoWUnit.AreEqual(1, before.totalGained)
     local source = { kind = "mob", guid = "Creature-0-1-2-3-4-5", name = "Boar" }
-    WoWUnit.IsTrue(store:lootSourceProof({ { key = key, quantity = 1, source = source } }, 1013, actor))
+    WoWUnit.IsTrue(
+        store:command("lootSourceProof", { slots = { { key = key, quantity = 1, source = source } } }, 1013, actor)
+    )
     WoWUnit.AreEqual(1, #store:find(key).gains)
     WoWUnit.AreEqual(6, store:breakdown(key).recorded)
     WoWUnit.AreEqual(1, store:breakdown(key).sources.Boar)
-    WoWUnit.IsTrue(not store:lootSourceProof({ { key = key, quantity = 1, source = source } }, 1014, actor))
+    WoWUnit.IsTrue(
+        not store:command("lootSourceProof", { slots = { { key = key, quantity = 1, source = source } } }, 1014, actor)
+    )
     WoWUnit.AreEqual(1, store:find(key).totalGained)
     local metadata = {
         id = "metadata",
@@ -342,7 +342,7 @@ end
 function tests.CorrectionsMoveMethodsAndRejectStaleOrUnderflowingProof(_self)
     local store, scan, open = fixture()
     WoWUnit.IsTrue(open(1010))
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1011, actor))
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 1 }, 1011, actor))
     scan(1012, 6)
     local proof = {
         id = "method-proof",
@@ -374,32 +374,31 @@ function tests.ProvenShareCanCoexistWithUnknownAndImproveLater(_self)
     local store, scan = fixture()
     local first = { kind = "mob", guid = "Creature-0-1-2-3-4-5", name = "Boar" }
     local second = { kind = "container", guid = "GameObject-0-1-2-3-6-7", name = "Chest" }
-    WoWUnit.IsTrue(store:lootOpen({
-        character = "Ada",
-        realm = "Realm",
-        at = 1010,
-        level = 12,
-        place = "Forest",
+    WoWUnit.IsTrue(store:command("lootOpen", {
         slots = {
             { key = key, quantity = 1, source = first },
             { key = key, quantity = 2 },
         },
-    }))
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 3 }, 1011, actor))
+    }, 1010, { character = "Ada", realm = "Realm", level = 12, place = "Forest" }))
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 3 }, 1011, actor))
     scan(1012, 8)
     WoWUnit.AreEqual(8, store:breakdown(key).recorded)
     WoWUnit.AreEqual(1, store:breakdown(key).sources.Boar)
     WoWUnit.AreEqual(2, store:breakdown(key).sources.Unknown)
-    WoWUnit.IsTrue(store:lootSourceProof({
-        { key = key, quantity = 1, source = first },
-        { key = key, quantity = 2, source = second },
+    WoWUnit.IsTrue(store:command("lootSourceProof", {
+        slots = {
+            { key = key, quantity = 1, source = first },
+            { key = key, quantity = 2, source = second },
+        },
     }, 1013, actor))
     WoWUnit.AreEqual(8, store:breakdown(key).recorded)
     WoWUnit.AreEqual(2, store:breakdown(key).sources.Chest)
     WoWUnit.AreEqual(nil, store:breakdown(key).sources.Unknown)
-    WoWUnit.IsTrue(not store:lootSourceProof({
-        { key = key, quantity = 1, source = first },
-        { key = key, quantity = 2, source = second },
+    WoWUnit.IsTrue(not store:command("lootSourceProof", {
+        slots = {
+            { key = key, quantity = 1, source = first },
+            { key = key, quantity = 2, source = second },
+        },
     }, 1014, actor))
     WoWUnit.AreEqual(2, #store:find(key).gains)
     WoWUnit.AreEqual(3, store:find(key).totalGained)
@@ -430,9 +429,14 @@ function tests.LootAdapterPreservesEverySourcePair(_self)
     local slots = addon.Loot.open(api)
     WoWUnit.AreEqual(2, #slots)
     WoWUnit.IsTrue(
-        store:lootOpen({ character = "Ada", realm = "Realm", at = 1010, level = 12, place = "Forest", slots = slots })
+        store:command(
+            "lootOpen",
+            { slots = slots },
+            1010,
+            { character = "Ada", realm = "Realm", level = 12, place = "Forest" }
+        )
     )
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 3 }, 1011, actor))
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 3 }, 1011, actor))
     scan(1012, 8)
     WoWUnit.AreEqual(1, store:breakdown(key).sources["Mob #4"])
     WoWUnit.AreEqual(2, store:breakdown(key).sources["Container #6"])
@@ -442,10 +446,10 @@ function tests.LootAdapterPreservesEverySourcePair(_self)
     api.UnitName = function()
         return "Boar"
     end
-    WoWUnit.IsTrue(store:lootSourceProof(addon.Loot.open(api), 1013, actor))
+    WoWUnit.IsTrue(store:command("lootSourceProof", { slots = addon.Loot.open(api) }, 1013, actor))
     WoWUnit.AreEqual(1, store:breakdown(key).sources.Boar)
     WoWUnit.AreEqual(8, store:breakdown(key).recorded)
-    WoWUnit.IsTrue(not store:lootSourceProof(addon.Loot.open(api), 1014, actor))
+    WoWUnit.IsTrue(not store:command("lootSourceProof", { slots = addon.Loot.open(api) }, 1014, actor))
     WoWUnit.AreEqual(2, #store:find(key).gains)
     sourceMode = "mismatch"
     local mismatched = addon.Loot.open(api)
@@ -462,19 +466,21 @@ end
 function tests.LaterUnreadableContainerNameKeepsTheObservedName(_self)
     local store, scan = fixture()
     local guid = "GameObject-0-6783-1-14-171938-0000422303"
-    WoWUnit.IsTrue(store:lootOpen({
-        character = "Ada",
-        realm = "Realm",
-        at = 1010,
-        level = 12,
-        place = "Forest",
-        slots = { { key = key, quantity = 1, source = { kind = "container", guid = guid, name = "Cactus Apple" } } },
-    }))
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1011, actor))
+    WoWUnit.IsTrue(store:command("lootOpen", {
+        slots = {
+            { key = key, quantity = 1, source = { kind = "container", guid = guid, name = "Cactus Apple" } },
+        },
+    }, 1010, { character = "Ada", realm = "Realm", level = 12, place = "Forest" }))
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 1 }, 1011, actor))
     scan(1012, 6)
-    WoWUnit.IsTrue(not store:lootSourceProof({
-        { key = key, quantity = 1, source = { kind = "container", guid = guid } },
-    }, 1013, actor))
+    WoWUnit.IsTrue(not store:command(
+        "lootSourceProof",
+        { slots = {
+            { key = key, quantity = 1, source = { kind = "container", guid = guid } },
+        } },
+        1013,
+        actor
+    ))
     WoWUnit.AreEqual("Cactus Apple", store:find(key).gains[1].source.name)
     WoWUnit.AreEqual(1, store:breakdown(key).sources["Cactus Apple"])
     WoWUnit.AreEqual(1, store:find(key).totalGained)
@@ -492,11 +498,13 @@ function tests.MalformedScanCannotExpireOrChangeEvidence(_self)
         items = { { itemID = 0, quantity = 1 } },
     }))
     WoWUnit.AreEqual(0, #store:unresolved())
-    WoWUnit.IsTrue(not store:lootReceipt({ key = key, quantity = 0 }, 1070, actor))
+    WoWUnit.IsTrue(not store:command("lootReceipt", { key = key, quantity = 0 }, 1070, actor))
     WoWUnit.AreEqual(0, #store:unresolved())
-    WoWUnit.IsTrue(not store:lootSourceProof({ { key = key, quantity = 1, source = {} } }, 1070, actor))
+    WoWUnit.IsTrue(
+        not store:command("lootSourceProof", { slots = { { key = key, quantity = 1, source = {} } } }, 1070, actor)
+    )
     WoWUnit.AreEqual(0, #store:unresolved())
     WoWUnit.AreEqual(0, store:find(key).totalGained)
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1011, actor))
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 1 }, 1011, actor))
     WoWUnit.AreEqual(0, store:find(key).totalGained)
 end

@@ -64,6 +64,7 @@ local function replay()
     local store = addon.Schema.open(nil, function(value)
         saved = value
     end)
+    WoWUnit.IsTrue(store:setCharacter("Ada", "Realm"))
     local units = 0
     local at = 1000
     local function bags(quantity)
@@ -80,7 +81,8 @@ local function replay()
         at = at + 1
     end
     local function action(kind, quantity, vendorName)
-        local result = store:vendorAction(
+        local result = store:command(
+            "vendorAction",
             {
                 kind = kind,
                 key = key,
@@ -101,7 +103,8 @@ local function replay()
         return result
     end
     local function receipt(quantity)
-        local result = store:vendorReceipt(
+        local result = store:command(
+            "vendorReceipt",
             { key = key, quantity = quantity },
             at,
             { character = "Ada", realm = "Realm" }
@@ -117,6 +120,7 @@ local function replay()
             store = addon.Schema.open(saved, function(value)
                 saved = value
             end)
+            WoWUnit.IsTrue(store:setCharacter("Ada", "Realm"))
             return store
         end
 end
@@ -226,6 +230,7 @@ function tests.EquippedRefundDebitsItsPurchase(_self)
     local gear = "|Hitem:263409::::::::|h[Gardening Pants]|h"
     local gearKey = addon.Item.key(gear, 263409)
     local store = addon.Schema.open(nil, function() end)
+    WoWUnit.IsTrue(store:setCharacter("Ada", "Realm"))
     local at = 2000
     local actor = { character = "Ada", realm = "Realm", level = 12, place = "Elwynn Forest" }
     local function scan(area, quantity)
@@ -243,16 +248,22 @@ function tests.EquippedRefundDebitsItsPurchase(_self)
     scan("bags", 0)
     scan("equipped", 0)
     WoWUnit.IsTrue(
-        store:vendorAction({ kind = "purchase", key = gearKey, itemID = 263409, link = gear, quantity = 1 }, at, actor)
+        store:command(
+            "vendorAction",
+            { kind = "purchase", key = gearKey, itemID = 263409, link = gear, quantity = 1 },
+            at,
+            actor
+        )
     )
     at = at + 1
-    WoWUnit.IsTrue(store:vendorReceipt({ key = gearKey, quantity = 1 }, at, actor))
+    WoWUnit.IsTrue(store:command("vendorReceipt", { key = gearKey, quantity = 1 }, at, actor))
     at = at + 1
     scan("bags", 1)
     scan("bags", 0)
     scan("equipped", 1)
     WoWUnit.IsTrue(
-        store:vendorAction(
+        store:command(
+            "vendorAction",
             { kind = "refund", key = gearKey, itemID = 263409, link = gear, quantity = 1, area = "equipped" },
             at,
             actor

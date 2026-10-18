@@ -10,6 +10,7 @@ local function open(raw)
 end
 
 local fresh = open(nil)
+assert(fresh:setCharacter("Ada", "Realm"))
 assert(fresh:diagnostic().kind == "healthy")
 assert(saved.schema == 2)
 assert(fresh:setMarker("reload-1"))
@@ -39,7 +40,7 @@ assert(
     #addon.Item.linkGroups({ crafted, (crafted:gsub("018D7859", "018D785A")) }) == 2,
     "Crafted links by different crafters were merged"
 )
-assert(fresh:rewardReceipt({
+assert(fresh:command("rewardReceipt", {
     key = "2853:0",
     quantity = 1,
     method = "Crafted",

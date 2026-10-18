@@ -53,11 +53,8 @@ function MailSession.new(runtime)
     end
 
     local function markUnresolved(ids)
-        local context = runtime.player()
-        if context then
-            for _, id in ipairs(ids) do
-                runtime.store():exchangeMarkUnresolved(id, context)
-            end
+        for _, id in ipairs(ids) do
+            runtime.command("exchangeMarkUnresolved", id)
         end
     end
 

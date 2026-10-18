@@ -6,6 +6,7 @@ local writes = 0
 local store = addon.Schema.open(nil, function(value)
     saved, writes = value, writes + 1
 end)
+assert(store:setCharacter("Ada", "Realm"))
 local actor = { character = "Ada", realm = "Realm", level = 12, place = "Forest" }
 local link = "|Hitem:2672::::::::|h[Meat]|h"
 assert(store:scan({
@@ -16,14 +17,14 @@ assert(store:scan({
     seenAt = 1000,
     items = { { itemID = 2672, link = link, quantity = 5 } },
 }))
-assert(store:lootOpen({
-    character = "Ada",
-    realm = "Realm",
-    level = 12,
-    place = "Forest",
-    at = 1010,
-    slots = { { key = "2672:0", quantity = 1 } },
-}))
+assert(
+    store:command(
+        "lootOpen",
+        { slots = { { key = "2672:0", quantity = 1 } } },
+        1010,
+        { character = "Ada", realm = "Realm", level = 12, place = "Forest" }
+    )
+)
 local before = writes
 local result = addon.Collection.evidenceQuery(store, {})
 assert(#result.rows == 1 and result.rows[1].name == "Meat")
@@ -39,8 +40,15 @@ assert(#addon.Collection.evidenceQuery(store, { search = "Sword" }).rows == 0)
 assert(saved and saved.schema == 2)
 print("evidence_query_spec: lifecycle, filtering and read-only totals passed")
 
-assert(store:vendorAction({ kind = "purchase", key = "2672:0", itemID = 2672, link = link, quantity = 1 }, 1080, actor))
-assert(store:exchangeIntent({
+assert(
+    store:command(
+        "vendorAction",
+        { kind = "purchase", key = "2672:0", itemID = 2672, link = link, quantity = 1 },
+        1080,
+        actor
+    )
+)
+assert(store:command("exchangeIntent", {
     channel = "mail",
     direction = "in",
     key = "2672:0",
@@ -53,7 +61,14 @@ result = addon.Collection.evidenceQuery(store, {})
 assert(#result.rows == 3)
 assert(result.rows[1].action == "Mail received" and result.rows[1].status == "Still checking")
 assert(result.rows[2].action == "Vendor purchase")
-assert(store:vendorAction({ kind = "purchase", key = "2672:0", itemID = 2672, link = link, quantity = 1 }, 1082, actor))
+assert(
+    store:command(
+        "vendorAction",
+        { kind = "purchase", key = "2672:0", itemID = 2672, link = link, quantity = 1 },
+        1082,
+        actor
+    )
+)
 result = addon.Collection.evidenceQuery(store, {})
 assert(#result.rows == 4)
 assert(result.rows[3].status == "Could not match")
@@ -175,15 +190,17 @@ assert(result.rows[1].action == "Mail or trade" and result.rows[1].status == "Ne
 assert(not result.rows[1].nextStep:find("eligible", 1, true))
 
 local exchange = addon.Schema.open(nil, function() end)
+assert(exchange:setCharacter("Ada", "Realm"))
 assert(exchange:scan({ character = "Ada", realm = "Realm", area = "bags", complete = true, seenAt = 1000, items = {} }))
 assert(
-    exchange:exchangeIntent(
+    exchange:command(
+        "exchangeIntent",
         { channel = "trade", direction = "in", key = "2672:0", itemID = 2672, link = link, quantity = 1 },
         1010,
         actor
     )
 )
-assert(exchange:exchangeMarkUnresolved(1, actor))
+assert(exchange:command("exchangeMarkUnresolved", 1, 1011, actor))
 result = addon.Collection.evidenceQuery(exchange, {})
 assert(#result.rows == 1 and result.rows[1].status == "Could not match")
 assert(not result.rows[1].nextStep:find("eligible", 1, true))

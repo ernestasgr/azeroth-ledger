@@ -4,7 +4,7 @@ local _, addon = ...
 
 local V = addon.SchemaValidate
 local isInteger, isName, copyValue, validLootSource = V.isInteger, V.isName, V.copyValue, V.validLootSource
-local copyRecord, validPlaceKind = V.copyRecord, V.validPlaceKind
+local copyRecord, validGainActor = V.copyRecord, V.validGainActor
 local sameSource = V.sameSource
 local canEnrichLootSource = V.canEnrichLootSource
 local Evidence = addon.StoreEvidence
@@ -403,26 +403,15 @@ function StoreLoot.install(store, kernel, slice, correlation, rewards)
         records[key] = record
     end
 
-    ---@param context AzerothLedgerLootContext
-    function store.lootOpen(_self, context)
-        if
-            not readable
-            or type(context) ~= "table"
-            or not isName(context.character)
-            or not isName(context.realm)
-            or not isInteger(context.at)
-            or not isInteger(context.level)
-            or type(context.place) ~= "string"
-            or not validPlaceKind(context.placeKind)
-            or type(context.slots) ~= "table"
-        then
-            return false
-        end
+    ---@param window {slots: AzerothLedgerLootSlot[]}
+    ---@param at integer
+    ---@param context AzerothLedgerGainActor
+    local function lootOpen(window, at, context)
         local baseline = store:area(context.character, context.realm, "bags")
         if not baseline or not baseline.complete then
             return false
         end
-        local slots = lootSlots(context.slots)
+        local slots = lootSlots(window.slots)
         if not slots then
             return false
         end
@@ -450,9 +439,9 @@ function StoreLoot.install(store, kernel, slice, correlation, rewards)
         local nextID = (isInteger(previousID) and previousID or 0) + 1
         local sessions = {}
         for _, session in ipairs(loot and loot.sessions or {}) do
-            if sessionIsLive(session, context.at) then
+            if sessionIsLive(session, at) then
                 if not session.endedAt then
-                    session.endedAt = context.at
+                    session.endedAt = at
                 end
                 for key, slot in pairs(slots) do
                     if competingLoot(session, key, context) then
@@ -467,7 +456,7 @@ function StoreLoot.install(store, kernel, slice, correlation, rewards)
         end
         sessions[#sessions + 1] = {
             id = nextID,
-            openedAt = context.at,
+            openedAt = at,
             character = context.character,
             realm = context.realm,
             level = context.level,
@@ -492,30 +481,11 @@ function StoreLoot.install(store, kernel, slice, correlation, rewards)
         return true
     end
 
-    function store.lootSourceProof(_self, slots, at, actor)
-        if
-            not readable
-            or type(slots) ~= "table"
-            or not isInteger(at)
-            or type(actor) ~= "table"
-            or not isName(actor.character)
-            or not isName(actor.realm)
-        then
-            return false
-        end
-        for _, proof in ipairs(slots) do
-            if
-                type(proof) ~= "table"
-                or type(proof.key) ~= "string"
-                or not validLootSource(proof.source)
-                or (proof.quantity ~= nil and (not isInteger(proof.quantity) or proof.quantity < 1))
-            then
-                return false
-            end
-        end
-        if not store:expireEvidence(at) then
-            return false
-        end
+    ---@param window {slots: AzerothLedgerLootSlot[]} The window's slots read again later
+    ---@param at integer
+    ---@param actor AzerothLedgerActor
+    local function lootSourceProof(window, at, actor)
+        local slots = window.slots
         local current = activeSession(at)
         if not current or current.character ~= actor.character or current.realm ~= actor.realm then
             return false
@@ -716,22 +686,8 @@ function StoreLoot.install(store, kernel, slice, correlation, rewards)
     ---@param receipt AzerothLedgerLootClaim
     ---@param at integer
     ---@param actor AzerothLedgerActor
-    function store.lootReceipt(_self, receipt, at, actor)
-        local session = type(receipt) == "table" and type(actor) == "table" and receiptSession(receipt.key, at, actor)
-            or nil
-        if
-            not readable
-            or type(receipt) ~= "table"
-            or type(receipt.key) ~= "string"
-            or not isInteger(receipt.quantity)
-            or receipt.quantity < 1
-            or not isInteger(at)
-            or type(actor) ~= "table"
-            or not isName(actor.character)
-            or not isName(actor.realm)
-        then
-            return false
-        end
+    local function lootReceipt(receipt, at, actor)
+        local session = receiptSession(receipt.key, at, actor)
         local handled, preferred = lootRewardSession(receipt.key, at, actor)
         if handled then
             return true
@@ -798,9 +754,9 @@ function StoreLoot.install(store, kernel, slice, correlation, rewards)
         return true
     end
 
-    function store.lootClose(_self, at)
+    local function lootClose(_, at)
         local session = activeSession(at)
-        if not readable or not session then
+        if not session then
             return false
         end
         if not session.closedAt then
@@ -948,7 +904,48 @@ function StoreLoot.install(store, kernel, slice, correlation, rewards)
         return handler
     end
 
-    return { engine = { stale = stale, expire = expire, visit = visit, check = check } }
+    -- Each slot names an item and, when readable, its source.
+    local function validSlots(window)
+        if type(window) ~= "table" or type(window.slots) ~= "table" then
+            return false
+        end
+        for _, slot in ipairs(window.slots) do
+            if
+                type(slot) ~= "table"
+                or type(slot.key) ~= "string"
+                or not validLootSource(slot.source)
+                or (slot.quantity ~= nil and (not isInteger(slot.quantity) or slot.quantity < 1))
+            then
+                return false
+            end
+        end
+        return true
+    end
+
+    return {
+        engine = { stale = stale, expire = expire, visit = visit, check = check },
+        ---@type table<string, AzerothLedgerCommand>
+        commands = {
+            -- A loot window takes one candidate per readable slot.
+            lootOpen = {
+                valid = function(window, actor)
+                    return validSlots(window) and validGainActor(actor)
+                end,
+                run = lootOpen,
+                cost = function(window)
+                    return #window.slots
+                end,
+            },
+            lootSourceProof = { valid = validSlots, run = lootSourceProof },
+            lootReceipt = { valid = Evidence.validReceipt, run = lootReceipt, cost = 1, unmatched = true },
+            lootClose = {
+                valid = function()
+                    return true
+                end,
+                run = lootClose,
+            },
+        },
+    }
 end
 
 addon.StoreLoot = StoreLoot

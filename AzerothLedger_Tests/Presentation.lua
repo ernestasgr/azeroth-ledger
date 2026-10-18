@@ -8,6 +8,7 @@ local function fixture()
     local store = addon.Schema.open(nil, function(value)
         saved = value
     end)
+    WoWUnit.IsTrue(store:setCharacter("Ada", "Realm"))
     local at = 1000
     local actor = { character = "Ada", realm = "Realm", level = 12, place = "Elwynn" }
     local function bags(quantity)
@@ -23,7 +24,12 @@ local function fixture()
     end
     local function purchase()
         WoWUnit.IsTrue(
-            store:vendorAction({ kind = "purchase", key = key, itemID = 4540, link = link, quantity = 1 }, at, actor)
+            store:command(
+                "vendorAction",
+                { kind = "purchase", key = key, itemID = 4540, link = link, quantity = 1 },
+                at,
+                actor
+            )
         )
         at = at + 1
     end
@@ -40,24 +46,24 @@ end
 function tests.LootDiscoveryWaitsForReceiptAndKeepsUnknownSource(_self)
     local store, bags = fixture()
     bags(0)
-    WoWUnit.IsTrue(store:lootOpen({
-        character = "Ada",
-        realm = "Realm",
-        level = 12,
-        place = "Elwynn",
-        at = 1001,
-        slots = { { key = key, quantity = 1 } },
-    }))
+    WoWUnit.IsTrue(
+        store:command(
+            "lootOpen",
+            { slots = { { key = key, quantity = 1 } } },
+            1001,
+            { character = "Ada", realm = "Realm", level = 12, place = "Elwynn" }
+        )
+    )
     bags(1)
     WoWUnit.AreEqual(0, #store:takeDiscoveries())
     local actor = { character = "Ada", realm = "Realm" }
-    WoWUnit.IsTrue(store:lootReceipt({ key = key, quantity = 1 }, 1002, actor))
+    WoWUnit.IsTrue(store:command("lootReceipt", { key = key, quantity = 1 }, 1002, actor))
     WoWUnit.AreEqual(1, #store:takeDiscoveries())
     WoWUnit.AreEqual(
         "Azeroth Ledger: Looted • total gained 1 • status Present • source Unknown",
         addon.Presentation.line(store, link, "Ada", "Realm"):match("^[^\n]+")
     )
-    store:lootReceipt({ key = key, quantity = 1 }, 1002, actor)
+    store:command("lootReceipt", { key = key, quantity = 1 }, 1002, actor)
     WoWUnit.AreEqual(0, #store:takeDiscoveries())
 end
 
@@ -75,9 +81,9 @@ function tests.RewardsDiscoverOnceWithZeroJournalRetention(_self)
             method = method,
             context = { kind = method == "Quest" and "quest" or "recipe", id = 123, name = "Proven reward" },
         }
-        WoWUnit.IsTrue(store:rewardReceipt(reward, 1001, actor))
+        WoWUnit.IsTrue(store:command("rewardReceipt", reward, 1001, actor))
         if method == "Quest" then
-            WoWUnit.IsTrue(store:questTurnedIn(123, 1001, actor))
+            WoWUnit.IsTrue(store:command("questTurnedIn", 123, 1001, actor))
         end
         bags(1)
         WoWUnit.AreEqual(1, #store:takeDiscoveries())
@@ -96,7 +102,8 @@ function tests.RefundAndLaterPurchaseDoNotDiscoverAgain(_self)
     bags(1)
     WoWUnit.AreEqual(1, #store:takeDiscoveries())
     WoWUnit.IsTrue(
-        store:vendorAction(
+        store:command(
+            "vendorAction",
             { kind = "refund", key = key, itemID = 4540, link = link, quantity = 1 },
             1003,
             { character = "Ada", realm = "Realm", level = 12, place = "Elwynn" }
@@ -138,7 +145,7 @@ function tests.OutsideMailDiscoversButAltMailDoesNot(_self)
             }))
         end
         local actor = { character = "Ada", realm = "Realm", level = 12, place = "Elwynn" }
-        WoWUnit.IsTrue(store:exchangeIntent({
+        WoWUnit.IsTrue(store:command("exchangeIntent", {
             channel = "mail",
             direction = "in",
             key = key,
@@ -148,7 +155,7 @@ function tests.OutsideMailDiscoversButAltMailDoesNot(_self)
             peerName = peer,
             peerRealm = "Realm",
         }, 1001, actor))
-        WoWUnit.IsTrue(store:exchangeConfirm("mail", "in", 1001, actor))
+        WoWUnit.IsTrue(store:command("exchangeConfirm", { channel = "mail", direction = "in" }, 1001, actor))
         bags(1)
         WoWUnit.AreEqual(peer == "Outside" and 1 or 0, #store:takeDiscoveries())
         WoWUnit.AreEqual(peer == "Outside" and 1 or 0, store:breakdown(key).gained)
@@ -176,7 +183,8 @@ function tests.VariantsDiscoverSeparatelyWhileEnchantsDoNot(_self)
     local items = {}
     for index, itemLink in ipairs(links) do
         WoWUnit.IsTrue(
-            store:vendorAction(
+            store:command(
+                "vendorAction",
                 { kind = "purchase", key = addon.Item.key(itemLink, 100), itemID = 100, link = itemLink, quantity = 1 },
                 1000 + index,
                 { character = "Ada", realm = "Realm", level = 12, place = "Elwynn" }

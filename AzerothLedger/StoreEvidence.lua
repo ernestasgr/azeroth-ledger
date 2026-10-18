@@ -4,10 +4,9 @@ local _, addon = ...
 -- per-character candidate limit shared by every correlating domain.
 
 local V = addon.SchemaValidate
-local gainMethods, vendorKinds, isInteger, isName = V.gainMethods, V.vendorKinds, V.isInteger, V.isName
+local gainMethods, isInteger, isName = V.gainMethods, V.isInteger, V.isName
 local copyValue, validLootSource = V.copyValue, V.validLootSource
-local copyRecord, validPlaceKind = V.copyRecord, V.validPlaceKind
-local validRewardContext, sameSource = V.validRewardContext, V.sameSource
+local copyRecord, sameSource = V.copyRecord, V.sameSource
 
 ---@class AzerothLedgerEngine A correlating domain: loot, rewards, vendor or exchange.
 ---@field stale fun(at: integer): boolean Whether an active entry is at least 60 seconds old
@@ -129,70 +128,22 @@ local function retain(state, kind, reason, at, actor, detail)
     end
 end
 
--- Count incoming candidate signals at the public boundary, across all
--- channels for each character. Overflow is retained before it can match.
-local function validCandidate(name, detail, actor)
-    if name == "questPrepared" then
-        return isInteger(detail) and detail > 0
-    end
-    if type(detail) ~= "table" then
-        return false
-    end
-    if name == "lootOpen" then
-        if
-            not isInteger(detail.level)
-            or type(detail.place) ~= "string"
-            or not validPlaceKind(detail.placeKind)
-            or type(detail.slots) ~= "table"
-        then
-            return false
-        end
-        for _, slot in ipairs(detail.slots) do
-            if
-                type(slot) ~= "table"
-                or type(slot.key) ~= "string"
-                or not validLootSource(slot.source)
-                or (slot.quantity ~= nil and (not isInteger(slot.quantity) or slot.quantity < 1))
-            then
-                return false
-            end
-        end
-        return true
-    end
-    if type(detail.key) ~= "string" or not isInteger(detail.quantity) or detail.quantity < 1 then
-        return false
-    end
-    if name == "lootReceipt" or name == "vendorReceipt" then
-        return true
-    end
-    if not isInteger(actor.level) or type(actor.place) ~= "string" or not validPlaceKind(actor.placeKind) then
-        return false
-    end
-    if name == "rewardReceipt" then
-        return (detail.method == "Quest" or detail.method == "Crafted")
-            and validRewardContext(detail.context, detail.method)
-            and (detail.preview == nil or type(detail.preview) == "boolean")
-            and (
-                detail.choiceGroup == nil
-                or (isName(detail.choiceGroup) and detail.method == "Quest" and detail.preview == true)
-            )
-    end
-    if
-        not isInteger(detail.itemID)
-        or detail.itemID < 1
-        or addon.Item.key(detail.link, detail.itemID) ~= detail.key
-    then
-        return false
-    end
-    if name == "vendorAction" then
-        return vendorKinds[detail.kind] == true
-            and (detail.area == nil or detail.area == "bags" or detail.area == "equipped")
-            and (actor.vendorName == nil or isName(actor.vendorName))
-    end
-    return (detail.channel == "mail" or detail.channel == "trade")
-        and (detail.direction == "in" or detail.direction == "out")
-        and (detail.peerName == nil or isName(detail.peerName))
-        and (detail.peerRealm == nil or isName(detail.peerRealm))
+-- A chat receipt names an item and a quantity.
+function StoreEvidence.validReceipt(receipt)
+    return type(receipt) == "table"
+        and type(receipt.key) == "string"
+        and isInteger(receipt.quantity)
+        and receipt.quantity > 0
+end
+
+-- A vendor action or exchange intent names one readable item, and its actor
+-- carries the level and place the gain would record.
+function StoreEvidence.validItemAction(action, actor)
+    return StoreEvidence.validReceipt(action)
+        and V.validGainActor(actor)
+        and isInteger(action.itemID)
+        and action.itemID > 0
+        and addon.Item.key(action.link, action.itemID) == action.key
 end
 
 -- Returns the evidence interface the correlating domains share. Their engines
@@ -439,10 +390,10 @@ function StoreEvidence.install(store, kernel, slice)
         return true
     end
 
+    -- Counts candidate signals across all channels for each character. Overflow
+    -- is retained before it can match. The command entry point has already
+    -- ended the correlation this signal outlives.
     local function reserveCandidate(kind, detail, at, actor, cost)
-        if not endCorrelation(at, "expired") then
-            return false
-        end
         local count = 0
         for _, entry in ipairs(candidates) do
             if entry.character == actor.character and entry.realm == actor.realm then
@@ -477,67 +428,6 @@ function StoreEvidence.install(store, kernel, slice)
         reserve = reserveCandidate,
         attach = attach,
     }
-end
-
--- Count incoming candidate signals at the public boundary. Installed after every
--- domain so these wrappers enclose the domain commands, not internal calls.
-function StoreEvidence.guardCandidates(store, kernel, correlation)
-    local readable, saveFields = kernel.readable, kernel.save
-    local evidenceState, reserveCandidate = correlation.state, correlation.reserve
-    for _, name in ipairs({
-        "lootOpen",
-        "lootReceipt",
-        "rewardReceipt",
-        "questPrepared",
-        "vendorAction",
-        "vendorReceipt",
-        "exchangeIntent",
-    }) do
-        local command = store[name]
-        store[name] = function(self, detail, at, actor, ...)
-            if name == "lootOpen" then
-                actor = detail
-                at = type(detail) == "table" and detail.at or nil
-            end
-            if
-                readable
-                and isInteger(at)
-                and at >= 0
-                and type(actor) == "table"
-                and isName(actor.character)
-                and isName(actor.realm)
-                and validCandidate(name, detail, actor)
-            then
-                local payload = type(detail) == "table" and detail or { value = detail }
-                local cost = name == "lootOpen" and type(payload.slots) == "table" and #payload.slots or 1
-                if not reserveCandidate(name, payload, at, actor, math.max(1, cost)) then
-                    return false
-                end
-            end
-            local result = command(self, detail, at, actor, ...)
-            if
-                not result
-                and (name == "lootReceipt" or name == "vendorReceipt")
-                and readable
-                and type(detail) == "table"
-                and type(detail.key) == "string"
-                and isInteger(detail.quantity)
-                and detail.quantity > 0
-                and isInteger(at)
-                and at >= 0
-                and type(actor) == "table"
-                and isName(actor.character)
-                and isName(actor.realm)
-            then
-                local evidence = evidenceState()
-                if evidence then
-                    retain(evidence, name, "unmatched", at, actor, detail)
-                    saveFields({ evidence = evidence })
-                end
-            end
-            return result
-        end
-    end
 end
 
 addon.StoreEvidence = StoreEvidence

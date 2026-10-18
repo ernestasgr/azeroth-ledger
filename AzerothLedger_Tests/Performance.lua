@@ -90,7 +90,8 @@ SlashCmdList.AZEROTHLEDGERPERFORMANCE = function(message)
     end)
     if repeated then
         addon.Work.measure(_G, "Fixture confirmed gain scan", function()
-            store:rewardReceipt(
+            store:command(
+                "rewardReceipt",
                 { key = "10001:0", quantity = 1, method = "Crafted", context = { kind = "recipe", id = 123 } },
                 60001,
                 { character = "Fixture", realm = "Test", level = 1, place = "Test zone" }

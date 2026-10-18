@@ -17,7 +17,7 @@ function MerchantSession.new(runtime)
         if context then
             context.vendorName = vendorName or addon.Runtime.npcName(api)
         end
-        if open and action and context and runtime.store():vendorAction(action, context.at, context) then
+        if open and action and context and runtime.command("vendorAction", action, context) then
             runtime.refresh(context.character, context.realm)
         end
     end
