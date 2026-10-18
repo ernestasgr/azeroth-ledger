@@ -1,34 +1,7 @@
+local load = assert(loadfile("tests/support/addon.lua"))()
 local function session(saved)
     local addon = {}
-    for _, source in ipairs({
-        "Item",
-        "Work",
-        "SchemaValidate",
-        "StoreKernel",
-        "StorePreferences",
-        "StoreJournal",
-        "StoreEvidence",
-        "StoreRecords",
-        "StoreLoot",
-        "StoreExchange",
-        "StoreVendor",
-        "StoreReward",
-        "StoreScan",
-        "Schema",
-        "Client",
-        "LastSeen",
-        "Collection",
-        "Journal",
-        "BookWidgets",
-        "BookQuery",
-        "BookState",
-        "BookFrame",
-        "BookRender",
-        "Book",
-        "Settings",
-    }) do
-        assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
-    end
+    load.addon("Settings", addon)
     local native = assert(loadfile("tests/support/native_ui.lua"))().create()
     local store = addon.Schema.open(saved, function(value)
         saved = value

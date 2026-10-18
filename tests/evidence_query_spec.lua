@@ -1,27 +1,5 @@
-local addon = {}
-for _, name in ipairs({
-    "Item",
-    "Work",
-    "SchemaValidate",
-    "StoreKernel",
-    "StorePreferences",
-    "StoreJournal",
-    "StoreEvidence",
-    "StoreRecords",
-    "StoreLoot",
-    "StoreExchange",
-    "StoreVendor",
-    "StoreReward",
-    "StoreScan",
-    "Schema",
-    "Client",
-    "LastSeen",
-    "Collection",
-    "Journal",
-    "BookQuery",
-}) do
-    assert(loadfile("AzerothLedger/" .. name .. ".lua"))("AzerothLedger", addon)
-end
+local load = assert(loadfile("tests/support/addon.lua"))()
+local addon = load.addon("BookQuery")
 ---@type AzerothLedgerData?
 local saved
 local writes = 0

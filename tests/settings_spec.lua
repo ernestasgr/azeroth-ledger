@@ -1,35 +1,7 @@
+local load = assert(loadfile("tests/support/addon.lua"))()
 local addon = {}
 _G.date = os.date
-for _, name in ipairs({
-    "Item",
-    "Work",
-    "SchemaValidate",
-    "StoreKernel",
-    "StorePreferences",
-    "StoreJournal",
-    "StoreEvidence",
-    "StoreRecords",
-    "StoreLoot",
-    "StoreExchange",
-    "StoreVendor",
-    "StoreReward",
-    "StoreScan",
-    "Schema",
-    "Client",
-    "LastSeen",
-    "Collection",
-    "Journal",
-    "BookWidgets",
-    "BookQuery",
-    "BookState",
-    "BookFrame",
-    "BookRender",
-    "Book",
-    "Presentation",
-    "Settings",
-}) do
-    assert(loadfile("AzerothLedger/" .. name .. ".lua"))("AzerothLedger", addon)
-end
+load.addon("Settings", addon)
 local native = assert(loadfile("tests/support/native_ui.lua"))().create()
 local api = native.api
 local controls, buttons, swatches, sections, notifications = {}, {}, {}, {}, 0

@@ -1,34 +1,7 @@
+local load = assert(loadfile("tests/support/addon.lua"))()
 local addon = {}
 _G.date = os.date
-for _, source in ipairs({
-    "Item",
-    "Work",
-    "Client",
-    "SchemaValidate",
-    "StoreKernel",
-    "StorePreferences",
-    "StoreJournal",
-    "StoreEvidence",
-    "StoreRecords",
-    "StoreLoot",
-    "StoreExchange",
-    "StoreVendor",
-    "StoreReward",
-    "StoreScan",
-    "Schema",
-    "LastSeen",
-    "Collection",
-    "Presentation",
-    "BookWidgets",
-    "BookQuery",
-    "BookState",
-    "BookFrame",
-    "BookRender",
-    "Book",
-    "Settings",
-}) do
-    assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
-end
+load.addon("Settings", addon)
 
 -- Exercise only the native boundary; all decisions still use the real store.
 local native = assert(loadfile("tests/support/native_ui.lua"))().create()

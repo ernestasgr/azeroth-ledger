@@ -1,30 +1,5 @@
-local addon = {}
-for _, name in ipairs({
-    "Item",
-    "Work",
-    "SchemaValidate",
-    "StoreKernel",
-    "StorePreferences",
-    "StoreJournal",
-    "StoreEvidence",
-    "StoreRecords",
-    "StoreLoot",
-    "StoreExchange",
-    "StoreVendor",
-    "StoreReward",
-    "StoreScan",
-    "Schema",
-    "Client",
-    "Scan",
-    "Inventory",
-    "LastSeen",
-    "Collection",
-    "Journal",
-    "BookQuery",
-    "Presentation",
-}) do
-    assert(loadfile("AzerothLedger/" .. name .. ".lua"))("AzerothLedger", addon)
-end
+local load = assert(loadfile("tests/support/addon.lua"))()
+local addon = load.addon("BookQuery")
 date = os.date
 
 local fixture = assert(loadfile("AzerothLedger_Tests/PerformanceFixture.lua"))()

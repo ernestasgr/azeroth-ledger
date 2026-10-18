@@ -1,27 +1,5 @@
-local addon = {}
-for _, source in ipairs({
-    "Item",
-    "Work",
-    "SchemaValidate",
-    "StoreKernel",
-    "StorePreferences",
-    "StoreJournal",
-    "StoreEvidence",
-    "StoreRecords",
-    "StoreLoot",
-    "StoreExchange",
-    "StoreVendor",
-    "StoreReward",
-    "StoreScan",
-    "Schema",
-    "Client",
-    "LastSeen",
-    "Collection",
-    "Journal",
-    "Settings",
-}) do
-    assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
-end
+local load = assert(loadfile("tests/support/addon.lua"))()
+local addon = load.addon("Settings")
 AzerothLedger = addon
 local groups = {}
 WoWUnit = setmetatable({

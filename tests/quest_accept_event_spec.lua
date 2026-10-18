@@ -1,3 +1,4 @@
+local load = assert(loadfile("tests/support/addon.lua"))()
 local addon
 local link = "|Hitem:90::::::::|h[Simple Letter]|h"
 local frame
@@ -62,45 +63,7 @@ local function boot(present)
     end
     AzerothLedgerDB = nil
     clock, inBags = 1000, present
-    for _, source in ipairs({
-        "Item",
-        "Work",
-        "Trace",
-        "SchemaValidate",
-        "StoreKernel",
-        "StorePreferences",
-        "StoreJournal",
-        "StoreEvidence",
-        "StoreRecords",
-        "StoreLoot",
-        "StoreExchange",
-        "StoreVendor",
-        "StoreReward",
-        "StoreScan",
-        "Schema",
-        "Client",
-        "Scan",
-        "Loot",
-        "Reward",
-        "Vendor",
-        "LastSeen",
-        "Collection",
-        "Inventory",
-        "Events",
-        "Runtime",
-        "MerchantSession",
-        "MailSession",
-        "TradeSession",
-        "LootSession",
-        "QuestSession",
-        "CraftSession",
-        "Diagnostics",
-        "Commands",
-        "MinimapButton",
-        "Main",
-    }) do
-        assert(loadfile("AzerothLedger/" .. source .. ".lua"))("AzerothLedger", addon)
-    end
+    load.addon("Main", addon)
     frame.onEvent(frame, "ADDON_LOADED", "AzerothLedger")
     frame.onEvent(frame, "PLAYER_LOGIN")
     frame.onEvent(frame, "BAG_UPDATE_DELAYED")
