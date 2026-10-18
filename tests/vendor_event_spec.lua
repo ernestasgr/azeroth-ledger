@@ -1,31 +1,12 @@
 local load = assert(loadfile("tests/support/addon.lua"))()
+local client = assert(loadfile("tests/support/client.lua"))().install()
 local addon = {}
 local bread = "|Hitem:4540::::::::|h[Tough Hunk of Bread]|h"
-local frame = { registered = {} }
 local clock = 1000
 local bagQuantity = 0
 local buybackQuantity = 0
 date = os.date
 
-function frame:RegisterEvent(event)
-    self.registered[event] = true
-end
-
-function frame:SetScript(name, handler)
-    if name == "OnEvent" then
-        self.onEvent = handler
-    end
-end
-
-CreateFrame = function()
-    return frame
-end
-GetBuildInfo = function()
-    return "1.60.1", 70009, "date", 16001
-end
-GetLocale = function()
-    return "enUS"
-end
 GetServerTime = function()
     return clock
 end
@@ -46,7 +27,6 @@ GetInventoryItemLink = function()
 end
 LOOT_ITEM_SELF = "You receive item: %s."
 LOOT_ITEM_SELF_MULTIPLE = "You receive item: %sx%d."
-SlashCmdList = {}
 
 C_Container = {
     GetContainerNumSlots = function(bag)
@@ -101,9 +81,8 @@ end
 load.addon("Main", addon)
 
 local function event(name, ...)
-    assert(frame.registered[name])
     clock = clock + 1
-    frame.onEvent(frame, name, ...)
+    client.event(name, ...)
 end
 
 local key = addon.Item.key(bread, 4540)

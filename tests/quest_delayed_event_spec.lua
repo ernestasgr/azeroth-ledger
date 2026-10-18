@@ -1,31 +1,12 @@
 local load = assert(loadfile("tests/support/addon.lua"))()
+local client = assert(loadfile("tests/support/client.lua"))().install()
 local addon = {}
-local frame = { registered = {} }
 local link = "|Hitem:11475::::::::|h[Wine-stained Cloak]|h"
 local clock = 1000
 local inBags = false
 local equipped = false
 local linkReady = false
 
-function frame:RegisterEvent(event)
-    self.registered[event] = true
-end
-
-function frame:SetScript(name, handler)
-    if name == "OnEvent" then
-        self.onEvent = handler
-    end
-end
-
-CreateFrame = function()
-    return frame
-end
-GetBuildInfo = function()
-    return "1.60.1", 70009, "date", 16001
-end
-GetLocale = function()
-    return "enUS"
-end
 GetServerTime = function()
     return clock
 end
@@ -79,14 +60,10 @@ local questAPI = {
 for name, implementation in pairs(questAPI) do
     rawset(_G, name, implementation)
 end
-SlashCmdList = {}
 
 load.addon("Main", addon)
 
-local function event(name, ...)
-    assert(frame.registered[name])
-    frame.onEvent(frame, name, ...)
-end
+local event = client.event
 
 event("ADDON_LOADED", "AzerothLedger")
 event("PLAYER_LOGIN")

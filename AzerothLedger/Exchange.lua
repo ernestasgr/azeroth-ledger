@@ -1,5 +1,15 @@
 local _, addon = ...
 
+-- The mail and trade channel: items exchanged with other players.
+--
+-- Mail is taken from or sent through the mailbox. A take is proven only when
+-- the client reports MAIL_SUCCESS and the attachment left the inbox.
+-- Overlapping takes, returns, deletions, and money takes all report MAIL_SUCCESS
+-- too, so any overlap marks pending takes unresolved instead of guessing.
+--
+-- In the trade window both sides are recorded once both players accept, and
+-- confirmed only by the client's trade-complete message. Any item change after
+-- acceptance cancels the prepared intents.
 local Exchange = {}
 
 local function item(link, quantity, channel, direction, peer)
@@ -199,6 +209,348 @@ function Exchange.trade(api, direction, peer)
         result[#result + 1] = intent
     end
     return result
+end
+
+-- Copies an inbox intent and attaches the store's exchange id.
+local function withID(intent, id)
+    local captured = {}
+    for key, value in pairs(intent) do
+        captured[key] = value
+    end
+    captured.id = id
+    return captured
+end
+
+-- Splits taken intents from those still waiting in the inbox.
+local function remaining(selected, takenIDs)
+    local rows = {}
+    for _, intent in ipairs(selected) do
+        if not takenIDs[intent.id] then
+            rows[#rows + 1] = intent
+        end
+    end
+    return rows
+end
+
+-- Mail taken from the inbox and sent through the mailbox.
+local function mail(deps, write)
+    local api, commands = deps.api, deps.commands
+    local open = false
+    local inbox, outbox
+    -- take: { before = inbox, selected = intents, succeeded = boolean, progress? = true }
+    local take
+    local ambiguous = false
+    -- Taken mail whose items have not yet appeared in bags.
+    local awaiting
+    local sending
+
+    -- Same-realm senders carry no realm suffix.
+    local function readInbox()
+        local _, realm = addon.Runtime.identity(api)
+        return Exchange.inbox(api, realm)
+    end
+
+    local function updateProgress()
+        if awaiting and deps.mailProgress(awaiting) ~= "waiting" then
+            awaiting = nil
+        end
+    end
+
+    local function markUnresolved(ids)
+        for _, id in ipairs(ids) do
+            commands.exchangeMarkUnresolved(id)
+        end
+    end
+
+    local function abandonTake()
+        if take then
+            local ids = {}
+            for _, intent in ipairs(take.selected) do
+                ids[#ids + 1] = intent.id
+            end
+            markUnresolved(ids)
+        end
+        take = nil
+    end
+
+    local function abandonAwaiting()
+        if awaiting then
+            local ids = {}
+            for id in pairs(awaiting) do
+                ids[#ids + 1] = id
+            end
+            markUnresolved(ids)
+        end
+        awaiting = nil
+    end
+
+    local function overlap()
+        if take or awaiting then
+            ambiguous = true
+            abandonTake()
+            abandonAwaiting()
+        end
+    end
+
+    local function takeMail(index, attachment)
+        if not open or not inbox then
+            return
+        end
+        updateProgress()
+        if take and take.progress and not awaiting then
+            abandonTake()
+        end
+        overlap()
+        local selected = {}
+        for slot = attachment or 1, attachment or 12 do
+            local intent = inbox[index .. ":" .. slot]
+            local id = intent and write.intent(intent)
+            if id then
+                selected[#selected + 1] = withID(intent, id)
+                if ambiguous then
+                    markUnresolved({ id })
+                end
+            end
+        end
+        if #selected > 0 and not ambiguous then
+            take = { before = inbox, selected = selected, succeeded = false }
+        end
+    end
+
+    local function finishTake()
+        if not take or not take.succeeded or ambiguous then
+            return
+        end
+        local after = readInbox()
+        local ids = Exchange.taken(take.before, after, take.selected)
+        if not next(ids) then
+            return
+        end
+        write.confirm("mail", "in", ids)
+        inbox = after
+        take.selected = remaining(take.selected, ids)
+        take.before = after
+        take.progress = true
+        if #take.selected == 0 then
+            take = nil
+        end
+        if deps.mailProgress(ids) == "waiting" then
+            awaiting = awaiting or {}
+            for id in pairs(ids) do
+                awaiting[id] = true
+            end
+        end
+    end
+
+    local function send(recipient)
+        if not open then
+            return
+        end
+        overlap()
+        local _, realm = addon.Runtime.identity(api)
+        local peer = Exchange.player(recipient, nil, realm)
+        local items = outbox and #outbox > 0 and outbox or Exchange.outbox(api)
+        -- A second SendMail before MAIL_SEND_SUCCESS cannot be told apart.
+        if sending then
+            sending = nil
+            return
+        end
+        sending = {}
+        for _, intent in ipairs(items or {}) do
+            intent.peerName = peer and peer.name or nil
+            intent.peerRealm = peer and peer.realm or nil
+            local id = write.intent(intent)
+            if id then
+                sending[id] = true
+            end
+        end
+        outbox = nil
+    end
+
+    local hook = addon.Events.hook
+    hook(api, deps.issues, "exchange", api, "TakeInboxItem", takeMail)
+    hook(api, deps.issues, "exchange", api, "AutoLootMailItem", function(index)
+        takeMail(index)
+    end)
+    -- These actions also emit MAIL_SUCCESS; never let their success complete a take.
+    for _, method in ipairs({ "TakeInboxMoney", "ReturnInboxItem", "DeleteInboxItem" }) do
+        if type(api[method]) == "function" then
+            hook(api, deps.issues, "exchange", api, method, overlap)
+        end
+    end
+    hook(api, deps.issues, "exchange", api, "SendMail", send)
+
+    local channel = {}
+
+    -- Runs once after each full inventory flush, when taken mail may have landed.
+    function channel.flushed()
+        updateProgress()
+        if not take and not awaiting then
+            ambiguous = false
+        end
+    end
+
+    channel.events = {
+        MAIL_SHOW = function()
+            open = true
+            take, ambiguous, sending = nil, false, nil
+            deps.check("bags")
+            updateProgress()
+            inbox = readInbox()
+            outbox = Exchange.outbox(api)
+        end,
+        MAIL_CLOSED = function()
+            open = false
+            inbox, outbox = nil, nil
+            abandonTake()
+            sending = nil
+        end,
+        MAIL_INBOX_UPDATE = function()
+            finishTake()
+            inbox = readInbox()
+        end,
+        MAIL_SEND_INFO_UPDATE = function()
+            outbox = Exchange.outbox(api)
+        end,
+        MAIL_SEND_SUCCESS = function()
+            if sending then
+                write.confirm("mail", "out", sending)
+                sending = nil
+            end
+        end,
+        MAIL_SUCCESS = function()
+            if take and not ambiguous then
+                take.succeeded = true
+                finishTake()
+            end
+        end,
+        MAIL_FAILED = function()
+            abandonTake()
+            abandonAwaiting()
+            ambiguous = false
+            inbox = readInbox()
+        end,
+    }
+
+    return channel
+end
+
+-- The trade partner, read when the window opens.
+local function partner(api, localRealm)
+    local read = rawget(api, "GetUnitName")
+    if type(read) ~= "function" then
+        return nil
+    end
+    local ok, name = pcall(read, "NPC", true)
+    return ok and Exchange.player(name, nil, localRealm) or nil
+end
+
+local function isTradeComplete(api, messageID, message)
+    local completed = rawget(api, "ERR_TRADE_COMPLETE")
+    return type(completed) == "string" and (message == completed or messageID == completed)
+end
+
+-- Items exchanged in the trade window.
+local function trade(deps, write)
+    local api, commands = deps.api, deps.commands
+    local open, prepared = false, false
+    local preparedIDs, peer
+
+    local function cancel()
+        commands.exchangeCancel("trade")
+    end
+
+    local function prepare()
+        if not open or prepared then
+            return
+        end
+        preparedIDs = {}
+        for _, direction in ipairs({ "in", "out" }) do
+            for _, intent in ipairs(Exchange.trade(api, direction, peer) or {}) do
+                local id = write.intent(intent)
+                if id then
+                    preparedIDs[id] = true
+                end
+            end
+        end
+        prepared = true
+    end
+
+    local function itemChanged()
+        if prepared then
+            cancel()
+        end
+        prepared, preparedIDs = false, nil
+    end
+
+    return {
+        events = {
+            TRADE_SHOW = function()
+                open, prepared, preparedIDs = true, false, nil
+                cancel()
+                deps.check("bags")
+                local _, realm = addon.Runtime.identity(api)
+                peer = partner(api, realm)
+            end,
+            TRADE_PLAYER_ITEM_CHANGED = itemChanged,
+            TRADE_TARGET_ITEM_CHANGED = itemChanged,
+            TRADE_ACCEPT_UPDATE = function(playerAccepted, targetAccepted)
+                if playerAccepted == 1 and targetAccepted == 1 then
+                    prepare()
+                end
+            end,
+            TRADE_CLOSED = function()
+                open = false
+            end,
+            UI_INFO_MESSAGE = function(messageID, message)
+                if prepared and isTradeComplete(api, messageID, message) then
+                    write.confirm("trade", "in", preparedIDs)
+                    write.confirm("trade", "out", preparedIDs)
+                    prepared, preparedIDs = false, nil
+                end
+            end,
+        },
+    }
+end
+
+-- The store commands this channel writes through.
+---@type ALCommandName[]
+Exchange.commands = { "exchangeIntent", "exchangeConfirm", "exchangeMarkUnresolved", "exchangeCancel" }
+
+---@class ALExchangeDependencies
+---@field api table
+---@field issues string[]
+---@field commands ALCommands Built from `Exchange.commands`
+---@field mailProgress fun(ids: table<string, true>): string
+---@field check fun(area: string)
+
+---@param deps ALExchangeDependencies
+function Exchange.new(deps)
+    local commands = deps.commands
+    local write = {}
+
+    function write.intent(intent)
+        if intent then
+            return (commands.exchangeIntent(intent))
+        end
+    end
+
+    -- A confirmed exchange moved items in or out of bags.
+    function write.confirm(channel, direction, ids)
+        if commands.exchangeConfirm({ channel = channel, direction = direction, ids = ids }) then
+            deps.check("bags")
+        end
+    end
+
+    local mailbox = mail(deps, write)
+    local events = {}
+    for _, channel in ipairs({ mailbox, trade(deps, write) }) do
+        for event, handler in pairs(channel.events) do
+            assert(not events[event], "exchange event handled twice: " .. event)
+            events[event] = handler
+        end
+    end
+    return { events = events, flushed = mailbox.flushed }
 end
 
 addon.Exchange = Exchange

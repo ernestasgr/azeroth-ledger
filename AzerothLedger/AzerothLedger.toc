@@ -42,12 +42,6 @@ Book.lua
 Settings.lua
 Events.lua
 Runtime.lua
-MerchantSession.lua
-MailSession.lua
-TradeSession.lua
-LootSession.lua
-QuestSession.lua
-CraftSession.lua
 Diagnostics.lua
 Commands.lua
 MinimapButton.lua

@@ -1,5 +1,7 @@
 local _, addon = ...
 
+-- The loot channel: the loot window, its slot sources, and loot chat receipts.
+-- A receipt while a merchant window is open is a vendor purchase, not loot.
 local Loot = {}
 
 ---@class AzerothLedgerLootApi
@@ -191,6 +193,72 @@ function Loot.open(api)
         end
     end
     return slots
+end
+
+-- The store commands this channel writes through.
+---@type ALCommandName[]
+Loot.commands = { "lootOpen", "lootSourceProof", "lootClose", "lootReceipt", "vendorReceipt" }
+
+---@class ALLootDependencies
+---@field api AzerothLedgerLootApi
+---@field commands ALCommands Built from `Loot.commands`
+---@field refresh fun(character: string, realm: string)
+---@field merchantOpen fun(): boolean
+
+---@param deps ALLootDependencies
+function Loot.new(deps)
+    local api, commands, refresh = deps.api, deps.commands, deps.refresh
+    -- Fast loot can finish at LOOT_READY; LOOT_OPENED must keep that pre-gain baseline.
+    local captured = false
+
+    local function proveSources(slots)
+        local proven, context = commands.lootSourceProof({ slots = slots })
+        if proven and context then
+            refresh(context.character, context.realm)
+        end
+    end
+
+    local function opened()
+        local slots = Loot.open(api)
+        if not slots then
+            return
+        end
+        if captured then
+            proveSources(slots)
+        elseif #slots > 0 then
+            captured = commands.lootOpen({ slots = slots }) == true
+        end
+    end
+
+    local function receipt(message)
+        local parsed = Loot.receipt(api, message)
+        if not parsed then
+            return
+        end
+        local write = deps.merchantOpen() and commands.vendorReceipt or commands.lootReceipt
+        local accepted, context = write(parsed)
+        if accepted and context then
+            refresh(context.character, context.realm)
+        end
+    end
+
+    return {
+        events = {
+            LOOT_READY = opened,
+            LOOT_OPENED = opened,
+            LOOT_SLOT_CHANGED = function()
+                local slots = Loot.open(api)
+                if slots then
+                    proveSources(slots)
+                end
+            end,
+            LOOT_CLOSED = function()
+                captured = false
+                commands.lootClose()
+            end,
+            CHAT_MSG_LOOT = receipt,
+        },
+    }
 end
 
 addon.Loot = Loot

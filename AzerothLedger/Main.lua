@@ -1,10 +1,10 @@
 local addonName, addon = ...
 
 -- Composition root. It opens the store when the addon's SavedVariables load,
--- wires the event sessions to one frame, and exposes the slash command, key
--- binding, and minimap button. Event rules live in the *Session modules.
+-- wires the event channels to one frame, and exposes the slash command, key
+-- binding, and minimap button. Event rules live in the channel modules: Loot,
+-- Reward, Vendor and Exchange.
 local Events, Runtime, Trace = addon.Events, addon.Runtime, addon.Trace
-local Sessions = addon.Sessions
 
 local client = addon.Client.inspect(_G)
 local revision = Runtime.revision(_G, addonName)
@@ -63,22 +63,60 @@ end, function()
     notify("flushed")
 end)
 
-local runtime = Runtime.new(_G, client.issues, getStore, inventory)
+local function clock()
+    return Runtime.now(_G)
+end
 
--- Hooks install as each session is created, so creation order is hook order.
-local merchant = Sessions.Merchant.new(runtime)
-local sessions = {
-    merchant,
-    Sessions.Mail.new(runtime),
-    Sessions.Trade.new(runtime),
-    Sessions.Loot.new(runtime, merchant.isOpen),
-    Sessions.Quest.new(runtime),
-    Sessions.Craft.new(runtime),
+local function commands(channel)
+    return Runtime.commands(_G, clock, getStore, channel.commands)
+end
+
+local function check(area)
+    inventory:check(area)
+end
+
+local function refresh(character, realm)
+    addon.Book.refresh(store, character, realm)
+end
+
+-- Hooks install as each channel is created, so creation order is hook order.
+local vendor = addon.Vendor.new({
+    api = _G,
+    clock = clock,
+    issues = client.issues,
+    commands = commands(addon.Vendor),
+    check = check,
+    refresh = refresh,
+})
+local channels = {
+    vendor,
+    addon.Exchange.new({
+        api = _G,
+        issues = client.issues,
+        commands = commands(addon.Exchange),
+        mailProgress = function(ids)
+            return store:mailProgress(ids)
+        end,
+        check = check,
+    }),
+    addon.Loot.new({
+        api = _G,
+        commands = commands(addon.Loot),
+        refresh = refresh,
+        merchantOpen = vendor.isOpen,
+    }),
+    addon.Reward.new({
+        api = _G,
+        clock = clock,
+        commands = commands(addon.Reward),
+        check = check,
+        refresh = refresh,
+    }),
 }
-for _, session in ipairs(sessions) do
+for _, channel in ipairs(channels) do
     for kind, list in pairs(listeners) do
-        if session[kind] then
-            list[#list + 1] = session[kind]
+        if channel[kind] then
+            list[#list + 1] = channel[kind]
         end
     end
 end
@@ -152,8 +190,8 @@ local ledgerRoutes = {
 }
 
 local routeTables = { ledgerRoutes }
-for _, session in ipairs(sessions) do
-    routeTables[#routeTables + 1] = session.events
+for _, channel in ipairs(channels) do
+    routeTables[#routeTables + 1] = channel.events
 end
 local routes = Events.merge(unpack(routeTables))
 
