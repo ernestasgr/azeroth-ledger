@@ -186,11 +186,8 @@ function LastSeen.project(store, record, character, realm, scope)
             and gain.baselinePossessionsComplete == false
         then
             total.ambiguous = true
-        elseif
-            not total.firstSeenAt
-            or (gain.openedAt and gain.openedAt <= total.firstSeenAt)
-            or gain.at > total.firstSeenAt
-        then
+        else
+            -- First-check units exclude every unit a gain explains, so each gain adds.
             total.quantity = total.quantity + gain.quantity - (gain.refunded or 0)
         end
     end

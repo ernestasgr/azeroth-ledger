@@ -4,8 +4,7 @@ local _, addon = ...
 
 local V = addon.SchemaValidate
 local retentionMaximums, isInteger, gainRoot = V.retentionMaximums, V.isInteger, V.gainRoot
-local chronological, copyValue, validVendorState = V.chronological, V.copyValue, V.validVendorState
-local validExchangeState, validJournal = V.validExchangeState, V.validJournal
+local chronological, copyValue = V.chronological, V.copyValue
 
 local StoreJournal = {}
 
@@ -21,14 +20,13 @@ function StoreJournal.install(store, kernel)
         if not readable or not maximum or not isInteger(limit) or limit < 0 or limit > maximum then
             return false
         end
-        if
-            category == "vendor" and kernel.raw().vendor ~= nil and not validVendorState(kernel.raw().vendor)
-            or category == "transfers" and kernel.raw().exchange ~= nil and not validExchangeState(
-                kernel.raw().exchange
-            )
-            or category == "gains" and kernel.raw().journal ~= nil and not validJournal(kernel.raw().journal)
-        then
+        if category == "gains" and kernel.journalDamaged() then
             return false
+        end
+        for _, list in ipairs(kernel.journalLists()) do
+            if list.retention == category and list.damaged() then
+                return false
+            end
         end
         local limits = retention()
         limits[category] = limit
@@ -41,7 +39,7 @@ function StoreJournal.install(store, kernel)
         if not readable then
             return result
         end
-        for _, entry in ipairs(kernel.journalHealthy() and kernel.raw().journal.gains or {}) do
+        for _, entry in ipairs(kernel.journalHealthy() and kernel.journal().gains or {}) do
             if pause then
                 pause()
             end
@@ -58,16 +56,14 @@ function StoreJournal.install(store, kernel)
                 result[#result + 1] = row
             end
         end
-        for _, category in ipairs({ "exchange", "vendor" }) do
-            local state = kernel.raw()[category]
-            local healthy = category == "exchange" and kernel.exchangeHealthy or kernel.vendorHealthy
-            for _, entry in ipairs(state and healthy and state.journal or {}) do
+        for _, list in ipairs(kernel.journalLists()) do
+            for _, entry in ipairs(list.entries) do
                 if pause then
                     pause()
                 end
                 if valid[entry.key] and isInteger(entry.sequence) and entry.sequence > 0 then
                     local row = copyValue(entry)
-                    row.category = category == "exchange" and "transfer" or "vendor"
+                    row.category = list.retention == "transfers" and "transfer" or "vendor"
                     row.linkedAcquisitionID = row.linkedGainID and gainRoot(row.linkedGainID)
                     result[#result + 1] = row
                 end

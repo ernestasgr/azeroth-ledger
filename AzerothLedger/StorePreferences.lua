@@ -4,18 +4,34 @@ local _, addon = ...
 
 local V = addon.SchemaValidate
 local displayDefaults, copyValue, validDisplayField = V.displayDefaults, V.copyValue, V.validDisplayField
-local bookPreferences = V.bookPreferences
+local bookPreferences, validDisplay = V.bookPreferences, V.validDisplay
 
 local StorePreferences = {}
 
-function StorePreferences.install(store, kernel)
+-- Display options, which also decide whether discoveries queue toasts, and the
+-- saved book layout. A damaged layout is replaced, not counted as damage.
+---@type AzerothLedgerSlice[]
+StorePreferences.slices = {
+    {
+        name = "display",
+        validate = validDisplay,
+        discoveries = function(display)
+            return not validDisplay(display) or display.toasts
+        end,
+    },
+    { name = "book" },
+}
+
+---@param slices table<string, table> Handles for this file's slices, by name
+function StorePreferences.install(store, kernel, slices)
     local readable, saveFields = kernel.readable, kernel.save
+    local savedBook, savedDisplay = slices.book.state, slices.display.state
 
     function store.book(_self)
-        return bookPreferences(readable and kernel.raw().book or nil)
+        return bookPreferences(readable and savedBook() or nil)
     end
     function store.setBook(_self, preferences)
-        if not readable or (type(kernel.raw().book) == "table" and kernel.raw().book.version ~= 1) then
+        if not readable or (type(savedBook()) == "table" and savedBook().version ~= 1) then
             return false
         end
         saveFields({ book = bookPreferences(preferences) })
@@ -27,8 +43,8 @@ function StorePreferences.install(store, kernel)
     end
     function store.display(_self)
         local values = copyValue(displayDefaults)
-        if readable and type(kernel.raw().display) == "table" then
-            for key, value in pairs(kernel.raw().display) do
+        if readable and type(savedDisplay()) == "table" then
+            for key, value in pairs(savedDisplay()) do
                 if validDisplayField(key, value) then
                     values[key] = copyValue(value)
                 end
