@@ -1,5 +1,5 @@
 local load = assert(loadfile("tests/support/addon.lua"))()
-local addon = load.addon("BookRender")
+local addon = load.addon("BookDetailRender")
 local detailText = assert(loadfile("tests/support/detail_text.lua"))()
 date = os.date
 

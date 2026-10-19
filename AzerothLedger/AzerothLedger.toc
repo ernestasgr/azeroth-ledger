@@ -43,7 +43,9 @@ BookWidgets.lua
 BookQuery.lua
 BookState.lua
 BookFrame.lua
+BookDetailFrame.lua
 BookRender.lua
+BookDetailRender.lua
 Book.lua
 Settings.lua
 Events.lua
