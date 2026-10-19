@@ -8,7 +8,7 @@ It remembers the items on your characters (bags, bank, and whatever you're weari
 
 **The Collection** lists every item the addon has seen on any of your characters. Browse it by category or by place, search by name, or narrow it down to one character or realm. Pick an item to see its history: when it first showed up, whether you looted it or got it another way (quest, vendor, crafting, mail, trade, guild bank...), and who or what it came from, if the game says.
 
-**The Journal** covers recent activity, newest first: what you picked up, what you mailed to your alts, and what you sold to a vendor or bought back. Click an entry for the details.
+**The Journal** is a log of recent activity, newest first: what you picked up, what you mailed to your alts, and what you sold to a vendor or bought back. Click an entry for the details. It isn't a full history. It keeps the last 1,000 gains and 250 transfers and vendor actions by default (you can change that), and older entries drop off. Your Collection keeps its totals and dates either way.
 
 **Tooltips** get a few extra lines: when you first saw, looted, or got the item, how many you've gained in total, and where it came from.
 
@@ -19,7 +19,7 @@ When you get something you've never had before, a small notification pops up. It
 - It only knows about characters you've logged into with the addon enabled. Open your bank once on each character so it can count what's in there.
 - Anything already in your bags the first time it checks counts as "found", not "gained". It doesn't know where those came from, so it doesn't pretend to.
 - Counts for offline characters are from the last time you played them.
-- If an item turns up and the addon can't tell how, it doesn't guess. Those go into **Review item changes**, so you can look at them yourself.
+- If an item turns up and the addon can't tell how, it doesn't count it as gained. It shows up in your Collection, but not in your totals.
 - Everything stays in your SavedVariables. Nothing is sent anywhere, and there are no library dependencies.
 
 ## Settings
