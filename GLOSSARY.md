@@ -18,6 +18,8 @@ Azeroth Ledger keeps a Collection of items found on your characters and a Journa
 
 **Total found**: Items found on the first check plus later confirmed gains. It does not tell you how many you have now.
 
+**Current count**: The latest saved quantity in bags, bank, and equipped gear, added across the characters in view, including offline characters. Each character's checks can be from different times, so this is the last known count, not a live one.
+
 **Total gained**: The number of items confirmed gained from outside the characters you have checked, minus confirmed refunds. Items already present at the first check and moves between your own characters do not add to this total.
 
 **Transfer**: An item moved between your own characters, by mail, trade, or the guild bank. It appears in the Journal but does not count as a new gain. Taking back your own guild bank deposit is not a gain either.

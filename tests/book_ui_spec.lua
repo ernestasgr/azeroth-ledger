@@ -236,13 +236,13 @@ assert(writes == before, "browsing must not write SavedVariables")
 click("All characters")
 click("Ben-B")
 click("Meat")
-find("CHARACTER OVERALL", "FontString")
-find("ALL CHARACTERS OVERALL", "FontString")
-find("CHARACTER CURRENT", "FontString")
-find("ALL CHARACTERS CURRENT", "FontString")
+find("Total found", "FontString")
+find("Current count", "FontString")
+find("CHARACTER", "FontString")
+find("ALL CHARACTERS", "FontString")
 find("10", "FontString")
 find("410", "FontString")
-local detailHeader = find("CHARACTER OVERALL", "FontString").parent
+local detailHeader = find("Total found", "FontString").parent
 local detailFade = assert(detailHeader.animationGroups[1])
 local detailPlays = detailFade.plays
 addon.Book.refresh(store, "Ada", "A")

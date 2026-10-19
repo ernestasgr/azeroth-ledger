@@ -14,14 +14,11 @@ local CATEGORIES =
     { "All items", "Weapons", "Armour", "Recipes", "Materials", "Consumables", "Junk", "Other", "Unknown" }
 local HELP_TEXT = "The Ledger tracks characters after you log in on them. "
     .. "Open each character's bank to check its contents.\n\n"
-    .. "Character overall counts that character's first-seen units plus confirmed gains, after refunds. "
-    .. "All characters overall adds those character totals.\n\n"
-    .. "Current counts add the latest known quantities in bags, bank, and equipped gear "
-    .. "for every tracked character, including offline characters.\n\n"
-    .. "Character overall shows Unknown if saved history cannot separate a confirmed gain "
-    .. "from the first recorded stock.\n\n"
-    .. "Current counts use saved quantities, which can be from different times. "
-    .. "Areas with no saved check add no known quantity.\n"
+    .. "Total found counts a character's units from its first check plus confirmed gains, after refunds. "
+    .. "It shows Unknown if saved history cannot separate a confirmed gain from the first check.\n\n"
+    .. "Current count adds the latest saved bags, bank, and equipped quantities, "
+    .. "including offline characters. Checks can be from different times, "
+    .. "and areas with no saved check add nothing.\n"
 for _, choice in ipairs(addon.LastSeen.ownershipChoices()) do
     if choice.value then
         HELP_TEXT = HELP_TEXT .. "\n" .. addon.LastSeen.ownership(choice.value).help
@@ -40,6 +37,9 @@ local function tooltip(book, control, link)
         Widgets.hideTooltip(book.api)
     end)
 end
+
+-- The detail panel (BookDetailFrame.lua) shares these helpers.
+BookFrame.font, BookFrame.tooltip = font, tooltip
 
 -- List rows and gallery cards: one presentation, two layouts.
 local ItemRowMixin = {}
@@ -60,178 +60,6 @@ function ItemRowMixin:present(model)
     Widgets.itemIcon(self.icon, model.icon)
     self.subtitle:SetText(model.subtitle)
     self.quantity:SetText(model.quantity)
-end
-
--- Detail rows are reusable native regions with measured heights, inside a real scroll frame.
-local DetailRowMixin = {}
-
-function DetailRowMixin:reset()
-    self.left:ClearAllPoints()
-    self.left:SetPoint("TOPLEFT", 0, -4)
-    self.right:Hide()
-    self.line:Hide()
-    self.section:Hide()
-    self.onClick = nil
-    self.fullLink = nil
-    self.link:Hide()
-end
-
--- Evidence details are plain wrapped lines; the last may be the saved item link.
----@return number height
-function DetailRowMixin:presentLine(text, title, link)
-    self:reset()
-    self.left:SetWidth(BookFrame.DETAIL_WIDTH)
-    Widgets.tint(self.left, title and colors.gold or colors.text)
-    self.left:SetText(text)
-    self.left:Show()
-    if link then
-        self.fullLink = link
-        self.link:SetText(link)
-        self.link:Show()
-        self.left:Hide()
-    end
-    local height = math.max(34, self.left:GetStringHeight() + 16)
-    self:SetHeight(height)
-    self:Show()
-    return height
-end
-
--- Lays out one Collection or Journal detail row by kind: note, pair, date,
--- section, link, or action. Returns nil when a collapsed section hides it.
----@return number? height
-function DetailRowMixin:present(kind, left, right, collapsed)
-    local api = self.api
-    self.left:ClearAllPoints()
-    self.right:ClearAllPoints()
-    self.left:SetPoint("TOPLEFT", 0, -4)
-    self.right:SetPoint("TOPLEFT", 254, -4)
-    self.left:SetWidth(kind == "note" and BookFrame.DETAIL_WIDTH or 246)
-    self.right:SetWidth(84)
-    Widgets.tint(self.left, kind == "section" and colors.gold or colors.text)
-    self.left:SetFont(font(api), kind == "section" and 13 or 12, "")
-    Widgets.tint(self.right, colors.muted)
-    self.left:SetText(left)
-    self.right:SetText(right or "")
-    self.link:ClearAllPoints()
-    self.link:SetPoint("TOPLEFT", 0, 0)
-    self.link:SetSize(BookFrame.DETAIL_WIDTH, 30)
-    self.link.background:Show()
-    local linkText = self.link:GetFontString()
-    linkText:ClearAllPoints()
-    linkText:SetPoint("TOPLEFT", 12, -8.5)
-    linkText:SetWidth(314)
-    linkText:SetFont(font(api), 12, "")
-    Widgets.tint(linkText, colors.text)
-    local clickable = kind == "link" or kind == "action" or kind == "section"
-    self.left:SetShown(not clickable)
-    self.right:SetShown(not clickable)
-    self.link:SetShown(clickable)
-    self.line:SetShown(kind == "section")
-    self.section:SetShown(kind == "section")
-    self.fullLink = kind == "link" and left or nil
-    self.disclosureIcon:Hide()
-    self.link:SetText(left)
-    if kind == "section" then
-        self.link:SetSize(BookFrame.DETAIL_WIDTH, 40)
-        self.link.background:Hide()
-        linkText:ClearAllPoints()
-        linkText:SetPoint("TOPLEFT", 28, -14)
-        linkText:SetWidth(300)
-        linkText:SetFont(font(api), 13, "")
-        Widgets.tint(linkText, colors.gold)
-        self.disclosureIcon:SetTexture(
-            collapsed and "Interface\\Buttons\\UI-PlusButton-UP" or "Interface\\Buttons\\UI-MinusButton-UP"
-        )
-        self.disclosureIcon:Show()
-    end
-    local height = math.max(24, self.left:GetStringHeight() + 10, self.right:GetStringHeight() + 10)
-    if kind == "section" then
-        self.line:ClearAllPoints()
-        self.line:SetPoint("TOPLEFT", 0, -16)
-        self.line:SetSize(2, 14)
-        Widgets.tint(self.line, colors.gold, true)
-        self.section:ClearAllPoints()
-        self.section:SetPoint("TOPLEFT", 0, -6)
-        self.section:SetSize(BookFrame.DETAIL_WIDTH, 1)
-        Widgets.tint(self.section, colors.edge, true)
-        height = 40
-    elseif collapsed then
-        self.left:Hide()
-        self.right:Hide()
-        self.link:Hide()
-        self.line:Hide()
-        self.section:Hide()
-        self:SetHeight(1)
-        self:Hide()
-        return nil
-    end
-    if kind == "date" then
-        self.left:SetWidth(118)
-        self.right:ClearAllPoints()
-        self.right:SetPoint("TOPLEFT", 120, -4)
-        self.right:SetWidth(218)
-        height = math.max(24, self.right:GetStringHeight() + 10)
-    end
-    if kind == "link" or kind == "action" then
-        height = 34
-    end
-    self:SetHeight(height)
-    self:Show()
-    return height
-end
-
----@return table row a DetailRowMixin frame, created on first use
-function BookFrame.detailRow(book, index)
-    local row = book.detailRows[index]
-    if row then
-        return row
-    end
-    local api = book.api
-    row = Widgets.mixin(api.CreateFrame("Frame", nil, book.detailBody), DetailRowMixin)
-    row.api = api
-    row:SetWidth(BookFrame.DETAIL_WIDTH)
-    row.left = Widgets.text(api, row, "", 0, 4, 246, 12)
-    row.right = Widgets.text(api, row, "", 254, 4, 84, 12)
-    row.right:SetJustifyH("RIGHT")
-    row.line = Widgets.fill(row, colors.edge, 0, 26, BookFrame.DETAIL_WIDTH, 1, "ARTWORK")
-    row.section = Widgets.fill(row, colors.raised, 0, 12, BookFrame.DETAIL_WIDTH, 32)
-    row.link = Widgets.button(book, row, "", 0, 0, BookFrame.DETAIL_WIDTH, 30, function(_, mouseButton)
-        if row.onClick then
-            row.onClick()
-        else
-            Widgets.openLink(api, row.fullLink, mouseButton)
-        end
-    end)
-    row.disclosureIcon = row.link:CreateTexture(nil, "ARTWORK", nil, 1)
-    row.disclosureIcon:SetPoint("LEFT", row.link, "LEFT", 8, 0)
-    row.disclosureIcon:SetSize(16, 16)
-    row.disclosureIcon:Hide()
-    tooltip(book, row.link, function()
-        return row.fullLink
-    end)
-    book.detailRows[index] = row
-    return row
-end
-
-function BookFrame.hideDetailRows(book)
-    for _, row in ipairs(book.detailRows) do
-        row:Hide()
-    end
-end
-
--- Positions the detail scroll area for the current view.
-function BookFrame.detailArea(book, top, height)
-    book.detailScroll:ClearAllPoints()
-    book.detailScroll:SetPoint("TOPLEFT", 16, -top)
-    book.detailScroll:SetHeight(height)
-end
-
--- Restores scroll for the same selection, and starts a new selection at the top.
-function BookFrame.finishDetails(book, height, keepScroll, oldScroll)
-    book.detailBody:SetHeight(math.max(1, height))
-    book.detailScroll:SetVerticalScroll(
-        keepScroll and math.min(oldScroll, math.max(0, height - book.detailScroll:GetHeight())) or 0
-    )
 end
 
 ---@param placement table from BookState.place
@@ -309,8 +137,8 @@ local function header(book, actions)
     Widgets.text(api, panel, "Azeroth Ledger", 70, 20, 420, 24, colors.gold)
     Widgets.text(api, panel, "Your account's item collection", 72, 51, 420, 12, colors.muted)
     Widgets.fill(panel, colors.gold, 0, 22, 3, 38, "ARTWORK")
-    Widgets.fill(panel, colors.raised, 810, 20, 192, 42)
-    book.discoveries = Widgets.text(api, panel, "", 820, 32, 170, 16, colors.gold)
+    Widgets.fill(panel, colors.raised, 580, 20, 192, 42)
+    book.discoveries = Widgets.text(api, panel, "", 590, 32, 170, 16, colors.gold)
     book.discoveries:SetJustifyH("RIGHT")
     return panel
 end
@@ -341,7 +169,8 @@ end
 
 local function tabs(book, actions)
     local frame = book.frame
-    Widgets.fill(frame, colors.edge, 218, 131, 440, 1, "ARTWORK")
+    -- Below the 32px tabs, not under them: tab backgrounds would cover all but the gaps.
+    Widgets.fill(frame, colors.edge, 218, 132, 440, 1, "ARTWORK")
     local function tab(label, x, width)
         return Widgets.tab(book, frame, label, x, 100, width, function()
             actions.change("view", label)
@@ -420,8 +249,9 @@ local function results(book, actions)
     book.count = Widgets.text(api, frame, "", 218, 274, 160, 12)
     book.context = Widgets.text(api, frame, "", 390, 274, 268, 11, colors.muted)
     book.context:SetJustifyH("RIGHT")
-    book.quantityHeading = Widgets.text(api, frame, "ALL CURRENT", 558, 295, 90, 9, colors.muted)
+    book.quantityHeading = Widgets.text(api, frame, "ALL CURRENT", 568, 295, 80, 9, colors.muted)
     book.quantityHeading:SetJustifyH("RIGHT")
+    book.quantityHeading:SetWordWrap(false)
     book.empty = Widgets.text(api, frame, "", 248, 408, 380, 14, colors.muted)
     for index = 1, State.PAGE_SIZE do
         local row = itemButton(book, actions, 218, 314 + (index - 1) * 42, 440, 40)
@@ -458,76 +288,14 @@ local function results(book, actions)
     end)
 end
 
-local function details(book, actions)
-    local api = book.api
-    local panel = Widgets.panel(api, book.frame, 680, 100, 400, 552)
-    book.detailEmpty =
-        Widgets.text(api, panel, "Select an item to explore\nits history.", 32, 234, 336, 15, colors.muted)
-    local detailHeader = api.CreateFrame("Frame", nil, panel)
-    book.detailHeader = detailHeader
-    detailHeader:SetPoint("TOPLEFT")
-    detailHeader:SetSize(400, 196)
-    book.itemIcon = Widgets.icon(detailHeader, 16, 16, 44)
-    book.itemTitle = Widgets.text(api, detailHeader, "", 74, 17, 310, 17)
-    book.itemTitle:SetHeight(40)
-    book.itemCategory = Widgets.text(api, detailHeader, "", 74, 61, 310, 10, colors.muted)
-    book.ownership = Widgets.text(api, detailHeader, "", 26, 92, 348, 11, colors.green)
-    book.ownershipDot = Widgets.fill(detailHeader, colors.green, 16, 96, 4, 4, "ARTWORK")
-    local itemLink = api.CreateFrame("Button", nil, detailHeader)
-    itemLink:SetPoint("TOPLEFT", 16, -12)
-    itemLink:SetSize(368, 68)
-    itemLink:SetHighlightTexture(Widgets.fill(itemLink, { 1, 0.87, 0.6, 0.04 }, 0, 0, 368, 68, "HIGHLIGHT"))
-    itemLink:SetScript("OnClick", function(_, mouseButton)
-        Widgets.openLink(api, book.itemLink, mouseButton)
-    end)
-    tooltip(book, itemLink, function()
-        return book.itemLink
-    end)
-    book.controls[#book.controls + 1] = itemLink
-    local function count(label, y)
-        Widgets.text(api, detailHeader, label, 18, y, 264, 10, colors.muted)
-        local value = Widgets.text(api, detailHeader, "Unknown", 292, y - 1, 88, 12, colors.text)
-        value:SetJustifyH("RIGHT")
-        return value
-    end
-    book.characterOverall = count("CHARACTER OVERALL", 116)
-    book.allCharactersOverall = count("ALL CHARACTERS OVERALL", 134)
-    book.characterCurrent = count("CHARACTER CURRENT", 152)
-    book.allCharactersCurrent = count("ALL CHARACTERS CURRENT", 170)
-    local scroll = api.CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
-    book.detailScroll = scroll
-    scroll:SetPoint("TOPLEFT", 16, -208)
-    scroll:SetSize(344, BookFrame.DETAIL_HEIGHT)
-    book.detailBody = api.CreateFrame("Frame", nil, scroll)
-    book.detailBody:SetPoint("TOPLEFT", scroll, "TOPLEFT", 0, 0)
-    book.detailBody:SetSize(BookFrame.DETAIL_WIDTH, 1)
-    scroll:SetScrollChild(book.detailBody)
-    scroll:EnableMouseWheel(true)
-    scroll:SetScript("OnMouseWheel", function(self, delta)
-        self:SetVerticalScroll(
-            math.max(0, math.min(book.detailBody:GetHeight() - self:GetHeight(), self:GetVerticalScroll() - delta * 48))
-        )
-    end)
-    book.previewPanel = api.CreateFrame("Frame", nil, panel)
-    book.previewPanel:SetPoint("TOPLEFT", 16, -208)
-    book.previewPanel:SetSize(368, 76)
-    book.savedLink = Widgets.dropdown(book, book.previewPanel, "", 0, 0, 194, actions.savedLinkMenu)
-    tooltip(book, book.savedLink, function()
-        return book.previewLink
-    end)
-    book.preview = Widgets.button(book, book.previewPanel, "Preview gear", 202, 0, 166, 32, actions.preview)
-    book.previewMessage = Widgets.text(api, book.previewPanel, "", 0, 40, 368, 10, colors.muted)
-    book.previewPanel:Hide()
-end
-
 local function footer(book, actions)
     local api, frame = book.api, book.frame
     book.loading = Widgets.text(api, frame, "", 218, 656, 440, 10, colors.muted)
     book.loading:SetHeight(22)
-    Widgets.button(book, frame, "Review item changes", 20, 680, 150, 18, function()
+    Widgets.button(book, frame, "Review item changes", 20, 680, 190, 18, function()
         actions.change("view", "Evidence")
     end)
-    book.warning = Widgets.button(book, frame, "", 180, 680, 490, 18, function()
+    book.warning = Widgets.button(book, frame, "", 220, 680, 450, 18, function()
         actions.change("view", "Evidence")
     end)
     book.warning.nameColor = colors.gold
@@ -591,9 +359,18 @@ end
 
 local function help(book, actions, top, side)
     local api, frame = book.api, book.frame
-    Widgets.button(book, top, "Close", 1020, 24, 60, 30, function()
+    local function centered(control)
+        local label = control:GetFontString()
+        label:ClearAllPoints()
+        label:SetPoint("CENTER")
+        label:SetWidth(control:GetWidth() - 4)
+        label:SetJustifyH("CENTER")
+        return control
+    end
+    -- Header actions share one bordered cluster so they read as buttons, not captions.
+    centered(Widgets.button(book, top, "Close", 1000, 24, 80, 34, function()
         frame:Hide()
-    end)
+    end, true))
     book.help = Widgets.panel(api, frame, 218, 146, 440, 500, colors.raised)
     book.help:SetFrameLevel(frame:GetFrameLevel() + 30)
     book.help:EnableMouse(true)
@@ -602,19 +379,13 @@ local function help(book, actions, top, side)
     explanation:SetHeight(380)
     Widgets.button(book, book.help, "Got it", 18, 444, 130, 32, actions.dismissHelp)
     book.help:Hide()
-    Widgets.button(book, top, "Help (F1)", 520, 24, 90, 30, actions.help)
-    Widgets.button(book, top, "Settings", 620, 24, 90, 30, actions.settings)
+    centered(Widgets.button(book, top, "Help (F1)", 788, 24, 100, 34, actions.help, true))
+    centered(Widgets.button(book, top, "Settings", 892, 24, 100, 34, actions.settings, true))
     local function helpButton(parent, x, y, height)
-        local control = Widgets.button(book, parent, "?", x, y, 28, height, actions.help)
-        local label = control:GetFontString()
-        label:ClearAllPoints()
-        label:SetPoint("CENTER")
-        label:SetWidth(24)
-        label:SetJustifyH("CENTER")
-        return control
+        return centered(Widgets.button(book, parent, "?", x, y, 28, height, actions.help, true))
     end
     book.ownershipHelp = helpButton(side, 144, 438, 32)
-    helpButton(frame, 566, 290, 20)
+    helpButton(frame, 536, 290, 20)
 end
 
 -- Builds the window and its controls into book. Creation order is also
@@ -627,6 +398,8 @@ function BookFrame.build(book, actions)
     book.frame = frame
     book.controls, book.rows, book.galleryRows, book.categories, book.detailRows = {}, {}, {}, {}, {}
     frame:SetSize(State.WIDTH, State.HEIGHT)
+    -- MEDIUM would let the unit frames and action bars draw over the window.
+    frame:SetFrameStrata("HIGH")
     frame:SetPoint("CENTER")
     frame:EnableMouse(true)
     frame:SetMovable(true)
@@ -642,7 +415,7 @@ function BookFrame.build(book, actions)
     search(book, actions)
     filters(book, actions, side)
     results(book, actions)
-    details(book, actions)
+    BookFrame.details(book, actions)
     footer(book, actions)
     menu(book, actions)
     scripts(book, actions)
