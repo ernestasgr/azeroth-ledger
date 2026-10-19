@@ -182,6 +182,14 @@ local function entryID(source)
     return entry and entry > 0 and entry <= 4294967295 and tostring(entry) or nil
 end
 
+-- Every fishing catch is looted from the Fishing Bobber object, so name it.
+local entryNames = { container = { ["35591"] = "Fishing" } }
+
+local function entryLabel(source, id)
+    local names = entryNames[source.kind]
+    return names and names[id] or ((sourceKinds[source.kind] or "Mob") .. " #" .. id)
+end
+
 ---@param source? AzerothLedgerLootSource|AzerothLedgerVendorSource|AzerothLedgerPlayerSource
 ---@return string
 function LastSeen.sourceText(source)
@@ -191,8 +199,7 @@ function LastSeen.sourceText(source)
         return source.name .. "-" .. source.realm
     end
     local id = entryID(source)
-    local kind = sourceKinds[source.kind] or "Mob"
-    return source.name or (id and (kind .. " #" .. id)) or ("Unnamed " .. source.kind)
+    return source.name or (id and entryLabel(source, id)) or ("Unnamed " .. source.kind)
 end
 
 ---@param gain AzerothLedgerGain
@@ -232,9 +239,8 @@ function LastSeen.sourceIdentity(gain)
         return "vendor:" .. source.name, "Vendor: " .. source.name
     end
     local id = entryID(source)
-    local kind = sourceKinds[source.kind] or "Mob"
     return source.kind .. ":" .. (id or source.guid),
-        id and (kind .. " #" .. id) or ("Unknown " .. source.kind),
+        id and entryLabel(source, id) or ("Unknown " .. source.kind),
         source.name
 end
 

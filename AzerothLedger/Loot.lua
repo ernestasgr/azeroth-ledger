@@ -75,7 +75,7 @@ local function source(api, guid)
     end
     local result = { kind = kind == "GameObject" and "container" or "mob", guid = guid }
     if type(api.UnitGUID) == "function" and type(api.UnitName) == "function" then
-        for _, unit in ipairs({ "target", "npc", "mouseover" }) do
+        for _, unit in ipairs({ "target", "npc", "mouseover", "softinteract" }) do
             local unitOK, unitGUID = pcall(api.UnitGUID, unit)
             if unitOK and unitGUID == guid then
                 local nameOK, name = pcall(api.UnitName, unit)
