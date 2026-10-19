@@ -7,7 +7,7 @@ local V = addon.SchemaValidate
 local isInteger = V.isInteger
 local isName = V.isName
 local areas, gainMethods = V.areas, V.gainMethods
-local validPlaceKind = V.validPlaceKind
+local validPlaceKind, validLootSource = V.validPlaceKind, V.validLootSource
 
 local StoreRecordCheck = {}
 
@@ -112,7 +112,7 @@ local function validRecord(key, record)
                 return false
             end
             if gain.method == "Looted" then
-                if (gain.source.kind ~= "mob" and gain.source.kind ~= "container") or not isName(gain.source.guid) then
+                if not validLootSource(gain.source) then
                     return false
                 end
             elseif gain.method == "Vendor" then

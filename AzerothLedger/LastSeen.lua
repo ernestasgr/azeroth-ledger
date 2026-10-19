@@ -165,10 +165,15 @@ function LastSeen.gainAction(gain)
         or gain.method
 end
 
+local sourceKinds = { container = "Container", item = "Item", mob = "Mob" }
+
 -- The entry ID identifies the creature/container type; the final field identifies a
 -- particular spawn. Keep the complete GUID in the gain as its original proof.
+-- An opened item's GUID names only that copy, so its item ID is the entry.
 local function entryID(source)
-    if not source or (source.kind ~= "container" and source.kind ~= "mob") then
+    if source and source.kind == "item" then
+        return source.itemID and tostring(source.itemID) or nil
+    elseif not source or (source.kind ~= "container" and source.kind ~= "mob") then
         return nil
     end
     local prefix = source.kind == "container" and "GameObject" or "Creature"
@@ -186,7 +191,7 @@ function LastSeen.sourceText(source)
         return source.name .. "-" .. source.realm
     end
     local id = entryID(source)
-    local kind = source.kind == "container" and "Container" or "Mob"
+    local kind = sourceKinds[source.kind] or "Mob"
     return source.name or (id and (kind .. " #" .. id)) or ("Unnamed " .. source.kind)
 end
 
@@ -227,7 +232,7 @@ function LastSeen.sourceIdentity(gain)
         return "vendor:" .. source.name, "Vendor: " .. source.name
     end
     local id = entryID(source)
-    local kind = source.kind == "container" and "Container" or "Mob"
+    local kind = sourceKinds[source.kind] or "Mob"
     return source.kind .. ":" .. (id or source.guid),
         id and (kind .. " #" .. id) or ("Unknown " .. source.kind),
         source.name
