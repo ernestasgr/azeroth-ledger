@@ -167,7 +167,9 @@ local questQuiet = 5
 function Reward.new(deps)
     local api, clock, commands, check, refresh = deps.api, deps.clock, deps.commands, deps.check, deps.refresh
     local offers = 0
-    local recipeID
+    -- The recipe being cast, and whether its cast succeeded with the result
+    -- still to come. The last cast of a batch stops before its result arrives.
+    local recipeID, made, stopping = nil, false, false
     local questOpen, questAt = false, nil
 
     -- Quest rewards can go straight into gear, so the gain is checked against
@@ -238,7 +240,19 @@ function Reward.new(deps)
     end
 
     local function stopped()
-        recipeID = nil
+        if made then
+            stopping = true
+        else
+            recipeID = nil
+        end
+    end
+
+    local function crafted(result)
+        receive(Reward.craft(api, result, recipeID))
+        made = false
+        if stopping then
+            recipeID, stopping = nil, false
+        end
     end
 
     local function questWindow(open)
@@ -296,11 +310,14 @@ function Reward.new(deps)
                 end
             end,
             TRADE_SKILL_CRAFT_BEGIN = function(id)
-                recipeID = id
+                recipeID, made, stopping = id, false, false
             end,
-            TRADE_SKILL_ITEM_CRAFTED_RESULT = function(result)
-                receive(Reward.craft(api, result, recipeID))
+            UNIT_SPELLCAST_SUCCEEDED = function(unit, _, spellID)
+                if unit == "player" and recipeID and spellID == recipeID then
+                    made = true
+                end
             end,
+            TRADE_SKILL_ITEM_CRAFTED_RESULT = crafted,
             UPDATE_TRADESKILL_CAST_STOPPED = stopped,
             TRADE_SKILL_CLOSE = stopped,
         },
