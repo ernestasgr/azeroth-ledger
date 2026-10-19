@@ -162,6 +162,13 @@ local sources = {
         group = "Chest",
     },
     {
+        kind = "fishing bobber",
+        gain = { source = { kind = "container", guid = "GameObject-0-6782-0-2-35591-544C854BB2" } },
+        text = "Fishing",
+        key = "container:35591",
+        group = "Fishing",
+    },
+    {
         kind = "unparseable spawn",
         gain = { source = { kind = "mob", guid = "Creature-broken" } },
         text = "Unnamed mob",

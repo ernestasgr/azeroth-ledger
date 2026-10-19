@@ -419,3 +419,25 @@ function tests.ContainerNamesRequireTheExactLootedGUID(_self)
     WoWUnit.AreEqual(nil, addon.Loot.open(api)[1].source.name)
     WoWUnit.AreEqual("Container #171938", addon.LastSeen.sourceText(addon.Loot.open(api)[1].source))
 end
+
+function tests.InteractKeyContainerKeepsItsName(_self)
+    local guid = "GameObject-0-6783-1-14-171938-0000422303"
+    local api = {
+        GetNumLootItems = function()
+            return 1
+        end,
+        GetLootSlotLink = function()
+            return meat
+        end,
+        GetLootSourceInfo = function()
+            return guid, 1
+        end,
+        UnitGUID = function(unit)
+            return unit == "softinteract" and guid or nil
+        end,
+        UnitName = function(unit)
+            return unit == "softinteract" and "Cactus Apple" or nil
+        end,
+    }
+    WoWUnit.AreEqual("Cactus Apple", addon.Loot.open(api)[1].source.name)
+end
