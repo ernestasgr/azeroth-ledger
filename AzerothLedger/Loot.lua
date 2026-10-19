@@ -20,6 +20,7 @@ local Loot = {}
 ---@field C_TooltipInfo? {GetWorldCursor?: fun(): table?}
 ---@field C_Item? {GetItemLinkByGUID?: fun(guid: string): string?}
 ---@field Enum? {TooltipDataType?: {Object?: integer}}
+---@field issecretvalue? fun(value: any): boolean
 
 local function escape(text)
     return (text:gsub("([^%w])", "%%%1"))
@@ -196,9 +197,30 @@ function Loot.receipt(api, message)
     return key and { key = key, itemID = itemID, link = link, quantity = quantity, kind = kind } or nil
 end
 
+-- A cast's object name names the loot only when one object is its only
+-- unnamed GameObject source; two objects in one window cannot be told apart.
+local function nameObject(slots, castName)
+    local guid
+    for _, slot in ipairs(slots) do
+        local from = slot.source
+        if from and from.kind == "container" then
+            if guid and guid ~= from.guid then
+                return
+            end
+            guid = from.guid
+        end
+    end
+    for _, slot in ipairs(slots) do
+        if slot.source and slot.source.guid == guid and not slot.source.name then
+            slot.source.name = castName
+        end
+    end
+end
+
 ---@param api AzerothLedgerLootApi
+---@param castName? string The object a just-finished cast was aimed at
 ---@return AzerothLedgerLootSlot[]?
-function Loot.open(api)
+function Loot.open(api, castName)
     if type(api.GetNumLootItems) ~= "function" or type(api.GetLootSlotLink) ~= "function" then
         return nil
     end
@@ -231,6 +253,9 @@ function Loot.open(api)
             end
         end
     end
+    if castName then
+        nameObject(slots, castName)
+    end
     return slots
 end
 
@@ -253,6 +278,40 @@ function Loot.new(deps)
     local captured = false
     -- Loot lines no window matched, by item key, for a roll reported after them.
     local unplaced = {}
+    -- Mining, herb gathering and opening are casts aimed at the object, and
+    -- UNIT_SPELLCAST_SENT names it. The cast must finish just before the loot.
+    local pending, finished
+
+    local function castTarget(name)
+        if type(api.issecretvalue) == "function" and api.issecretvalue(name) then
+            return nil
+        elseif type(name) ~= "string" or name == "" or #name > 128 then
+            return nil
+        end
+        if type(api.UnitName) == "function" then
+            for _, unit in ipairs({ "player", "target", "focus", "mouseover" }) do
+                local ok, unitName = pcall(api.UnitName, unit)
+                if ok and unitName == name then
+                    return nil
+                end
+            end
+        end
+        return name
+    end
+
+    local function castName()
+        local at = finished and deps.clock()
+        if at and at - finished.at >= 0 and at - finished.at <= 3 then
+            return finished.name
+        end
+        return nil
+    end
+
+    local function castEnded(unit, castGUID)
+        if unit == "player" and pending and pending.castGUID == castGUID then
+            pending = nil
+        end
+    end
 
     local function proveSources(slots)
         local proven, context = commands.lootSourceProof({ slots = slots })
@@ -262,7 +321,7 @@ function Loot.new(deps)
     end
 
     local function opened()
-        local slots = Loot.open(api)
+        local slots = Loot.open(api, castName())
         if not slots then
             return
         end
@@ -324,17 +383,32 @@ function Loot.new(deps)
             LOOT_READY = opened,
             LOOT_OPENED = opened,
             LOOT_SLOT_CHANGED = function()
-                local slots = Loot.open(api)
+                local slots = Loot.open(api, castName())
                 if slots then
                     proveSources(slots)
                 end
             end,
             LOOT_CLOSED = function()
-                captured = false
+                captured, finished = false, nil
                 commands.lootClose()
             end,
             CHAT_MSG_LOOT = receipt,
             LOOT_ITEM_ROLL_WON = rollWon,
+            UNIT_SPELLCAST_SENT = function(unit, target, castGUID)
+                if unit == "player" then
+                    local name = castTarget(target)
+                    pending = name and { castGUID = castGUID, name = name } or nil
+                end
+            end,
+            UNIT_SPELLCAST_SUCCEEDED = function(unit, castGUID)
+                if unit == "player" and pending and pending.castGUID == castGUID then
+                    local at = deps.clock()
+                    finished = at and { name = pending.name, at = at } or nil
+                    pending = nil
+                end
+            end,
+            UNIT_SPELLCAST_FAILED = castEnded,
+            UNIT_SPELLCAST_INTERRUPTED = castEnded,
         },
     }
 end
