@@ -17,6 +17,8 @@ StorePreferences.lua
 StoreJournal.lua
 StoreEvidence.lua
 StoreRecords.lua
+StoreLootSession.lua
+StoreLootProof.lua
 StoreLoot.lua
 StoreExchangeState.lua
 StoreTransfer.lua

@@ -489,14 +489,13 @@ find("No matching item changes. Try another search or character/realm filter.")
 search:SetText("")
 frame.scripts.OnUpdate(frame, 0.1)
 for index = 1, 10 do
-    assert(
-        store:command(
-            "vendorAction",
-            { kind = "purchase", key = "4540:0", itemID = 4540, link = bread, quantity = 1 },
-            4170 + index,
-            { character = "Ada", realm = "A", level = 12, place = "Forest" }
-        )
-    )
+    assert(store:command(
+        "vendorAction",
+        -- Alternating kinds leave each earlier action unmatched.
+        { kind = index % 2 == 0 and "sale" or "purchase", key = "4540:0", itemID = 4540, link = bread, quantity = 1 },
+        4170 + index,
+        { character = "Ada", realm = "A", level = 12, place = "Forest" }
+    ))
 end
 addon.Book.refresh(store)
 frame.scripts.OnUpdate(frame, 0.1)

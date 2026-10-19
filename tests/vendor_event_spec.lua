@@ -137,4 +137,27 @@ event("CHAT_MSG_LOOT", "You receive item: " .. bread .. ".")
 event("BAG_UPDATE_DELAYED")
 assert(addon.store:find(key).totalGained == 2)
 
+-- Two stacks of one item sold before the bags update are both sales.
+bagQuantity = 7
+event("BAG_UPDATE_DELAYED")
+local actor = { character = "Ada", realm = "Realm", level = 12, place = "Elwynn Forest", vendorName = "Dermot Johns" }
+local sold = #addon.store:vendorActivity()
+for _, quantity in ipairs({ 5, 2 }) do
+    assert(addon.store:command("vendorAction", {
+        kind = "sale",
+        key = key,
+        itemID = 4540,
+        link = bread,
+        quantity = quantity,
+    }, clock, actor))
+end
+bagQuantity = 0
+event("BAG_UPDATE_DELAYED")
+local sales = 0
+for index = sold + 1, #addon.store:vendorActivity() do
+    sales = sales + addon.store:vendorActivity()[index].quantity
+end
+assert(sales == 7, "two sales of one item were not both confirmed")
+assert(#addon.store:vendorUnresolved() == 0, "a repeated sale was left to review")
+
 print("vendor_event_spec: passed")

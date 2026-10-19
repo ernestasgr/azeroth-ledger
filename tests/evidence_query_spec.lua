@@ -64,7 +64,7 @@ assert(result.rows[2].action == "Vendor purchase")
 assert(
     store:command(
         "vendorAction",
-        { kind = "purchase", key = "2672:0", itemID = 2672, link = link, quantity = 1 },
+        { kind = "sale", key = "2672:0", itemID = 2672, link = link, quantity = 1 },
         1082,
         actor
     )

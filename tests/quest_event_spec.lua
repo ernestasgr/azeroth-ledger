@@ -73,4 +73,37 @@ event("BAG_UPDATE_DELAYED")
 local record = addon.store:find(addon.Item.key(link, 80))
 assert(record and record.totalGained == 1, "Soft Fur-lined Shoes remained Seen with Total gained 0")
 assert(record.gains[1].method == "Quest")
+assert(#addon.store:unresolved() == 0)
+
+-- The reward window's links carry a preview bonus ID the received item does
+-- not. Receiving one choice settles the whole offer: nothing is left to review.
+local shoes = "|cnIQ1:|Hitem:80::::::::2:1490::11:::::::|h[Soft Fur-lined Shoes]|h|r"
+local previews = {
+    "|cnIQ1:|Hitem:6070::::::::2:1490::11:1:3524::::::|h[Wolfskin Bracers]|h|r",
+    "|cnIQ1:|Hitem:80::::::::2:1490::11:1:3524::::::|h[Soft Fur-lined Shoes]|h|r",
+}
+assert(addon.Item.key(previews[2], 80) == "80:0:3524")
+rawset(_G, "GetQuestID", function()
+    return 33
+end)
+rawset(_G, "GetQuestItemLink", function(kind, index)
+    return kind == "choice" and previews[index] or nil
+end)
+inBags = false
+link = shoes
+clock = 1100
+event("BAG_UPDATE_DELAYED")
+local before = addon.store:find("80:0").totalGained
+event("QUEST_COMPLETE")
+clock = 1104
+event("QUEST_LOOT_RECEIVED", 33, shoes, 1)
+event("QUEST_TURNED_IN", 33)
+inBags = true
+event("BAG_UPDATE_DELAYED")
+event("QUEST_FINISHED")
+assert(addon.store:find("80:0").totalGained == before + 1, "the chosen reward was not counted")
+clock = 1800
+event("BAG_UPDATE_DELAYED")
+assert(#addon.store:unresolved() == 0, "a received choice reward left its offer to review")
+
 print("quest_event_spec: passed")

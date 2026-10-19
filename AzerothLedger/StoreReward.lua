@@ -241,6 +241,9 @@ function StoreReward.install(store, kernel, slice)
                 specific = receipt.method == "Quest" and not receipt.preview or nil,
                 questPreparationID = preparation and preparation.id or nil,
             }
+            if receipt.method == "Quest" and not receipt.preview then
+                State.replacePreview(sessions, session)
+            end
             sessions[#sessions + 1] = session
         end
         if receipt.method == "Quest" then
@@ -358,7 +361,11 @@ function StoreReward.install(store, kernel, slice)
             return nil, false
         end
         local state = copyValue(original)
+        local chosen = State.chosenGroups(state.sessions)
         local changed = Evidence.expireEntries(state.sessions, at, reason, nil, function(entry, openedAt)
+            if chosen[entry.choiceGroup or false] then
+                return
+            end
             if entry.awarded < entry.quantity or not entry.confirmed then
                 retain("rewards", reason, openedAt, entry, entry)
             end
@@ -439,9 +446,19 @@ function StoreReward.install(store, kernel, slice)
                 end
                 local opened = #pending.sessions
                 local character, realm = snapshot.character, snapshot.realm
-                State.openAccepted(pending, snapshot.seenAt, character, realm, function(key)
-                    return checkedPossessions(records[key] or valid[key], character, realm, grouped[key])
-                end, keys, valid)
+                State.openAccepted(
+                    pending,
+                    snapshot.seenAt,
+                    character,
+                    realm,
+                    function(key)
+                        return checkedPossessions(records[key] or valid[key], character, realm, grouped[key])
+                    end,
+                    keys,
+                    function(key)
+                        return records[key] or valid[key]
+                    end
+                )
                 for index = opened + 1, #pending.sessions do
                     active[#active + 1] = pending.sessions[index]
                 end
