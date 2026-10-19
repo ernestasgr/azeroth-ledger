@@ -169,6 +169,19 @@ function StoreVendor.install(store, kernel, slice)
                 and previous.character == actor.character
                 and previous.realm == actor.realm
             then
+                -- Selling or buying several stacks before the bags update is
+                -- one change against the first action's baseline.
+                if
+                    previous.kind == action.kind
+                    and (action.kind == "sale" or action.kind == "purchase")
+                    and previous.area == actionArea
+                    and at >= previous.at
+                    and at - previous.at < 60
+                then
+                    previous.quantity = previous.quantity + action.quantity
+                    saveFields({ vendor = state })
+                    return true
+                end
                 vendorResult(state, previous, "unresolved")
             end
         end

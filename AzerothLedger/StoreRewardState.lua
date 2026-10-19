@@ -145,6 +145,42 @@ local function choiceIsProven(session, sessions, grouped)
     return increasedCount == 1 and increased == session and not session.ambiguous
 end
 
+-- The reward window can link a choice with a preview-only bonus ID. A
+-- received Quest item takes the place of its preview in the offer.
+local function replacePreview(sessions, received)
+    local itemID = received.key:match("^(%d+):")
+    for index = #sessions, 1, -1 do
+        local existing = sessions[index]
+        if
+            existing.method == "Quest"
+            and not existing.specific
+            and existing.awarded == 0
+            and existing.key ~= received.key
+            and existing.key:match("^(%d+):") == itemID
+            and existing.character == received.character
+            and existing.realm == received.realm
+            and existing.context
+            and received.context
+            and existing.context.id == received.context.id
+            and existing.questPreparationID == received.questPreparationID
+        then
+            received.choiceGroup = received.choiceGroup or existing.choiceGroup
+            table.remove(sessions, index)
+        end
+    end
+end
+
+-- Once one choice is received, the offer's other choices were declined.
+local function chosenGroups(sessions)
+    local chosen = {}
+    for _, session in ipairs(sessions) do
+        if session.choiceGroup and session.awarded > 0 then
+            chosen[session.choiceGroup] = true
+        end
+    end
+    return chosen
+end
+
 local function validRewardReceipt(receipt, actor)
     return Evidence.validReceipt(receipt)
         and validGainActor(actor)
@@ -159,15 +195,16 @@ local function validRewardReceipt(receipt, actor)
 end
 
 -- Opens a confirmed Quest session for each item that rose above an
--- accepted offer's baseline, appending it to pending.sessions.
+-- accepted offer's baseline, appending it to pending.sessions. A rise that
+-- another channel already counted, such as loot, is not the quest's.
 ---@param pending AzerothLedgerRewardState
 ---@param at integer
 ---@param character string
 ---@param realm string
 ---@param quantity fun(key: string): integer
 ---@param keys table<string, true>
----@param valid table<string, AzerothLedgerRecord> The store's records
-local function openAccepted(pending, at, character, realm, quantity, keys, valid)
+---@param record fun(key: string): AzerothLedgerRecord? The check's current record
+local function openAccepted(pending, at, character, realm, quantity, keys, record)
     for _, preparation in ipairs(pending.preparations or {}) do
         if
             preparation.stage == "accept"
@@ -178,13 +215,17 @@ local function openAccepted(pending, at, character, realm, quantity, keys, valid
         then
             for key in pairs(keys) do
                 local before = preparation.baseline[key]
-                local increase = quantity(key) - (before and before.quantity or 0)
+                local current = record(key)
+                local baselineGained = before and before.gained or (current and current.totalGained or 0)
                 local session
                 for _, existing in ipairs(pending.sessions) do
                     if existing.questPreparationID == preparation.id and existing.key == key then
                         session = existing
                     end
                 end
+                local awarded = session and session.awarded or 0
+                local otherGains = current and math.max(0, current.totalGained - baselineGained - awarded) or 0
+                local increase = quantity(key) - (before and before.quantity or 0) - otherGains
                 if session then
                     session.quantity = math.max(session.quantity, increase)
                 elseif increase > 0 then
@@ -201,7 +242,7 @@ local function openAccepted(pending, at, character, realm, quantity, keys, valid
                         placeKind = preparation.placeKind,
                         at = preparation.acceptedAt,
                         baseline = before and before.quantity or 0,
-                        baselineGained = before and before.gained or (valid[key] and valid[key].totalGained or 0),
+                        baselineGained = baselineGained,
                         quantity = increase,
                         awarded = 0,
                         discovery = not before or before.discovery == true,
@@ -221,5 +262,7 @@ StoreRewardState.validRewardState = validRewardState
 StoreRewardState.choiceIsProven = choiceIsProven
 StoreRewardState.validRewardReceipt = validRewardReceipt
 StoreRewardState.openAccepted = openAccepted
+StoreRewardState.replacePreview = replacePreview
+StoreRewardState.chosenGroups = chosenGroups
 
 addon.StoreRewardState = StoreRewardState

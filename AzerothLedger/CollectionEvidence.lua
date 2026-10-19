@@ -93,9 +93,12 @@ function CollectionEvidence.query(store, filter, pause)
             total = total + 1
             local record = entry.key and store:find(entry.key)
             local link = entry.link or (record and record.links[1])
-            local readableLink = link and addon.Item.key(link, entry.itemID or (record and record.itemID))
+            local itemID = entry.itemID
+                or (record and record.itemID)
+                or (entry.key and tonumber(entry.key:match("^(%d+):")))
+            local readableLink = link and addon.Item.key(link, itemID)
             local name = readableLink and link:match("%[([^%]]+)%]")
-                or (entry.itemID and ("Item " .. entry.itemID .. (not readableLink and " • unresolved variant" or "")))
+                or (itemID and ("Item " .. itemID .. (not readableLink and " • unresolved variant" or "")))
                 or entry.key
                 or "Unresolved item identity"
             local action = evidenceActions[entry.kind] or "Item evidence"
