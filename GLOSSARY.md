@@ -12,7 +12,7 @@ Azeroth Ledger keeps a Collection of items found on your characters and a Journa
 
 **Seen**: The addon found the item in a character's bags, bank, or equipped gear. This alone does not say when or how you got it.
 
-**Looted**: The addon matched loot you picked up, or a group loot roll you won, to the item appearing in your character's possessions. Nearby creatures and another player's loot do not count.
+**Looted**: The addon matched loot you picked up, including from an item you opened in your bags, or a group loot roll you won, to the item appearing in your character's possessions. Nearby creatures and another player's loot do not count.
 
 **Obtained**: The addon confirmed that your character got the item another way, such as from a quest reward, crafting or conjuring, a vendor, mail, trade, the guild bank, or an item an NPC handed you. It may know that you got it without knowing exactly how.
 

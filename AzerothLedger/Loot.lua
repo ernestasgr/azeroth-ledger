@@ -18,6 +18,7 @@ local Loot = {}
 ---@field UnitGUID? fun(unit: string): string?
 ---@field UnitName? fun(unit: string): string?
 ---@field C_TooltipInfo? {GetWorldCursor?: fun(): table?}
+---@field C_Item? {GetItemLinkByGUID?: fun(guid: string): string?}
 ---@field Enum? {TooltipDataType?: {Object?: integer}}
 
 local function escape(text)
@@ -45,8 +46,30 @@ local function pack(...)
     return { n = select("#", ...), ... }
 end
 
+-- An item opened from the bags is the source of its own loot.
+local function itemSource(api, guid)
+    local result = { kind = "item", guid = guid }
+    local read = api.C_Item and api.C_Item.GetItemLinkByGUID
+    local ok, link = false, nil
+    if type(read) == "function" then
+        ok, link = pcall(read, guid)
+    end
+    local itemID = ok and type(link) == "string" and tonumber(link:match("|Hitem:(%d+)"))
+    local name = itemID and link:match("|h%[(.-)%]|h")
+    if itemID and itemID > 0 and itemID == math.floor(itemID) then
+        result.itemID = itemID
+        if type(name) == "string" and name ~= "" and #name <= 128 then
+            result.name = name
+        end
+    end
+    return result
+end
+
 local function source(api, guid)
     local kind = type(guid) == "string" and guid:match("^([^-]+)%-")
+    if kind == "Item" then
+        return itemSource(api, guid)
+    end
     if kind ~= "Creature" and kind ~= "Vehicle" and kind ~= "GameObject" then
         return nil
     end

@@ -144,9 +144,10 @@ end
 ---@field items AzerothLedgerScanItem[]
 
 ---@class AzerothLedgerLootSource
----@field kind 'mob'|'container'
+---@field kind 'mob'|'container'|'item' An item is one opened from the bags
 ---@field guid string
 ---@field name? string
+---@field itemID? integer The opened item, so every copy of it is one source
 
 ---@class AzerothLedgerVendorSource
 ---@field kind 'vendor'
@@ -700,9 +701,10 @@ local function validLootSource(source)
     return source == nil
         or (
             type(source) == "table"
-            and (source.kind == "mob" or source.kind == "container")
+            and (source.kind == "mob" or source.kind == "container" or source.kind == "item")
             and isName(source.guid)
             and (source.name == nil or isName(source.name))
+            and (source.itemID == nil or (source.kind == "item" and isInteger(source.itemID) and source.itemID > 0))
         )
 end
 
@@ -787,6 +789,7 @@ local function copyRecord(record, shareGains, pause)
                 guid = gain.source.guid,
                 name = gain.source.name,
                 realm = gain.source.realm,
+                itemID = gain.source.itemID,
             } or nil,
             context = gain.context and { kind = gain.context.kind, id = gain.context.id, name = gain.context.name }
                 or nil,
@@ -960,7 +963,11 @@ local function sameSource(left, right)
     if not left or not right then
         return left == right
     end
-    return left.kind == right.kind and left.guid == right.guid and left.name == right.name and left.realm == right.realm
+    return left.kind == right.kind
+        and left.guid == right.guid
+        and left.name == right.name
+        and left.realm == right.realm
+        and left.itemID == right.itemID
 end
 
 local function canEnrichLootSource(current, proof)
