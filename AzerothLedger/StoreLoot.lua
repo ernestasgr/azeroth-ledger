@@ -382,81 +382,103 @@ function StoreLoot.install(store, kernel, slice, correlation, rewards)
         end
     end
 
-    -- Measures the active loot session against one possessions check.
+    -- The live sessions a check measures, oldest first: the active one, and
+    -- any ended earlier whose receipts arrived before their items reached
+    -- the bags. Fast looting opens the next corpse before that happens.
+    local function measuredSessions(pending, at, character, realm)
+        local active = activeSession(at, pending)
+        local result = {}
+        for _, session in ipairs(pending and pending.sessions or {}) do
+            if
+                session.character == character
+                and session.realm == realm
+                and sessionIsLive(session, at)
+                and (session == active or (session.endedAt and next(session.receipts)))
+            then
+                result[#result + 1] = session
+            end
+        end
+        return result
+    end
+
+    -- Measures the live loot sessions against one possessions check.
     ---@param scan AzerothLedgerCheck
     local function check(scan)
         local snapshot, oldScope = scan.snapshot, scan.oldScope
         local pending = healthyState() and copyValue(lootState()) or nil
-        local session = (snapshot.area == "bags" or snapshot.area == "equipped")
-                and activeSession(snapshot.seenAt, pending)
-            or nil
-        if session and (session.character ~= snapshot.character or session.realm ~= snapshot.realm) then
-            session = nil
-        end
+        local sessions = (snapshot.area == "bags" or snapshot.area == "equipped")
+                and measuredSessions(pending, snapshot.seenAt, snapshot.character, snapshot.realm)
+            or {}
         local handler = {}
         function handler.commit(fields)
             fields.loot = pending
         end
-        if not session then
+        if #sessions == 0 then
             return handler
         end
+        local measured = snapshot.area == "bags"
+            and snapshot.complete
+            and type(oldScope) == "table"
+            and oldScope.complete
+            and not scan.unresolvedIdentity
         function handler.item(key, group, known)
-            if session.baselinePossessions and not known then
-                session.discoveries[key] = true
-            end
-            if
-                not session.baselineEquipmentUncertain
-                and snapshot.area == "bags"
-                and snapshot.complete
-                and type(oldScope) == "table"
-                and oldScope.complete
-                and not scan.unresolvedIdentity
-            then
-                -- Bags alone prove a lower bound when they exceed all pre-loot
-                -- possessions, even if every previously equipped unit moved in.
-                local baselineQuantity = session.baselinePossessions and (session.baselinePossessions[key] or 0)
-                    or session.baselineQuantities[key]
-                    or 0
-                local increase = group.quantity - baselineQuantity
-                if increase > 0 then
-                    local credit = isInteger(session.credits[key]) and session.credits[key] or 0
-                    session.credits[key] = math.max(credit, increase)
-                    if not valid[key] then
-                        session.discoveries[key] = true
+            for _, session in ipairs(sessions) do
+                if session.baselinePossessions and not known then
+                    session.discoveries[key] = true
+                end
+                if measured and not session.baselineEquipmentUncertain then
+                    -- Bags alone prove a lower bound when they exceed all pre-loot
+                    -- possessions, even if every previously equipped unit moved in.
+                    local baselineQuantity = session.baselinePossessions and (session.baselinePossessions[key] or 0)
+                        or session.baselineQuantities[key]
+                        or 0
+                    local increase = group.quantity - baselineQuantity
+                    if increase > 0 then
+                        local credit = isInteger(session.credits[key]) and session.credits[key] or 0
+                        session.credits[key] = math.max(credit, increase)
+                        if not valid[key] then
+                            session.discoveries[key] = true
+                        end
                     end
                 end
             end
         end
         function handler.record(key, _group, record, seen, known)
-            if session.discoveries[key] and not known then
-                local gainID = tostring(session.id) .. ":" .. key
-                for _, gain in ipairs(record.gains) do
-                    if gain.id == gainID then
-                        local firstSeenUnits = seen and seen.firstSeenUnits
-                        if firstSeenUnits ~= nil then
-                            seen.firstSeenUnits = math.max(0, firstSeenUnits - gain.quantity + (gain.refunded or 0))
+            for _, session in ipairs(sessions) do
+                if session.discoveries[key] and not known then
+                    local gainID = tostring(session.id) .. ":" .. key
+                    for _, gain in ipairs(record.gains) do
+                        if gain.id == gainID then
+                            local firstSeenUnits = seen and seen.firstSeenUnits
+                            if firstSeenUnits ~= nil then
+                                seen.firstSeenUnits = math.max(0, firstSeenUnits - gain.quantity + (gain.refunded or 0))
+                            end
+                            break
                         end
-                        break
                     end
                 end
-            end
-            if snapshot.area == "bags" and snapshot.complete then
-                award(session, key, scan.records, snapshot.seenAt, true)
+                if snapshot.area == "bags" and snapshot.complete then
+                    award(session, key, scan.records, snapshot.seenAt, true)
+                end
             end
         end
         -- The paired check follows the bag commit. Measure the whole
         -- possession change so equipping cannot hide or invent a gain.
         function handler.finish()
-            if not scan.paired or not session.baselinePossessions then
+            if not scan.paired then
                 return
             end
-            for key in pairs(scan.pairedKeys()) do
-                local record = scan.records[key] or valid[key]
-                local gear = scan.grouped[key]
-                local quantity = checkedPossessions(record, snapshot.character, snapshot.realm, gear)
-                local increase = quantity - (session.baselinePossessions[key] or 0)
-                session.credits[key] = math.max(session.credits[key] or 0, increase)
-                award(session, key, scan.records, snapshot.seenAt, true)
+            for _, session in ipairs(sessions) do
+                if session.baselinePossessions then
+                    for key in pairs(scan.pairedKeys()) do
+                        local record = scan.records[key] or valid[key]
+                        local gear = scan.grouped[key]
+                        local quantity = checkedPossessions(record, snapshot.character, snapshot.realm, gear)
+                        local increase = quantity - (session.baselinePossessions[key] or 0)
+                        session.credits[key] = math.max(session.credits[key] or 0, increase)
+                        award(session, key, scan.records, snapshot.seenAt, true)
+                    end
+                end
             end
         end
         return handler

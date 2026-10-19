@@ -194,9 +194,28 @@ local function validRewardReceipt(receipt, actor)
         )
 end
 
+-- Another live reward session for this item and character already claims it.
+local function claimedElsewhere(sessions, preparation, key, at)
+    for _, existing in ipairs(sessions) do
+        if
+            existing.key == key
+            and existing.questPreparationID ~= preparation.id
+            and existing.character == preparation.character
+            and existing.realm == preparation.realm
+            and at >= existing.at
+            and at - existing.at < 60
+        then
+            return true
+        end
+    end
+    return false
+end
+
 -- Opens a confirmed Quest session for each item that rose above an
 -- accepted offer's baseline, appending it to pending.sessions. A rise that
--- another channel already counted, such as loot, is not the quest's.
+-- another channel already counted, such as loot, is not the quest's. The
+-- newest accepted quest claims an item first; one that a turn-in reward or
+-- another accept already claims is not opened again.
 ---@param pending AzerothLedgerRewardState
 ---@param at integer
 ---@param character string
@@ -205,6 +224,7 @@ end
 ---@param keys table<string, true>
 ---@param record fun(key: string): AzerothLedgerRecord? The check's current record
 local function openAccepted(pending, at, character, realm, quantity, keys, record)
+    local accepted = {}
     for _, preparation in ipairs(pending.preparations or {}) do
         if
             preparation.stage == "accept"
@@ -213,44 +233,50 @@ local function openAccepted(pending, at, character, realm, quantity, keys, recor
             and preparation.realm == realm
             and preparationLive(preparation, at)
         then
-            for key in pairs(keys) do
-                local before = preparation.baseline[key]
-                local current = record(key)
-                local baselineGained = before and before.gained or (current and current.totalGained or 0)
-                local session
-                for _, existing in ipairs(pending.sessions) do
-                    if existing.questPreparationID == preparation.id and existing.key == key then
-                        session = existing
-                    end
+            accepted[#accepted + 1] = preparation
+        end
+    end
+    table.sort(accepted, function(left, right)
+        return left.acceptedAt > right.acceptedAt or (left.acceptedAt == right.acceptedAt and left.id > right.id)
+    end)
+    for _, preparation in ipairs(accepted) do
+        for key in pairs(keys) do
+            local before = preparation.baseline[key]
+            local current = record(key)
+            local baselineGained = before and before.gained or (current and current.totalGained or 0)
+            local session
+            for _, existing in ipairs(pending.sessions) do
+                if existing.questPreparationID == preparation.id and existing.key == key then
+                    session = existing
                 end
-                local awarded = session and session.awarded or 0
-                local otherGains = current and math.max(0, current.totalGained - baselineGained - awarded) or 0
-                local increase = quantity(key) - (before and before.quantity or 0) - otherGains
-                if session then
-                    session.quantity = math.max(session.quantity, increase)
-                elseif increase > 0 then
-                    pending.nextID = pending.nextID + 1
-                    pending.sessions[#pending.sessions + 1] = {
-                        id = pending.nextID,
-                        key = key,
-                        method = "Quest",
-                        context = { kind = "quest", id = preparation.questID, name = preparation.name },
-                        character = character,
-                        realm = realm,
-                        level = preparation.level,
-                        place = preparation.place,
-                        placeKind = preparation.placeKind,
-                        at = preparation.acceptedAt,
-                        baseline = before and before.quantity or 0,
-                        baselineGained = baselineGained,
-                        quantity = increase,
-                        awarded = 0,
-                        discovery = not before or before.discovery == true,
-                        confirmed = true,
-                        specific = true,
-                        questPreparationID = preparation.id,
-                    }
-                end
+            end
+            local awarded = session and session.awarded or 0
+            local otherGains = current and math.max(0, current.totalGained - baselineGained - awarded) or 0
+            local increase = quantity(key) - (before and before.quantity or 0) - otherGains
+            if session then
+                session.quantity = math.max(session.quantity, increase)
+            elseif increase > 0 and not claimedElsewhere(pending.sessions, preparation, key, at) then
+                pending.nextID = pending.nextID + 1
+                pending.sessions[#pending.sessions + 1] = {
+                    id = pending.nextID,
+                    key = key,
+                    method = "Quest",
+                    context = { kind = "quest", id = preparation.questID, name = preparation.name },
+                    character = character,
+                    realm = realm,
+                    level = preparation.level,
+                    place = preparation.place,
+                    placeKind = preparation.placeKind,
+                    at = preparation.acceptedAt,
+                    baseline = before and before.quantity or 0,
+                    baselineGained = baselineGained,
+                    quantity = increase,
+                    awarded = 0,
+                    discovery = not before or before.discovery == true,
+                    confirmed = true,
+                    specific = true,
+                    questPreparationID = preparation.id,
+                }
             end
         end
     end

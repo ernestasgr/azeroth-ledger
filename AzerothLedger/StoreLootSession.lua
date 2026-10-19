@@ -241,13 +241,16 @@ local function lootSlots(entries)
     return slots
 end
 
--- What a loot slot may still award (its limit, receipt or measured credit,
--- whichever is largest) and its receipt, when the slot is not fully awarded.
--- A slot with nothing measured yet counts as unsettled with quantity zero.
+-- What a loot slot may still award (its limit, or else its measured credit,
+-- or its receipt, whichever is largest) and its receipt, when the slot is
+-- not fully awarded. A slot with nothing measured yet counts as unsettled
+-- with quantity zero.
 local function unsettledSlot(session, key, slot)
     local receipt = session.receipts and session.receipts[key]
     local credit = session.credits and session.credits[key] or 0
-    local quantity = math.max(slot.limit or 0, receipt and receipt.quantity or 0, credit)
+    -- A readable slot quantity caps what it can award; measuring more means
+    -- another session's loot of the same item.
+    local quantity = math.max(slot.limit or credit, receipt and receipt.quantity or 0)
     if quantity == 0 or quantity > (session.awarded[key] or 0) then
         return quantity, receipt
     end
