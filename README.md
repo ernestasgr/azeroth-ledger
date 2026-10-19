@@ -1,8 +1,8 @@
 # Azeroth Ledger
 
-A World of Warcraft: Forever development addon for tracking items across your characters. The Collection shows items found in bags, bank, or equipped gear. Confirmed gains stay separate from items already there on the first check.
+A World of Warcraft: Forever addon for tracking items across your characters. The Collection shows items found in bags, bank, or equipped gear. Confirmed gains stay separate from items already there on the first check.
 
-The [completed plan](https://github.com/ernestasgr/azeroth-ledger/issues/1) links the decisions and staged build order. Release validation remains in progress.
+The [completed plan](https://github.com/ernestasgr/azeroth-ledger/issues/1) links the decisions and staged build order.
 
 Open the Ledger book with its button beside the minimap or with `/al`. Browse categories and places, search item names, switch account/character/realm views, and select an item to see its history. Discoveries show when an item version first appeared in your Collection. Historical only means the item was not found on complete checks of the selected characters' bags, bank, and gear.
 
