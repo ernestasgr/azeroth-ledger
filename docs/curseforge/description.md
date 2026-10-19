@@ -35,4 +35,11 @@ It also works from the keyboard: Ctrl+F to search, arrow keys to move around, Es
 
 ## Bugs and ideas
 
-If something looks wrong, please open an issue on [GitHub](https://github.com/ernestasgr/azeroth-ledger/issues). Tell me the item and what you did to get it; that's usually enough to track it down.
+If something looks wrong, please open an issue on [GitHub](https://github.com/ernestasgr/azeroth-ledger/issues). Without your saved data I'm mostly guessing, so please include:
+
+1. The item, what you did to get it (killed X, opened Y, mailed from an alt...), and roughly when.
+2. What the addon showed, and what you expected instead.
+3. Any Lua error text, if you got one.
+4. Your saved data: `WTF/Account/<your account>/SavedVariables/AzerothLedger.lua` in your WoW folder. Log out or `/reload` first so the file is up to date. It contains your character and realm names, so only attach it if you're fine with that being public.
+
+If you can make it happen again, a trace helps most. Type `/al trace on`, do the thing again, `/reload`, and attach the same file. `/al trace off` turns it back off.
