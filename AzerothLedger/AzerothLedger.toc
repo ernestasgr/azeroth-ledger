@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: Azeroth Ledger
 ## Notes: Account Collection and item history for WoW Forever
-## Version: 0.11.7
+## Version: 1.0.0
 ## SavedVariables: AzerothLedgerDB, AzerothLedgerMinimapButtonDB, AzerothLedgerTraceDB
 
 Item.lua
