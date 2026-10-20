@@ -403,7 +403,7 @@ local function mail(deps, write)
         MAIL_SHOW = function()
             open = true
             take, ambiguous, sending = nil, false, nil
-            deps.check("bags")
+            deps.check("possessions")
             updateProgress()
             inbox = readInbox()
             outbox = Exchange.outbox(api)
@@ -500,7 +500,7 @@ local function trade(deps, write)
             TRADE_SHOW = function()
                 open, prepared, preparedIDs = true, false, nil
                 cancel()
-                deps.check("bags")
+                deps.check("possessions")
                 local _, realm = addon.Runtime.identity(api)
                 peer = partner(api, realm)
             end,
@@ -565,7 +565,7 @@ function Exchange.new(deps)
     -- A confirmed exchange moved items in or out of bags.
     function write.confirm(channel, direction, ids)
         if commands.exchangeConfirm({ channel = channel, direction = direction, ids = ids }) then
-            deps.check("bags")
+            deps.check("possessions")
         end
     end
 

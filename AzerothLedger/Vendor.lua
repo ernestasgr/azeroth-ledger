@@ -217,8 +217,7 @@ function Vendor.new(deps)
     end
 
     local function checkPossessions()
-        check("bags")
-        check("equipped")
+        check("possessions")
     end
 
     local hook = addon.Events.hook

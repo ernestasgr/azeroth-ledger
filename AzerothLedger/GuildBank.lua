@@ -89,7 +89,7 @@ function GuildBank.new(deps)
         if
             id and commands.exchangeConfirm({ channel = "guild", direction = action.direction, ids = { [id] = true } })
         then
-            deps.check("bags")
+            deps.check("possessions")
         end
     end
 
@@ -171,7 +171,7 @@ function GuildBank.new(deps)
     local function show()
         if not open then
             open, tabs, held = true, {}, nil
-            deps.check("bags")
+            deps.check("possessions")
             bags = addon.Vendor.slots(api)
             refresh()
         end
