@@ -50,6 +50,7 @@ end
 ---@field itemID integer
 ---@field hyperlink string
 ---@field stackCount integer
+---@field hasNoValue? boolean
 
 ---@class AzerothLedgerContainerApi
 ---@field GetContainerNumSlots fun(bag: integer): integer?
