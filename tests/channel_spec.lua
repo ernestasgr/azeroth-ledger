@@ -149,7 +149,7 @@ local vendor = addon.Vendor.new(strict("vendor dependencies", {
     end,
 }))
 vendor.events.MERCHANT_SHOW()
-assert(vendor.isOpen() and checks[1] == "bags" and checks[2] == "equipped", "opening a merchant checks possessions")
+assert(vendor.isOpen() and checks[1] == "possessions" and #checks == 1, "opening a merchant checks possessions")
 hooks.BuyMerchantItem(1, 2)
 local action = named(calls, "vendorAction")
 assert(action.payload.quantity == 2 and action.context.vendorName == "Dermot Johns", "a purchase names its vendor")
@@ -189,7 +189,7 @@ exchange.events.TRADE_ACCEPT_UPDATE(1, 1)
 assert(named(calls, "exchangeIntent").payload.quantity == 2, "an accepted trade records what the partner gives")
 exchange.events.UI_INFO_MESSAGE(nil, "Trade complete.")
 assert(named(calls, "exchangeConfirm").payload.channel == "trade", "a completed trade confirms the exchange")
-assert(checks[#checks] == "bags", "a confirmed exchange checks bags for the traded items")
+assert(checks[#checks] == "possessions", "a confirmed exchange checks possessions for the traded items")
 
 -- The server completes a trade when the second player accepts, so the client
 -- may never report both accepted: one acceptance prepares the items.
