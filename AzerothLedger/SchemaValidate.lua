@@ -315,6 +315,7 @@ end
 ---@field link string
 ---@field quantity integer
 ---@field area? 'bags'|'equipped'
+---@field noValue? true A merchant won't buy it; never stored
 
 ---@alias ALVendorIntent AzerothLedgerVendorIntent
 

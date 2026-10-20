@@ -4,6 +4,9 @@ local addon = {}
 local bread = "|Hitem:4540::::::::|h[Tough Hunk of Bread]|h"
 local clock = 1000
 local bagQuantity = 0
+-- A merchant won't buy the wand: the client reports it with no value.
+local wand = "|Hitem:20409::::::::|h[Hallowed Wand - Ghost]|h"
+local wandInBags = false
 local buybackQuantity = 0
 date = os.date
 
@@ -33,16 +36,26 @@ LOOT_ITEM_PUSHED_SELF_MULTIPLE = "You receive item: %sx%d."
 
 C_Container = {
     GetContainerNumSlots = function(bag)
-        return bag == 0 and 1 or 0
+        return (bag == 0 or bag == 1 and wandInBags) and 1 or 0
     end,
     GetContainerItemInfo = function(bag)
+        if bag == 1 and wandInBags then
+            return { itemID = 20409, hyperlink = wand, stackCount = 1, hasNoValue = true }
+        end
         return bag == 0 and bagQuantity > 0 and { itemID = 4540, hyperlink = bread, stackCount = bagQuantity } or nil
     end,
-    UseContainerItem = function(_bag, _slot)
+    UseContainerItem = function(bag, _slot)
+        if bag == 1 then
+            return
+        end
         bagQuantity = 0
         buybackQuantity = 1
     end,
-    ContainerRefundItemPurchase = function(_bag, _slot)
+    ContainerRefundItemPurchase = function(bag, _slot)
+        if bag == 1 then
+            wandInBags = false
+            return
+        end
         bagQuantity = 0
     end,
 }
@@ -159,5 +172,25 @@ for index = sold + 1, #addon.store:vendorActivity() do
 end
 assert(sales == 7, "two sales of one item were not both confirmed")
 assert(#addon.store:vendorUnresolved() == 0, "a repeated sale was left to review")
+
+-- Using an item the merchant won't buy leaves the bags as they were.
+wandInBags = true
+event("BAG_UPDATE_DELAYED")
+local actionsBefore = #AzerothLedgerDB.vendor.actions
+local entriesBefore = #addon.Journal.query(addon.store)
+C_Container.UseContainerItem(1, 1)
+C_Container.UseContainerItem(1, 1)
+event("BAG_UPDATE_DELAYED")
+assert(#AzerothLedgerDB.vendor.actions == actionsBefore, "an item with no value was recorded as a sale")
+assert(#addon.Journal.query(addon.store) == entriesBefore, "an item with no value got a Journal entry")
+assert(#addon.store:vendorUnresolved() == 0, "an item with no value was left to review")
+local wandKey = addon.Item.key(wand, 20409)
+assert(addon.store:find(wandKey).totalGained == 0, "an unsold wand must not change its count")
+
+-- An item with no value can still be refunded.
+C_Container.ContainerRefundItemPurchase(1, 1)
+assert(#AzerothLedgerDB.vendor.actions == actionsBefore + 1, "a refund of an item with no value must be recorded")
+assert(AzerothLedgerDB.vendor.actions[actionsBefore + 1].kind == "refund")
+assert(AzerothLedgerDB.vendor.actions[actionsBefore + 1].noValue == nil, "noValue must not be stored")
 
 print("vendor_event_spec: passed")

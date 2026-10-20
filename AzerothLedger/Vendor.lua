@@ -84,7 +84,16 @@ function Vendor.container(api, kind, bag, slot, isEquipped)
         if type(info) ~= "table" then
             return nil
         end
-        return item(kind, info.hyperlink, info.stackCount)
+        -- A merchant won't buy an item with no value, so using it is no sale.
+        local noValue = info.hasNoValue == true
+        if noValue and kind == "sale" then
+            return nil
+        end
+        local action = item(kind, info.hyperlink, info.stackCount)
+        if action and noValue then
+            action.noValue = true
+        end
+        return action
     end)
     return ok and result or nil
 end
@@ -120,7 +129,8 @@ function Vendor.slots(api)
             return nil
         end
         for slot = 1, count do
-            local action = Vendor.container(api, "sale", bag, slot)
+            -- Cached as a refund so items with no value can still be refunded.
+            local action = Vendor.container(api, "refund", bag, slot)
             if action then
                 result[bag .. ":" .. slot] = action
             end
@@ -202,6 +212,9 @@ function Vendor.new(deps)
         local cached = bagSlots and bagSlots[slotKey]
         if cached then
             bagSlots[slotKey] = nil
+            if kind == "sale" and cached.noValue then
+                return nil
+            end
             cached.kind = kind
             return cached
         end
