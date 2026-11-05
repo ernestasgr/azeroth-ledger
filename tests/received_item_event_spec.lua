@@ -6,8 +6,16 @@ local water = "|cnIQ1:|Hitem:5350::::::::5:1491:::::::::|h[Conjured Water]|h|r"
 local bolt = "|cnIQ1:|Hitem:2996::::::::5:1491:::::::::|h[Bolt of Linen Cloth]|h|r"
 local gift = "|cnIQ1:|Hitem:2723::::::::5:1491:::::::::|h[Bottle of Dalaran Noir]|h|r"
 local letter = "|cnIQ1:|Hitem:2589::::::::5:1491:::::::::|h[Linen Cloth]|h|r"
+local muffin = "|cnIQ1:|Hitem:5349::::::::5:1491:::::::::|h[Conjured Muffin]|h|r"
+local scroll = "|cnIQ1:|Hitem:1181::::::::5:1491:::::::::|h[Scroll of Spirit]|h|r"
 local held = {}
-local slots = { water, bolt, gift, letter }
+local slots = { water, bolt, gift, letter, muffin, scroll }
+local spells = { [587] = "Conjure Food", [1229001] = "Comprehend Scroll" }
+C_Spell = {
+    GetSpellName = function(id)
+        return spells[id]
+    end,
+}
 local clock = 1000
 
 GetServerTime = function()
@@ -103,5 +111,55 @@ land(gift, 1)
 total, record = gained(gift)
 assert(total == 1, "an item handed over outside a window is a confirmed gain")
 assert(record.gains[#record.gains].method == "Obtained", "an item handed over is Obtained")
+assert(not record.gains[#record.gains].context, "an item handed over with no cast names no spell")
+
+-- The spell you just cast made the item: a conjured stack or a scroll.
+clock = 1200
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-1", 587)
+event("CHAT_MSG_LOOT", "You create: " .. muffin .. "x2.")
+land(muffin, 2)
+total, record = gained(muffin)
+local context = record and record.gains[1].context
+assert(total == 2 and record.gains[1].method == "Crafted", "a conjured item is Crafted")
+assert(context and context.kind == "spell" and context.id == 587, "a conjured item names its spell")
+assert(context.name == "Conjure Food", "the conjuring spell is named")
+
+clock = 1300
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-2", 1229001)
+clock = 1301
+event("CHAT_MSG_LOOT", "You receive item: " .. scroll .. ".")
+land(scroll, 1)
+total, record = gained(scroll)
+context = record and record.gains[1].context
+assert(total == 1 and record.gains[1].method == "Obtained", "a scroll from a spell is Obtained")
+assert(context and context.kind == "spell" and context.name == "Comprehend Scroll", "a scroll names its spell")
+
+-- A purchase never casts, so a scroll made beside an open merchant is the spell's.
+local evocation = "|cnIQ1:|Hitem:213564::::::::11:1482:::::::::|h[Scroll of Minor Evocation]|h|r"
+slots[#slots + 1] = evocation
+clock = 1350
+event("MERCHANT_SHOW")
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-5", 1296017)
+spells[1296017] = "Comprehend Scroll"
+event("CHAT_MSG_LOOT", "You receive item: " .. evocation .. ".")
+land(evocation, 1)
+event("MERCHANT_CLOSED")
+total, record = gained(evocation)
+context = record and record.gains[1] and record.gains[1].context
+assert(total == 1, "a scroll made beside an open merchant is a confirmed gain")
+assert(context and context.name == "Comprehend Scroll", "a scroll made beside an open merchant names its spell")
+
+-- A cast long before the item, or by someone else, did not make it.
+clock = 1400
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-3", 1229001)
+event("UNIT_SPELLCAST_SUCCEEDED", "party1", "Cast-4", 587)
+clock = 1460
+event("CHAT_MSG_LOOT", "You receive item: " .. gift .. ".")
+land(gift, 1)
+record = select(2, gained(gift))
+assert(not record.gains[#record.gains].context, "an old cast does not name an item handed over later")
+
+-- The spell context survives a save and reload.
+assert(addon.store:diagnostic().kind == "healthy", "a spell context left the save unhealthy")
 
 print("received_item_event_spec: passed")

@@ -174,7 +174,7 @@ end
 ---@field channel? 'mail'|'trade'
 ---@field refunded? integer
 ---@field source? AzerothLedgerLootSource|AzerothLedgerVendorSource|AzerothLedgerPlayerSource
----@field context? {kind: 'quest'|'recipe', id: integer, name?: string}
+---@field context? {kind: 'quest'|'recipe'|'spell', id: integer, name?: string}
 ---@field corrections? string[]
 
 ---@class AzerothLedgerLootSlot
@@ -240,7 +240,7 @@ end
 ---@field sessions AzerothLedgerLootSession[]
 
 ---@class AzerothLedgerRewardContext
----@field kind 'quest'|'recipe'
+---@field kind 'quest'|'recipe'|'spell'
 ---@field id integer
 ---@field name? string
 
@@ -830,11 +830,20 @@ local function validGainActor(actor)
     return isInteger(actor.level) and type(actor.place) == "string" and validPlaceKind(actor.placeKind)
 end
 
+-- The context kinds each reward method can name: a conjured item names its
+-- spell, as does an item a spell hands over.
+local contextKinds = {
+    Quest = { quest = true },
+    Crafted = { recipe = true, spell = true },
+    Obtained = { spell = true },
+}
+
 local function validRewardContext(context, method)
     return context == nil
         or (
             type(context) == "table"
-            and context.kind == (method == "Quest" and "quest" or "recipe")
+            and contextKinds[method] ~= nil
+            and contextKinds[method][context.kind] == true
             and isInteger(context.id)
             and context.id > 0
             and (context.name == nil or isName(context.name))

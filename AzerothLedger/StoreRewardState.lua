@@ -12,7 +12,7 @@ local Evidence = addon.StoreEvidence
 local StoreRewardState = {}
 
 -- Obtained is an item the client says it handed you with no quest or recipe:
--- an NPC gift, or an item created by using another item.
+-- an NPC gift, an item created by using another item, or one a spell gave you.
 local rewardMethods = { Quest = true, Crafted = true, Obtained = true }
 
 local function validRewardSession(session)
@@ -22,7 +22,6 @@ local function validRewardSession(session)
         and type(session.key) == "string"
         and rewardMethods[session.method]
         and validRewardContext(session.context, session.method)
-        and (session.method ~= "Obtained" or session.context == nil)
         and isName(session.character)
         and isName(session.realm)
         and isInteger(session.level)
@@ -186,7 +185,6 @@ local function validRewardReceipt(receipt, actor)
         and validGainActor(actor)
         and rewardMethods[receipt.method]
         and validRewardContext(receipt.context, receipt.method)
-        and (receipt.method ~= "Obtained" or receipt.context == nil)
         and (receipt.preview == nil or type(receipt.preview) == "boolean")
         and (
             receipt.choiceGroup == nil

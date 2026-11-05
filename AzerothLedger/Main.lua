@@ -123,6 +123,7 @@ local channels = {
         refresh = refresh,
         merchantOpen = vendor.isOpen,
         received = reward.received,
+        spellGave = reward.spellGave,
         clock = clock,
     }),
     reward,
