@@ -63,6 +63,46 @@ for _, entry in ipairs(fresh:unresolved()) do
     assert(entry.kind ~= "identity", "Crafted item left unreadable identity evidence")
 end
 
+-- A conjured item and a scroll a spell gave you name the spell, and reopen healthy.
+local water = "|Hitem:5350::::::::|h[Conjured Water]|h"
+local scroll = "|Hitem:1181::::::::|h[Scroll of Spirit]|h"
+local actor = { character = "Ada", realm = "Realm", level = 5, place = "Stormwind City", placeKind = "zone" }
+assert(fresh:command("rewardReceipt", {
+    key = "5350:0",
+    quantity = 2,
+    method = "Crafted",
+    context = { kind = "spell", id = 5504, name = "Conjure Water" },
+}, 1250, actor))
+assert(fresh:command("rewardReceipt", {
+    key = "1181:0",
+    quantity = 1,
+    method = "Obtained",
+    context = { kind = "spell", id = 1229001, name = "Comprehend Scroll" },
+}, 1250, actor))
+assert(not fresh:command("rewardReceipt", {
+    key = "1181:0",
+    quantity = 1,
+    method = "Obtained",
+    context = { kind = "recipe", id = 7 },
+}, 1250, actor), "an item handed over cannot name a recipe")
+assert(fresh:scan({
+    character = "Ada",
+    realm = "Realm",
+    area = "bags",
+    seenAt = 1251,
+    complete = true,
+    items = {
+        { itemID = 2672, link = link, quantity = 1, location = "0:1" },
+        { itemID = 2853, link = crafted, quantity = 1, location = "0:6" },
+        { itemID = 5350, link = water, quantity = 2, location = "0:7" },
+        { itemID = 1181, link = scroll, quantity = 1, location = "0:8" },
+    },
+}))
+assert(fresh:find("1181:0").gains[1].context.name == "Comprehend Scroll", "the scroll lost its spell")
+local reopened = open(saved)
+assert(reopened:diagnostic().kind == "healthy", "a spell context failed the saved-record check")
+assert(reopened:find("5350:0").gains[1].context.kind == "spell", "the conjured item lost its spell")
+
 local damaged = open({ schema = 2, records = { bad = { itemID = -1 } }, areas = {} })
 assert(damaged:diagnostic().kind == "damaged")
 assert(#damaged:list() == 0)

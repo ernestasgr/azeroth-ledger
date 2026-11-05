@@ -20,6 +20,7 @@ globals = {
     "GetRealZoneText",
     "date",
     "C_Container",
+    "C_Spell",
     "GetInventoryItemLink",
     "UIParent",
     "GameFontNormal",

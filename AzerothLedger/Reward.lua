@@ -10,6 +10,8 @@ local Reward = {}
 ---@class AzerothLedgerRewardApi
 ---@field C_QuestLog? {GetTitleForQuestID?: fun(questID: integer): string?}
 ---@field C_TradeSkillUI? {GetRecipeInfo?: fun(recipeID: integer): {name?: string}?}
+---@field C_Spell? {GetSpellName?: fun(spellID: integer): string?}
+---@field GetSpellInfo? fun(spellID: integer): string?
 ---@field GetQuestID? fun(): integer?
 ---@field GetNumQuestChoices? fun(): integer?
 ---@field GetNumQuestRewards? fun(): integer?
@@ -136,6 +138,32 @@ function Reward.craft(api, result, recipeID)
     return reward
 end
 
+---@param api AzerothLedgerRewardApi
+---@param spellID integer
+---@return string?
+function Reward.spellName(api, spellID)
+    local spell = api.C_Spell
+    local lookup = type(spell) == "table" and spell.GetSpellName or api.GetSpellInfo
+    if type(lookup) == "function" then
+        local ok, name = pcall(lookup, spellID)
+        if ok and type(name) == "string" and name ~= "" then
+            return name
+        end
+    end
+    return nil
+end
+
+-- The spell that made an item outside a recipe, such as a conjured stack.
+---@param api AzerothLedgerRewardApi
+---@param spellID? integer
+---@return AzerothLedgerRewardContext?
+function Reward.spell(api, spellID)
+    if type(spellID) ~= "number" or spellID < 1 or spellID ~= math.floor(spellID) then
+        return nil
+    end
+    return { kind = "spell", id = spellID, name = Reward.spellName(api, spellID) }
+end
+
 local function questID(api, offer)
     if offer and offer.questID then
         return offer.questID
@@ -162,6 +190,8 @@ Reward.commands = { "rewardReceipt", "questPrepared", "questOffered", "questAcce
 
 -- Seconds after a quest window closes in which a received item is the quest's.
 local questQuiet = 5
+-- Seconds after your cast finishes in which an item made or handed over is the spell's.
+local castQuiet = 2
 
 ---@param deps ALRewardDependencies
 function Reward.new(deps)
@@ -171,6 +201,8 @@ function Reward.new(deps)
     -- still to come. The last cast of a batch stops before its result arrives.
     local recipeID, made, stopping = nil, false, false
     local questOpen, questAt = false, nil
+    -- The player's last finished cast, which names a conjured or spell-given item.
+    local cast
 
     -- Quest rewards can go straight into gear, so the gain is checked against
     -- bags and equipped slots together.
@@ -264,17 +296,24 @@ function Reward.new(deps)
         return questOpen or (questAt ~= nil and at ~= nil and at - questAt <= questQuiet)
     end
 
+    local function castSpell()
+        local at = clock()
+        if cast and at ~= nil and at - cast.at <= castQuiet then
+            return Reward.spell(api, cast.id)
+        end
+    end
+
     -- A receipt the loot channel could not place. A recipe's item is left to
     -- its craft result; anything else made by you was conjured by a spell. An
-    -- item handed over outside a quest, mailbox or trade came from an NPC or
-    -- from using another item.
+    -- item handed over outside a quest, mailbox or trade came from an NPC, from
+    -- using another item, or from a spell you just cast.
     ---@param parsed AzerothLedgerLootReceipt
     local function received(parsed)
         local receipt
         if parsed.kind == "created" and not recipeID then
-            receipt = { key = parsed.key, quantity = parsed.quantity, method = "Crafted" }
+            receipt = { key = parsed.key, quantity = parsed.quantity, method = "Crafted", context = castSpell() }
         elseif parsed.kind == "pushed" and not questBusy() and not deps.exchangeOpen() then
-            receipt = { key = parsed.key, quantity = parsed.quantity, method = "Obtained" }
+            receipt = { key = parsed.key, quantity = parsed.quantity, method = "Obtained", context = castSpell() }
         end
         receive(receipt)
     end
@@ -313,7 +352,12 @@ function Reward.new(deps)
                 recipeID, made, stopping = id, false, false
             end,
             UNIT_SPELLCAST_SUCCEEDED = function(unit, _, spellID)
-                if unit == "player" and recipeID and spellID == recipeID then
+                if unit ~= "player" then
+                    return
+                end
+                local at = clock()
+                cast = at and { id = spellID, at = at } or nil
+                if recipeID and spellID == recipeID then
                     made = true
                 end
             end,

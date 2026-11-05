@@ -127,18 +127,8 @@ local function validRecord(key, record)
                 return false
             end
         end
-        if gain.context ~= nil then
-            if
-                type(gain.context) ~= "table"
-                or gain.method == "Looted"
-                or gain.method == "Vendor"
-                or gain.context.kind ~= (gain.method == "Quest" and "quest" or "recipe")
-                or not isInteger(gain.context.id)
-                or gain.context.id < 1
-                or (gain.context.name ~= nil and not isName(gain.context.name))
-            then
-                return false
-            end
+        if not V.validRewardContext(gain.context, gain.method) then
+            return false
         end
         gainIDs[gain.id] = true
         if gain.corrections ~= nil then

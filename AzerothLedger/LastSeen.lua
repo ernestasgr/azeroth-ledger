@@ -224,7 +224,7 @@ end
 function LastSeen.sourceIdentity(gain)
     local context = gain.context
     if context then
-        local kind = context.kind == "quest" and "Quest" or "Recipe"
+        local kind = ({ quest = "Quest", recipe = "Recipe", spell = "Spell" })[context.kind]
         return context.kind .. ":" .. context.id, kind .. " #" .. context.id, context.name
     elseif gain.mailKind == "auction-purchase" then
         return "auction", "Auction purchase"
