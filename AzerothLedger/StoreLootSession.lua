@@ -257,12 +257,27 @@ local function unsettledSlot(session, key, slot)
     return nil
 end
 
-local function competingLoot(session, key, actor)
+-- Both slots name one corpse or container. A unit's name can resolve later,
+-- so a shared GUID is enough.
+local function sameLootSource(left, right)
+    if not left or not right then
+        return false
+    end
+    if left.guid and right.guid then
+        return left.kind == right.kind and left.guid == right.guid
+    end
+    return sameSource(left, right)
+end
+
+-- An earlier window still holding this item competes for its receipt, unless
+-- it is the same corpse or container opened again.
+local function competingLoot(session, key, actor, nextSlot)
     local slot = session.slots[key]
     return session.character == actor.character
         and session.realm == actor.realm
         and slot ~= nil
         and (not slot.limit or (session.awarded[key] or 0) < slot.limit)
+        and not (nextSlot and sameLootSource(slot.source, nextSlot.source))
 end
 
 StoreLootSession.validLootState = validLootState
