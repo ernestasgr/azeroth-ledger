@@ -139,7 +139,7 @@ function StoreLootProof.install(deps)
                 loot.sessions[index] = session
             else
                 for key in pairs(newSlots) do
-                    if competingLoot(entry, key, actor) then
+                    if competingLoot(entry, key, actor, session.slots[key]) then
                         -- An overlapping session cannot prove either source.
                         entry.slots[key].source, entry.slots[key].shares = nil, nil
                         session.slots[key].source, session.slots[key].shares = nil, nil

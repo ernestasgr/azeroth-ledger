@@ -11,7 +11,7 @@ from pathlib import Path
 from package import AUTO_LOADED_FILES, ADDON, ROOT, TESTS, check, manifest_files
 
 
-DEFAULT_WOW_ROOT = Path("C:/Program Files (x86)/World of Warcraft/_classic_beta_")
+DEFAULT_WOW_ROOT = Path("C:/Program Files (x86)/World of Warcraft/_forever_")
 
 
 def digest(path: Path) -> str:
@@ -22,8 +22,8 @@ def install(wow_root: Path, verify_only: bool) -> None:
     check()
     client = wow_root.resolve(strict=True)
     flavor = (client / ".flavor.info").read_text(encoding="utf-8")
-    if "wow_classic_beta" not in flavor:
-        raise ValueError(f"Expected the Forever beta at {client}")
+    if "wowf" not in flavor.split():
+        raise ValueError(f"Expected the Forever client at {client}")
 
     addons = (client / "Interface" / "AddOns").resolve(strict=True)
     if not (addons / "WoWUnit" / "WoWUnit.toc").is_file():

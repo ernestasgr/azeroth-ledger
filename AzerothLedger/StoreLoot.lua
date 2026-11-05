@@ -193,7 +193,7 @@ function StoreLoot.install(store, kernel, slice, correlation, rewards)
                     session.endedAt = at
                 end
                 for key, slot in pairs(slots) do
-                    if competingLoot(session, key, context) then
+                    if competingLoot(session, key, context, slot) then
                         slot.source = nil
                         slot.shares = nil
                         session.slots[key].source = nil

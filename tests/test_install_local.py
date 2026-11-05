@@ -11,12 +11,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 from install_local import install  # noqa: E402
 
+# The `.flavor.info` the Forever launcher writes.
+FOREVER_FLAVOR = "Product Flavor!STRING:0\nwowf\n"
+
 
 class InstallLocalTests(unittest.TestCase):
     def test_installs_manifest_files_and_detects_changes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             client = Path(temporary)
-            (client / ".flavor.info").write_text("wow_classic_beta", encoding="utf-8")
+            (client / ".flavor.info").write_text(FOREVER_FLAVOR, encoding="utf-8")
             addons = client / "Interface" / "AddOns"
             (addons / "WoWUnit").mkdir(parents=True)
             (addons / "WoWUnit" / "WoWUnit.toc").write_text("", encoding="utf-8")
@@ -44,13 +47,13 @@ class InstallLocalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             client = Path(temporary)
             (client / ".flavor.info").write_text("wow_retail", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "Forever beta"):
+            with self.assertRaisesRegex(ValueError, "Forever client"):
                 install(client, verify_only=False)
 
     def test_rejects_incompatible_saved_data(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             client = Path(temporary)
-            (client / ".flavor.info").write_text("wow_classic_beta", encoding="utf-8")
+            (client / ".flavor.info").write_text(FOREVER_FLAVOR, encoding="utf-8")
             addons = client / "Interface" / "AddOns"
             (addons / "WoWUnit").mkdir(parents=True)
             (addons / "WoWUnit" / "WoWUnit.toc").write_text("", encoding="utf-8")

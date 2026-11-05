@@ -417,4 +417,48 @@ for _, gain in ipairs(addon.store:find("7098:0").gains) do
     end
 end
 assert(recentKnown == 2, "Looting the same item again within 60 seconds lost its proven source")
+
+-- Reopening a corpse whose item was left behind (a full bag, a closed window)
+-- is the same source, not competing loot. Another corpse's untaken slot still is.
+do
+    local original = _G.GetLootSourceInfo
+    local corpse = "Creature-0-6783-1-118-1984-000040D7BC"
+    rawset(_G, "GetLootSourceInfo", function()
+        return corpse, 1
+    end)
+    local function sourceAt(at)
+        for _, gain in ipairs(addon.store:find("7098:0").gains) do
+            if gain.at == at then
+                return gain.source and gain.source.guid or false
+            end
+        end
+        return nil
+    end
+    local function leave(at, guid)
+        clock, corpse = at, guid
+        event("LOOT_READY", true, false)
+        event("LOOT_OPENED", true, false)
+        event("LOOT_CLOSED")
+    end
+    local function take(at, guid)
+        clock, corpse = at, guid
+        event("LOOT_READY", true, false)
+        event("LOOT_OPENED", true, false)
+        event("CHAT_MSG_LOOT", "You receive loot: " .. link)
+        units = units + 1
+        event("BAG_UPDATE_DELAYED")
+        event("LOOT_CLOSED")
+    end
+    leave(2100, "Creature-0-6783-1-118-1984-000040D7BC")
+    leave(2104, "Creature-0-6783-1-118-1984-000040D7BC")
+    take(2108, "Creature-0-6783-1-118-1984-000040D7BC")
+    assert(
+        sourceAt(2108) == "Creature-0-6783-1-118-1984-000040D7BC",
+        "Reopening the same corpse made its loot source Unknown"
+    )
+    leave(2300, "Creature-0-6783-1-118-1984-000040D7BC")
+    take(2304, "Creature-0-6783-1-118-1984-000040D7BD")
+    assert(sourceAt(2304) == false, "Another corpse's untaken slot must leave the source Unknown")
+    rawset(_G, "GetLootSourceInfo", original)
+end
 print("loot_event_spec: passed")
