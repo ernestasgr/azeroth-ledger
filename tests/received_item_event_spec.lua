@@ -134,6 +134,21 @@ context = record and record.gains[1].context
 assert(total == 1 and record.gains[1].method == "Obtained", "a scroll from a spell is Obtained")
 assert(context and context.kind == "spell" and context.name == "Comprehend Scroll", "a scroll names its spell")
 
+-- A purchase never casts, so a scroll made beside an open merchant is the spell's.
+local evocation = "|cnIQ1:|Hitem:213564::::::::11:1482:::::::::|h[Scroll of Minor Evocation]|h|r"
+slots[#slots + 1] = evocation
+clock = 1350
+event("MERCHANT_SHOW")
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-5", 1296017)
+spells[1296017] = "Comprehend Scroll"
+event("CHAT_MSG_LOOT", "You receive item: " .. evocation .. ".")
+land(evocation, 1)
+event("MERCHANT_CLOSED")
+total, record = gained(evocation)
+context = record and record.gains[1] and record.gains[1].context
+assert(total == 1, "a scroll made beside an open merchant is a confirmed gain")
+assert(context and context.name == "Comprehend Scroll", "a scroll made beside an open merchant names its spell")
+
 -- A cast long before the item, or by someone else, did not make it.
 clock = 1400
 event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-3", 1229001)

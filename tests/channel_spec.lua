@@ -79,6 +79,9 @@ local loot = addon.Loot.new(strict("loot dependencies", {
     merchantOpen = function()
         return merchantOpen
     end,
+    spellGave = function()
+        return false
+    end,
 }))
 loot.events.LOOT_READY()
 assert(named(calls, "lootOpen").payload.slots[1].key == "4540:0", "an opened loot window records its slots")

@@ -269,6 +269,7 @@ Loot.commands = { "lootOpen", "lootSourceProof", "lootClose", "lootReceipt", "ve
 ---@field refresh fun(character: string, realm: string)
 ---@field merchantOpen fun(): boolean
 ---@field received fun(receipt: AzerothLedgerLootReceipt) An item handed over or made outside a merchant
+---@field spellGave fun(): boolean Whether your cast just finished, so a handed-over item is the spell's
 ---@field clock fun(): integer?
 
 ---@param deps ALLootDependencies
@@ -338,7 +339,9 @@ function Loot.new(deps)
             return
         end
         local write
-        if deps.merchantOpen() and parsed.kind ~= "created" then
+        -- A purchase never casts, so an item handed over right after your
+        -- cast is the spell's even beside an open merchant.
+        if deps.merchantOpen() and parsed.kind ~= "created" and not deps.spellGave() then
             write = commands.vendorReceipt
         elseif parsed.kind == "loot" then
             write = commands.lootReceipt

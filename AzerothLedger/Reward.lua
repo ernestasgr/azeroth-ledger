@@ -320,6 +320,9 @@ function Reward.new(deps)
 
     return {
         received = received,
+        spellGave = function()
+            return castSpell() ~= nil
+        end,
         events = {
             QUEST_DETAIL = function()
                 questWindow(true)
