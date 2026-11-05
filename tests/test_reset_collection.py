@@ -48,6 +48,9 @@ def fields(text: str, name: str = "AzerothLedgerDB") -> dict:
             return {key: value for key, value in _Parser(text[start:end]).value()}
     raise AssertionError(name)
 
+# The `.flavor.info` the Forever launcher writes.
+FOREVER_FLAVOR = "Product Flavor!STRING:0\nwowf\n"
+
 
 class ResetCollectionTests(unittest.TestCase):
     def test_keeps_settings_and_drops_collection(self) -> None:
@@ -80,7 +83,7 @@ class ResetCollectionTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as temporary:
                 client = Path(temporary)
-                (client / ".flavor.info").write_text("wow_classic_beta", encoding="utf-8")
+                (client / ".flavor.info").write_text(FOREVER_FLAVOR, encoding="utf-8")
                 saved = client / "WTF" / "Account" / "1#1" / "SavedVariables"
                 saved.mkdir(parents=True)
                 target = saved / "AzerothLedger.lua"
@@ -106,7 +109,7 @@ class ResetCollectionTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as temporary:
                 client = Path(temporary)
-                (client / ".flavor.info").write_text("wow_classic_beta", encoding="utf-8")
+                (client / ".flavor.info").write_text(FOREVER_FLAVOR, encoding="utf-8")
                 with self.assertRaisesRegex(RuntimeError, "Close WoW"):
                     reset(client)
         finally:

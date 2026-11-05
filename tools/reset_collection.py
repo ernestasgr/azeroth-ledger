@@ -14,7 +14,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-DEFAULT_WOW_ROOT = Path("C:/Program Files (x86)/World of Warcraft/_classic_beta_")
+DEFAULT_WOW_ROOT = Path("C:/Program Files (x86)/World of Warcraft/_forever_")
 VARIABLE = "AzerothLedgerDB"
 SCHEMA = 2
 # Settings only; every Collection, Journal and evidence field is dropped.
@@ -235,8 +235,8 @@ def saved_files(wow_root: Path) -> list[Path]:
 def reset(wow_root: Path, dry_run: bool = False, force: bool = False) -> list[Path]:
     client = wow_root.resolve(strict=True)
     flavor = (client / ".flavor.info").read_text(encoding="utf-8")
-    if "wow_classic_beta" not in flavor:
-        raise ValueError(f"Expected the Forever beta at {client}")
+    if "wowf" not in flavor.split():
+        raise ValueError(f"Expected the Forever client at {client}")
     running = wow_running()
     if running and not force:
         raise RuntimeError("Close WoW first: it rewrites SavedVariables on logout and would restore the data")
