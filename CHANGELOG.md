@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.2
+
+- Looting an item from a corpse you had already opened, for example after making room in your bags, now keeps the creature as its Source. Before, it showed as Unknown.
+
 ## 1.0.1
 
 - Loot you pick up right after checking your mail, trading, or using the guild bank now counts as Looted. Before, it was missed and ended up in the review list.
