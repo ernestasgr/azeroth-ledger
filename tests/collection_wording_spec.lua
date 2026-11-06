@@ -190,6 +190,13 @@ local sources = {
         group = "Player: Ben-Realm",
     },
     {
+        kind = "npc",
+        gain = { source = { kind = "npc", name = "Resaan Nimbuswalker" } },
+        text = "Resaan Nimbuswalker",
+        key = "npc:Resaan Nimbuswalker",
+        group = "NPC: Resaan Nimbuswalker",
+    },
+    {
         kind = "named quest",
         gain = { context = { kind = "quest", id = 42, name = "Wolves" } },
         text = "Wolves",

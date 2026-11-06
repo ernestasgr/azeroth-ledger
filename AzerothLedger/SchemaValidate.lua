@@ -158,6 +158,10 @@ end
 ---@field name string
 ---@field realm string
 
+---@class AzerothLedgerNpcSource An NPC that handed an Obtained item over
+---@field kind 'npc'
+---@field name string
+
 ---@class AzerothLedgerGain
 ---@field id string
 ---@field at integer
@@ -173,7 +177,7 @@ end
 ---@field mailKind? 'auction-purchase'
 ---@field channel? 'mail'|'trade'
 ---@field refunded? integer
----@field source? AzerothLedgerLootSource|AzerothLedgerVendorSource|AzerothLedgerPlayerSource
+---@field source? AzerothLedgerLootSource|AzerothLedgerVendorSource|AzerothLedgerPlayerSource|AzerothLedgerNpcSource
 ---@field context? {kind: 'quest'|'recipe'|'spell', id: integer, name?: string}
 ---@field corrections? string[]
 
