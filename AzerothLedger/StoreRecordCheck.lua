@@ -120,7 +120,11 @@ local function validRecord(key, record)
                     return false
                 end
             elseif gain.method == "Obtained" then
-                if gain.source.kind ~= "player" or not isName(gain.source.name) or not isName(gain.source.realm) then
+                local from = gain.source
+                local player = from.kind == "player" and isName(from.name) and isName(from.realm)
+                -- An NPC that handed the item over carries only its name.
+                local npc = from.kind == "npc" and isName(from.name) and from.guid == nil and from.realm == nil
+                if not player and not npc then
                     return false
                 end
             else

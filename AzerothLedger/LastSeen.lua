@@ -190,7 +190,7 @@ local function entryLabel(source, id)
     return names and names[id] or ((sourceKinds[source.kind] or "Mob") .. " #" .. id)
 end
 
----@param source? AzerothLedgerLootSource|AzerothLedgerVendorSource|AzerothLedgerPlayerSource
+---@param source? AzerothLedgerLootSource|AzerothLedgerVendorSource|AzerothLedgerPlayerSource|AzerothLedgerNpcSource
 ---@return string
 function LastSeen.sourceText(source)
     if not source then
@@ -237,6 +237,8 @@ function LastSeen.sourceIdentity(gain)
         return "player:" .. label, "Player: " .. label
     elseif source.kind == "vendor" then
         return "vendor:" .. source.name, "Vendor: " .. source.name
+    elseif source.kind == "npc" then
+        return "npc:" .. source.name, "NPC: " .. source.name
     end
     local id = entryID(source)
     return source.kind .. ":" .. (id or source.guid),
