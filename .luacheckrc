@@ -7,6 +7,8 @@ globals = {
     "GetInventoryItemID",
     "C_Item",
     "SLASH_AZEROTHLEDGER1",
+    "SLASH_AZEROTHLEDGER2",
+    "SLASH_AZEROTHLEDGER3",
     "SLASH_AZEROTHLEDGERPERFORMANCE1",
     "SlashCmdList",
     "WoWUnit",
