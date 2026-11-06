@@ -82,7 +82,19 @@ local function itemSource(api, guid)
     return result
 end
 
-local function source(api, guid)
+-- The creature entry a Creature or Vehicle GUID names. Every spawn of one
+-- entry shares its name, so a name read from one spawn names the others.
+local function creatureEntry(guid)
+    local kind, entry = guid:match("^(%a+)%-%d+%-%d+%-%d+%-%d+%-(%d+)%-%x+$")
+    return (kind == "Creature" or kind == "Vehicle") and entry or nil
+end
+
+local function validName(name)
+    return name and name ~= "" and #name <= 128 and name or nil
+end
+
+---@param creatureNames? table<string, string> Names read earlier, by creature entry
+local function source(api, guid, creatureNames)
     guid = plain(api, guid, "string")
     local kind = guid and guid:match("^([^-]+)%-")
     if kind == "Item" then
@@ -104,6 +116,12 @@ local function source(api, guid)
                 end
             end
         end
+    end
+    -- In combat unit reads are secret, but a name read earlier still holds.
+    local learned = creatureNames and creatureNames[creatureEntry(guid) or ""]
+    if learned then
+        result.name = learned
+        return result
     end
     local tooltipInfo = api.C_TooltipInfo
     local objectType = api.Enum and api.Enum.TooltipDataType and api.Enum.TooltipDataType.Object
@@ -128,7 +146,7 @@ local function source(api, guid)
     return result
 end
 
-local function sourceShares(api, slot, key, slotQuantity)
+local function sourceShares(api, slot, key, slotQuantity, creatureNames)
     if type(api.GetLootSourceInfo) ~= "function" then
         return nil
     end
@@ -155,7 +173,7 @@ local function sourceShares(api, slot, key, slotQuantity)
         result[#result + 1] = {
             key = key,
             quantity = quantity,
-            source = source(api, guid),
+            source = source(api, guid, creatureNames),
             slot = slot,
             sourceIndex = (index + 1) / 2,
         }
@@ -237,8 +255,9 @@ end
 
 ---@param api AzerothLedgerLootApi
 ---@param castName? string The object a just-finished cast was aimed at
+---@param creatureNames? table<string, string> Names read earlier, by creature entry
 ---@return AzerothLedgerLootSlot[]?
-function Loot.open(api, castName)
+function Loot.open(api, castName, creatureNames)
     if type(api.GetNumLootItems) ~= "function" or type(api.GetLootSlotLink) ~= "function" then
         return nil
     end
@@ -263,7 +282,7 @@ function Loot.open(api, castName)
                         slotQuantity = quantity
                     end
                 end
-                local shares = sourceShares(api, slot, key, slotQuantity)
+                local shares = sourceShares(api, slot, key, slotQuantity, creatureNames)
                 if shares then
                     for _, share in ipairs(shares) do
                         slots[#slots + 1] = share
@@ -306,6 +325,25 @@ function Loot.new(deps)
     -- Mining, herb gathering and opening are casts aimed at the object, and
     -- UNIT_SPELLCAST_SENT names it. The cast must finish just before the loot.
     local pending, finished
+    -- Creature names read while unit reads were plain, by creature entry.
+    local creatureNames = {}
+
+    local function learnName(unit)
+        if type(api.UnitGUID) ~= "function" or type(api.UnitName) ~= "function" then
+            return
+        end
+        local guidOK, guid = pcall(api.UnitGUID, unit)
+        guid = guidOK and plain(api, guid, "string") or nil
+        local entry = guid and creatureEntry(guid)
+        if not entry then
+            return
+        end
+        local nameOK, name = pcall(api.UnitName, unit)
+        name = validName(nameOK and plain(api, name, "string") or nil)
+        if name then
+            creatureNames[entry] = name
+        end
+    end
 
     local function castTarget(name)
         if type(api.issecretvalue) == "function" and api.issecretvalue(name) then
@@ -381,7 +419,7 @@ function Loot.new(deps)
     end
 
     local function opened()
-        local slots = Loot.open(api, castName())
+        local slots = Loot.open(api, castName(), creatureNames)
         if not slots then
             return
         end
@@ -446,7 +484,7 @@ function Loot.new(deps)
             LOOT_READY = opened,
             LOOT_OPENED = opened,
             LOOT_SLOT_CHANGED = function()
-                local slots = Loot.open(api, castName())
+                local slots = Loot.open(api, castName(), creatureNames)
                 if slots then
                     proveSources(slots)
                 end
@@ -457,6 +495,17 @@ function Loot.new(deps)
             end,
             CHAT_MSG_LOOT = receipt,
             LOOT_ITEM_ROLL_WON = rollWon,
+            PLAYER_TARGET_CHANGED = function()
+                learnName("target")
+            end,
+            UPDATE_MOUSEOVER_UNIT = function()
+                learnName("mouseover")
+            end,
+            NAME_PLATE_UNIT_ADDED = function(unit)
+                if type(unit) == "string" and unit:match("^nameplate%d+$") then
+                    learnName(unit)
+                end
+            end,
             UNIT_SPELLCAST_SENT = function(unit, target, castGUID)
                 if unit == "player" then
                     local name = castTarget(target)
