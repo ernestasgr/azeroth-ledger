@@ -300,6 +300,9 @@ function Loot.new(deps)
     local captured = false
     -- Loot lines no window matched, by item key, for a roll reported after them.
     local unplaced = {}
+    -- The source each item key showed in recent loot windows, for a roll won
+    -- later. `false` marks a key two different sources showed.
+    local shown = {}
     -- Mining, herb gathering and opening are casts aimed at the object, and
     -- UNIT_SPELLCAST_SENT names it. The cast must finish just before the loot.
     local pending, finished
@@ -342,11 +345,47 @@ function Loot.new(deps)
         end
     end
 
+    -- Group loot rolls end within a few minutes of the window that showed them.
+    local ROLL_SOURCE_SECONDS = 300
+
+    local function remember(slots)
+        local at = deps.clock()
+        if not at then
+            return
+        end
+        for key, entry in pairs(shown) do
+            if at - entry.at > ROLL_SOURCE_SECONDS then
+                shown[key] = nil
+            end
+        end
+        for _, slot in ipairs(slots) do
+            local from, entry = slot.source, shown[slot.key]
+            if not from then
+                -- An unreadable share leaves the window's source for this key unknown.
+                shown[slot.key] = { at = at, source = false }
+            elseif not entry or (entry.source and entry.source.guid == from.guid) then
+                shown[slot.key] = { at = at, source = from }
+            else
+                shown[slot.key] = { at = at, source = false }
+            end
+        end
+    end
+
+    local function rollSource(key)
+        local entry, at = shown[key], deps.clock()
+        shown[key] = nil
+        if entry and entry.source and at and at - entry.at >= 0 and at - entry.at <= ROLL_SOURCE_SECONDS then
+            return entry.source
+        end
+        return nil
+    end
+
     local function opened()
         local slots = Loot.open(api, castName())
         if not slots then
             return
         end
+        remember(slots)
         if captured then
             proveSources(slots)
         elseif #slots > 0 then
@@ -389,7 +428,7 @@ function Loot.new(deps)
         if type(quantity) ~= "number" or quantity < 1 or quantity ~= math.floor(quantity) then
             quantity = nil
         end
-        if not commands.lootOpen({ slots = { { key = key, quantity = quantity } } }) then
+        if not commands.lootOpen({ slots = { { key = key, quantity = quantity, source = rollSource(key) } } }) then
             return
         end
         local held, at = unplaced[key], deps.clock()

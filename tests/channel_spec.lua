@@ -73,6 +73,7 @@ local loot = addon.Loot.new(strict("loot dependencies", {
         LOOT_ITEM_SELF = "You receive loot: %s.",
     }),
     commands = commands(addon.Loot.commands, calls),
+    clock = clock,
     refresh = function(character, realm)
         refreshed[#refreshed + 1] = character .. "-" .. realm
     end,
