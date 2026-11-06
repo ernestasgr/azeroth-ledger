@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.4
+
+- /azledger and /azerothledger now open the ledger too, for when another addon also uses /al.
+- Loot is no longer missed when the game hides details about the corpse or item. It's recorded without the details that couldn't be read.
+- An item you win in a group loot roll now keeps the creature it dropped from as its Source. Before, it showed as Unknown.
+- A creature looted during combat now shows its name if you saw it by target, mouseover or nameplate earlier in the session. Before, it showed as "Mob #" and a number.
+- An item bought at auction no longer says its source is Unknown in its details.
+- The addon's memory use no longer keeps climbing while nothing is happening.
+
 ## 1.0.3
 
 - Conjured food and water, and items a spell gives you such as scrolls from Comprehend Scroll, now show that spell as their Source. Before, it showed as Unknown.
