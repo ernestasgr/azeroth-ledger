@@ -346,7 +346,7 @@ local function inspectRecord(store, record, character, realm, filter, lastSeen, 
         if matchesFilter(filter.character, filter.realm, gain.character, gain.realm) then
             firstGained = math.min(firstGained or gain.at, gain.at)
             lastGained = math.max(lastGained or gain.at, gain.at)
-            if gain.source or gain.context then
+            if addon.LastSeen.sourceIdentity(gain) ~= "unknown" then
                 strength = "Confirmed gain with specific source"
             elseif strength ~= "Confirmed gain with specific source" then
                 strength = "Confirmed " .. gain.method .. " gain; source Unknown"
