@@ -172,15 +172,21 @@ function Presentation.register(api, store)
         end
         local discoveries = store:takeDiscoveries()
         -- External store callers can change preferences without visiting Settings.
+        -- This runs every frame, so the idle path clears in place and allocates nothing.
         if not preferences.toasts and not isPreview then
-            queue, remaining = {}, 0
+            for index = #queue, 1, -1 do
+                queue[index] = nil
+            end
+            remaining = 0
             toast:Hide()
             return
         end
-        for _, record in ipairs(preferences.toasts and discoveries or {}) do
-            -- Bound transient display work; permanent discoveries stay in the Collection.
-            if #queue < 20 then
-                queue[#queue + 1] = record.links[1]
+        if preferences.toasts then
+            for _, record in ipairs(discoveries) do
+                -- Bound transient display work; permanent discoveries stay in the Collection.
+                if #queue < 20 then
+                    queue[#queue + 1] = record.links[1]
+                end
             end
         end
         if not isPreview and not preferences.toastCombat and api.InCombatLockdown and api.InCombatLockdown() then

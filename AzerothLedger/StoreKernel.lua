@@ -242,7 +242,7 @@ function StoreKernel.open(raw, save, slices)
         return record
     end
 
-    local discoveries = {}
+    local discoveries, noDiscoveries = {}, {}
     local function saveFields(fields)
         local nextValue = {
             schema = CURRENT_SCHEMA,
@@ -484,7 +484,11 @@ function StoreKernel.open(raw, save, slices)
         journalHealthy = function()
             return journalHealthy
         end,
+        -- Polled every frame: an empty take shares one read-only list.
         takeDiscoveries = function()
+            if #discoveries == 0 then
+                return noDiscoveries
+            end
             local result = discoveries
             discoveries = {}
             return result
