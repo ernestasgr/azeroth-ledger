@@ -127,8 +127,26 @@ buy(1003)
 bags(1004, 2)
 update(driver, 0.1)
 assert(not toast.shown)
+-- The driver ticks every frame for the whole session, so an idle tick must
+-- not allocate: per-frame garbage reads in-game as ever-rising addon memory.
+local function idleGarbage()
+    update(driver, 0.1)
+    collectgarbage("collect")
+    collectgarbage("stop")
+    local before = collectgarbage("count")
+    for _ = 1, 2000 do
+        update(driver, 0.01)
+    end
+    local grown = collectgarbage("count") - before
+    collectgarbage("restart")
+    return grown
+end
+local idleOn = idleGarbage()
+assert(idleOn < 8, string.format("Idle toast ticks allocated %.1f KB with toasts on", idleOn))
 assert(store:setDisplay("toasts", false))
 update(driver, 0.1)
+local idleOff = idleGarbage()
+assert(idleOff < 8, string.format("Idle toast ticks allocated %.1f KB with toasts off", idleOff))
 print("native presentation boundary: passed")
 AzerothLedger = addon
 date = os.date
