@@ -162,6 +162,9 @@ _G.BINDING_NAME_AZEROTHLEDGER_TOGGLE = "Toggle Ledger"
 _G.AzerothLedgerToggle = toggle
 
 SLASH_AZEROTHLEDGER1 = "/al"
+-- Other addons claim /al too; these always reach the ledger.
+SLASH_AZEROTHLEDGER2 = "/azledger"
+SLASH_AZEROTHLEDGER3 = "/azerothledger"
 SlashCmdList.AZEROTHLEDGER = addon.Commands.new(commandContext)
 
 local function forwardInventory(event)
