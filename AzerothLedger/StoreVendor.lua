@@ -122,10 +122,21 @@ local function linkedVendorGain(record, character, realm, quantity)
 end
 
 ---@type AzerothLedgerSlice
-StoreVendor.slice = { name = "vendor", validate = validVendorState, journal = "vendor" }
+StoreVendor.slice = { name = "vendor", validate = V.validatedOnce(validVendorState), journal = "vendor" }
 
 local function activeAction(action)
     return action.status == "pending" or action.status == "unresolved"
+end
+
+-- Confirmed actions wait here for a refund or buyback. A check changes only a
+-- pending action or one old enough to drop, so most checks leave this alone.
+local function checkChanges(vendor, at)
+    for _, action in ipairs(vendor.actions) do
+        if action.status == "pending" or (action.status == "confirmed" and at - action.at > 7200) then
+            return true
+        end
+    end
+    return false
 end
 
 -- Returns the correlation engine a possessions check and evidence expiry use.
@@ -408,11 +419,7 @@ function StoreVendor.install(store, kernel, slice)
         local handler, vendor = {}, nil
         function handler.finish()
             vendor = vendorState()
-            if vendor and #vendor.actions == 0 then
-                vendor = nil
-            elseif vendor then
-                vendor = copyValue(vendor)
-            end
+            vendor = vendor and checkChanges(vendor, snapshot.seenAt) and copyValue(vendor) or nil
             if
                 vendor
                 and (snapshot.area == "bags" or snapshot.area == "equipped")

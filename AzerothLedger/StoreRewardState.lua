@@ -282,7 +282,7 @@ end
 
 StoreRewardState.validRewardSession = validRewardSession
 StoreRewardState.preparationLive = preparationLive
-StoreRewardState.validRewardState = validRewardState
+StoreRewardState.validRewardState = V.validatedOnce(validRewardState)
 StoreRewardState.choiceIsProven = choiceIsProven
 StoreRewardState.validRewardReceipt = validRewardReceipt
 StoreRewardState.openAccepted = openAccepted
