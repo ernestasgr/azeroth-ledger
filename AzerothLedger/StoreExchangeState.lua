@@ -102,23 +102,21 @@ local function validExchangeState(exchange)
     return true
 end
 
+local function pruned(action, at)
+    local age = at - action.at
+    return age > 31 * 86400
+        or (
+            age >= 60
+            and (
+                action.status == "canceled"
+                or (action.status == "settled" and (action.direction == "in" or action.transferred == action.quantity))
+            )
+        )
+end
+
 local function pruneExchange(state, at)
     for index = #state.actions, 1, -1 do
-        local action = state.actions[index]
-        local age = at - action.at
-        if
-            age > 31 * 86400
-            or (
-                age >= 60
-                and (
-                    action.status == "canceled"
-                    or (
-                        action.status == "settled"
-                        and (action.direction == "in" or action.transferred == action.quantity)
-                    )
-                )
-            )
-        then
+        if pruned(state.actions[index], at) then
             table.remove(state.actions, index)
         end
     end
@@ -126,6 +124,16 @@ end
 
 local function activeAction(action)
     return action.status == "pending" or action.status == "unresolved"
+end
+
+-- A check changes only an active action or one old enough to drop.
+local function checkChanges(state, at)
+    for _, action in ipairs(state.actions) do
+        if activeAction(action) or pruned(action, at) then
+            return true
+        end
+    end
+    return false
 end
 
 local function validIntent(intent, actor)
@@ -140,8 +148,9 @@ end
 StoreExchangeState.validChannel = validChannel
 StoreExchangeState.validDirection = validDirection
 StoreExchangeState.validMailKind = validMailKind
-StoreExchangeState.validExchangeState = validExchangeState
+StoreExchangeState.validExchangeState = V.validatedOnce(validExchangeState)
 StoreExchangeState.pruneExchange = pruneExchange
+StoreExchangeState.checkChanges = checkChanges
 StoreExchangeState.activeAction = activeAction
 StoreExchangeState.validIntent = validIntent
 

@@ -25,7 +25,7 @@ local StoreScan = {}
 ---@param engines AzerothLedgerEngine[]
 function StoreScan.install(store, kernel, correlation, engines)
     local valid, readable, saveFields, heldKeys = kernel.valid, kernel.readable, kernel.save, kernel.heldKeys
-    local evidenceState, retain = correlation.state, correlation.retain
+    local evidenceView, retain = correlation.view, correlation.retain
 
     ---@param snapshot AzerothLedgerSnapshot
     function store.scan(_self, snapshot)
@@ -65,10 +65,43 @@ function StoreScan.install(store, kernel, correlation, engines)
         end
         snapshot = copyValue(snapshot)
         local grouped = {}
-        local evidence = evidenceState()
+        local evidence = evidenceView()
         if not evidence then
             return false
         end
+        -- Only an item that turns unreadable or readable again changes the
+        -- evidence, so an ordinary check neither copies nor saves it.
+        local evidenceCopied = false
+        local function writableEvidence()
+            if not evidenceCopied then
+                evidence, evidenceCopied = copyValue(evidence), true
+            end
+            return evidence
+        end
+        local function identityEntries()
+            local entries = {}
+            for _, entry in ipairs(evidence.unresolved) do
+                if
+                    entry.kind == "identity"
+                    and entry.character == snapshot.character
+                    and entry.realm == snapshot.realm
+                    and entry.detail.area == snapshot.area
+                then
+                    entries[#entries + 1] = entry
+                end
+            end
+            return entries
+        end
+        local function discardEvidence(id)
+            local unresolved = writableEvidence().unresolved
+            for index = #unresolved, 1, -1 do
+                if unresolved[index].id == id then
+                    table.remove(unresolved, index)
+                    return
+                end
+            end
+        end
+        local identities = identityEntries()
         local unresolvedIdentity = false
         for _, item in ipairs(snapshot.items) do
             if
@@ -84,13 +117,9 @@ function StoreScan.install(store, kernel, correlation, engines)
             if not key then
                 snapshot.complete = false
                 local found = false
-                for _, entry in ipairs(evidence.unresolved) do
+                for _, entry in ipairs(identities) do
                     if
-                        entry.kind == "identity"
-                        and entry.character == snapshot.character
-                        and entry.realm == snapshot.realm
-                        and entry.detail.area == snapshot.area
-                        and entry.detail.location == item.location
+                        entry.detail.location == item.location
                         and entry.detail.itemID == item.itemID
                         and entry.detail.quantity == item.quantity
                         and entry.detail.link == item.link
@@ -99,29 +128,27 @@ function StoreScan.install(store, kernel, correlation, engines)
                     end
                 end
                 if not found then
-                    retain(evidence, "identity", "unreadable", snapshot.seenAt, snapshot, {
+                    retain(writableEvidence(), "identity", "unreadable", snapshot.seenAt, snapshot, {
                         itemID = item.itemID,
                         quantity = item.quantity,
                         link = item.link,
                         location = item.location,
                         area = snapshot.area,
                     })
+                    identities = identityEntries()
                 end
             else
-                for index = #evidence.unresolved, 1, -1 do
-                    local entry = evidence.unresolved[index]
+                for index = #identities, 1, -1 do
+                    local entry = identities[index]
                     if
-                        entry.kind == "identity"
-                        and entry.character == snapshot.character
-                        and entry.realm == snapshot.realm
-                        and entry.detail.area == snapshot.area
-                        and item.location ~= nil
+                        item.location ~= nil
                         and entry.detail.location == item.location
                         and entry.at == snapshot.seenAt
                         and entry.detail.itemID == item.itemID
                         and entry.detail.quantity == item.quantity
                     then
-                        table.remove(evidence.unresolved, index)
+                        discardEvidence(entry.id)
+                        table.remove(identities, index)
                         unresolvedIdentity = true
                     end
                 end
@@ -309,7 +336,7 @@ function StoreScan.install(store, kernel, correlation, engines)
             character = snapshot.character,
             realm = snapshot.realm,
         }
-        local fields = { records = nextRecords, areas = nextAreas, evidence = evidence }
+        local fields = { records = nextRecords, areas = nextAreas, evidence = evidenceCopied and evidence or nil }
         for _, handler in ipairs(handlers) do
             handler.commit(fields)
         end

@@ -630,6 +630,24 @@ local function isInteger(value)
     return type(value) == "number" and value ~= math.huge and value ~= -math.huge and value == math.floor(value)
 end
 
+-- Only the store writes a section once its save has loaded, and each write is a
+-- new table built from checked data. Events ask about the same table many
+-- times a second, so a table that passed need not be walked again.
+---@generic T
+---@param validate fun(state: T): boolean
+---@return fun(state: T): boolean
+local function validatedOnce(validate)
+    local proven
+    return function(state)
+        if state ~= nil and state == proven then
+            return true
+        end
+        local passed = validate(state)
+        proven = passed and state or nil
+        return passed
+    end
+end
+
 local function validCheckID(value)
     return value == nil or (isInteger(value) and value >= 1)
 end
@@ -1007,6 +1025,7 @@ Validate.isName = isName
 Validate.areaKey = areaKey
 Validate.copyArray = copyArray
 Validate.copyValue = copyValue
+Validate.validatedOnce = validatedOnce
 Validate.validLootSource = validLootSource
 Validate.compactObservations = compactObservations
 Validate.copyRecord = copyRecord

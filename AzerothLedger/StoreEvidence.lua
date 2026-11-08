@@ -19,7 +19,7 @@ local StoreEvidence = {}
 -- Reward methods a retained receipt may name.
 local rewardMethods = { Quest = true, Crafted = true, Obtained = true }
 
-local function validEvidence(state)
+local function wellFormedEvidence(state)
     if
         type(state) ~= "table"
         or not isInteger(state.nextID)
@@ -64,6 +64,8 @@ local function validEvidence(state)
     end
     return true
 end
+
+local validEvidence = V.validatedOnce(wellFormedEvidence)
 
 ---@type AzerothLedgerSlice
 StoreEvidence.slice = { name = "evidence", validate = validEvidence }
@@ -158,11 +160,17 @@ function StoreEvidence.install(store, kernel, slice)
     ---@type {name: string, engine: AzerothLedgerEngine}[]
     local engines = {}
 
-    local function evidenceState()
+    -- The saved evidence itself, for callers that must not write to it.
+    local function evidenceView()
         if savedState() == nil then
             return { nextID = 1, unresolved = {}, discarded = 0 }
         end
-        return validEvidence(savedState()) and copyValue(savedState()) or nil
+        return validEvidence(savedState()) and savedState() or nil
+    end
+
+    local function evidenceState()
+        local view = evidenceView()
+        return view and copyValue(view) or nil
     end
 
     -- End correlation independently of event traffic. Completed vendor and outgoing
@@ -428,6 +436,7 @@ function StoreEvidence.install(store, kernel, slice)
 
     return {
         state = evidenceState,
+        view = evidenceView,
         retain = retain,
         endCorrelation = endCorrelation,
         reserve = reserveCandidate,

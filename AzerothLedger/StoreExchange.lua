@@ -14,6 +14,7 @@ local State = addon.StoreExchangeState
 local validChannel, validDirection, validExchangeState =
     State.validChannel, State.validDirection, State.validExchangeState
 local pruneExchange, activeAction, validIntent = State.pruneExchange, State.activeAction, State.validIntent
+local checkChanges = State.checkChanges
 
 ---@type AzerothLedgerSlice
 StoreExchange.slice = { name = "exchange", validate = validExchangeState, journal = "transfers" }
@@ -423,11 +424,7 @@ function StoreExchange.install(store, kernel, slice)
         local handler, exchange = {}, nil
         function handler.finish()
             exchange = exchangeState()
-            if exchange and #exchange.actions == 0 then
-                exchange = nil
-            elseif exchange then
-                exchange = copyValue(exchange)
-            end
+            exchange = exchange and checkChanges(exchange, snapshot.seenAt) and copyValue(exchange) or nil
             if snapshot.area == "bags" and snapshot.complete and type(oldScope) == "table" and oldScope.complete then
                 settleExchange(exchange, snapshot, scan.grouped, scan.records)
             end

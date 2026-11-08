@@ -12,6 +12,7 @@ local Session = addon.StoreLootSession
 local validLootState, sessionIsLive, attributeLoot =
     Session.validLootState, Session.sessionIsLive, Session.attributeLoot
 local lootSlots, unsettledSlot, competingLoot = Session.lootSlots, Session.unsettledSlot, Session.competingLoot
+local copyLootState, addBaseline = Session.copyLootState, Session.addBaseline
 
 ---@type AzerothLedgerSlice
 StoreLoot.slice = {
@@ -22,11 +23,11 @@ StoreLoot.slice = {
     beforeChange = function(state, key, possessions, before)
         for _, session in ipairs(state and state.sessions or {}) do
             if session.baselinePossessions and session.baselinePossessions[key] == nil then
-                session.baselinePossessions[key] = possessions(session.character, session.realm)
+                addBaseline(session, "baselinePossessions", key, possessions(session.character, session.realm))
             end
             if session.baselineGains[key] == nil then
-                session.baselineGains[key] = before and before.totalGained or 0
-                session.baselineQuantities[key] = possessions(session.character, session.realm)
+                addBaseline(session, "baselineGains", key, before and before.totalGained or 0)
+                addBaseline(session, "baselineQuantities", key, possessions(session.character, session.realm))
             end
         end
     end,
@@ -251,7 +252,7 @@ function StoreLoot.install(store, kernel, slice, correlation, rewards)
             return true
         end
         session = preferred or session
-        local pendingLoot = copyValue(lootState())
+        local pendingLoot = copyLootState(lootState())
         local selectedID = session and session.id
         session = nil
         for _, entry in ipairs(pendingLoot and pendingLoot.sessions or {}) do
@@ -405,7 +406,7 @@ function StoreLoot.install(store, kernel, slice, correlation, rewards)
     ---@param scan AzerothLedgerCheck
     local function check(scan)
         local snapshot, oldScope = scan.snapshot, scan.oldScope
-        local pending = healthyState() and copyValue(lootState()) or nil
+        local pending = healthyState() and copyLootState(lootState()) or nil
         local sessions = (snapshot.area == "bags" or snapshot.area == "equipped")
                 and measuredSessions(pending, snapshot.seenAt, snapshot.character, snapshot.realm)
             or {}

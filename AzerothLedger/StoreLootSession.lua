@@ -280,7 +280,46 @@ local function competingLoot(session, key, actor, nextSlot)
         and not (nextSlot and sameLootSource(slot.source, nextSlot.source))
 end
 
-StoreLootSession.validLootState = validLootState
+-- A session's baselines hold every item carried when it opened, and a check
+-- only reads them. Copies share those tables; addBaseline replaces one instead
+-- of writing to it, so a failed save still leaves the saved session unchanged.
+local sharedBaselines = { baselineQuantities = true, baselineGains = true, baselinePossessions = true }
+
+local function copySession(session)
+    if type(session) ~= "table" then
+        return session
+    end
+    local result = {}
+    for field, value in pairs(session) do
+        result[field] = sharedBaselines[field] and value or copyValue(value)
+    end
+    return result
+end
+
+local function copyLootState(state)
+    if type(state) ~= "table" or type(state.sessions) ~= "table" then
+        return copyValue(state)
+    end
+    local result = copyValue({ nextID = state.nextID })
+    result.sessions = {}
+    for index, session in pairs(state.sessions) do
+        result.sessions[index] = copySession(session)
+    end
+    return result
+end
+
+local function addBaseline(session, field, key, value)
+    local baseline = {}
+    for existing, quantity in pairs(session[field]) do
+        baseline[existing] = quantity
+    end
+    baseline[key] = value
+    session[field] = baseline
+end
+
+StoreLootSession.validLootState = V.validatedOnce(validLootState)
+StoreLootSession.copyLootState = copyLootState
+StoreLootSession.addBaseline = addBaseline
 StoreLootSession.sessionIsLive = sessionIsLive
 StoreLootSession.attributeLoot = attributeLoot
 StoreLootSession.lootSlots = lootSlots
