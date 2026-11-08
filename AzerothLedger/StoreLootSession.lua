@@ -269,6 +269,16 @@ local function sameLootSource(left, right)
     return sameSource(left, right)
 end
 
+-- Whether a window may still hold some of this item. Loot lines covering the
+-- slot prove it was taken, even while its bag count is still on the way.
+local function mayHoldItem(session, key, slot)
+    if not slot.limit then
+        return true
+    end
+    local receipt = session.receipts[key]
+    return (session.awarded[key] or 0) < slot.limit and not (receipt and receipt.quantity >= slot.limit)
+end
+
 -- An earlier window still holding this item competes for its receipt, unless
 -- it is the same corpse or container opened again.
 local function competingLoot(session, key, actor, nextSlot)
@@ -276,7 +286,7 @@ local function competingLoot(session, key, actor, nextSlot)
     return session.character == actor.character
         and session.realm == actor.realm
         and slot ~= nil
-        and (not slot.limit or (session.awarded[key] or 0) < slot.limit)
+        and mayHoldItem(session, key, slot)
         and not (nextSlot and sameLootSource(slot.source, nextSlot.source))
 end
 
