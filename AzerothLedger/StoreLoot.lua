@@ -152,7 +152,7 @@ function StoreLoot.install(store, kernel, slice, correlation, rewards)
         records[key] = record
     end
 
-    ---@param window {slots: AzerothLedgerLootSlot[]}
+    ---@param window {slots: AzerothLedgerLootSlot[], won?: boolean} `won`: a roll you won, its source already settled
     ---@param at integer
     ---@param context AzerothLedgerGainActor
     local function lootOpen(window, at, context)
@@ -193,7 +193,7 @@ function StoreLoot.install(store, kernel, slice, correlation, rewards)
                     session.endedAt = at
                 end
                 for key, slot in pairs(slots) do
-                    if competingLoot(session, key, context, slot) then
+                    if not window.won and competingLoot(session, key, context, slot) then
                         slot.source = nil
                         slot.shares = nil
                         session.slots[key].source = nil

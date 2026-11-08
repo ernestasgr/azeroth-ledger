@@ -8,8 +8,10 @@ local ring = "|cnIQ2:|Hitem:6448::::::::25:1491:::::::::|h[Tail Spike]|h|r"
 local gem = "|cnIQ2:|Hitem:1210::::::::25:1491:::::::::|h[Shadowgem]|h|r"
 local boots = "|cnIQ2:|Hitem:6482::::::::25:1491:::::::::|h[Firewalker Boots]|h|r"
 local staff = "|cnIQ2:|Hitem:6505::::::::25:1491:::::::::|h[Crescent Staff]|h|r"
+local axe = "|cnIQ2:|Hitem:4568::::::::25:1491:::::::::|h[Grunt Axe]|h|r"
+local bow = "|cnIQ2:|Hitem:4576::::::::25:1491:::::::::|h[Light Bow]|h|r"
 local held = {}
-local slots = { cloak, ring, gem, boots, staff }
+local slots = { cloak, ring, gem, boots, staff, axe, bow }
 local corpse = "Creature-0-4170-43-1-3671-000012AB34"
 local otherCorpse = "Creature-0-4170-43-1-3669-000012AB99"
 local window, targetGUID = {}, nil
@@ -129,5 +131,35 @@ land(staff)
 local staffTotal, staffRecord = gained(staff)
 assert(staffTotal == 1, "an ambiguous roll is still confirmed loot")
 assert(staffRecord.gains[1].source == nil, "a roll seen in two windows has no single source")
+
+-- A slot locked for its roll can read no source. That says nothing about the
+-- corpse an earlier window proved, even moments before the roll ends.
+clock = 1500
+lootWindow(corpse, axe)
+clock = 1623
+lootWindow(nil, axe)
+clock = 1625
+event("LOOT_ITEM_ROLL_WON", axe, 1, 1, 64, false)
+event("CHAT_MSG_LOOT", "You receive loot: " .. axe .. ".")
+land(axe)
+local axeTotal, axeRecord = gained(axe)
+assert(axeTotal == 1, "a roll after an unreadable window is confirmed loot")
+local axeSource = axeRecord.gains[1].source
+assert(axeSource and axeSource.guid == corpse, "an unreadable window erased the source an earlier window proved")
+
+-- One window that reads a share of the item but not all of it proves no single source.
+clock = 1800
+window = { { link = bow, guid = corpse }, { link = bow } }
+event("LOOT_READY", false)
+event("LOOT_OPENED", false)
+event("LOOT_CLOSED")
+window = {}
+clock = 1820
+event("LOOT_ITEM_ROLL_WON", bow, 1, 1, 12, false)
+event("CHAT_MSG_LOOT", "You receive loot: " .. bow .. ".")
+land(bow)
+local bowTotal, bowRecord = gained(bow)
+assert(bowTotal == 1, "a roll after a partly readable window is confirmed loot")
+assert(bowRecord.gains[1].source == nil, "a partly readable window named a single source")
 
 print("loot_roll_event_spec: passed")
