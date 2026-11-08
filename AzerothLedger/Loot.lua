@@ -299,6 +299,31 @@ function Loot.open(api, castName, creatureNames)
     return slots
 end
 
+-- What one window says about each item's source: the source, `false` when its
+-- shares disagree or only some are readable, and nothing when none is readable.
+local function windowSources(slots)
+    local read = {}
+    for _, slot in ipairs(slots) do
+        ---@type {unreadable: boolean, source?: AzerothLedgerLootSource|false}
+        local entry = read[slot.key] or { unreadable = false }
+        read[slot.key] = entry
+        if not slot.source then
+            entry.unreadable = true
+        elseif entry.source == nil or (entry.source and entry.source.guid == slot.source.guid) then
+            entry.source = slot.source
+        else
+            entry.source = false
+        end
+    end
+    local result = {}
+    for key, entry in pairs(read) do
+        if entry.source ~= nil then
+            result[key] = not entry.unreadable and entry.source
+        end
+    end
+    return result
+end
+
 -- The store commands this channel writes through.
 ---@type ALCommandName[]
 Loot.commands = { "lootOpen", "lootSourceProof", "lootClose", "lootReceipt", "vendorReceipt" }
@@ -396,16 +421,12 @@ function Loot.new(deps)
                 shown[key] = nil
             end
         end
-        for _, slot in ipairs(slots) do
-            local from, entry = slot.source, shown[slot.key]
-            if not from then
-                -- An unreadable share leaves the window's source for this key unknown.
-                shown[slot.key] = { at = at, source = false }
-            elseif not entry or (entry.source and entry.source.guid == from.guid) then
-                shown[slot.key] = { at = at, source = from }
-            else
-                shown[slot.key] = { at = at, source = false }
-            end
+        -- A slot locked for its roll reads no source, so a window with nothing
+        -- readable leaves what an earlier window proved.
+        for key, from in pairs(windowSources(slots)) do
+            local entry = shown[key]
+            local agrees = from and (not entry or (entry.source and entry.source.guid == from.guid))
+            shown[key] = { at = at, source = agrees and from or false }
         end
     end
 
@@ -466,7 +487,8 @@ function Loot.new(deps)
         if type(quantity) ~= "number" or quantity < 1 or quantity ~= math.floor(quantity) then
             quantity = nil
         end
-        if not commands.lootOpen({ slots = { { key = key, quantity = quantity, source = rollSource(key) } } }) then
+        local slot = { key = key, quantity = quantity, source = rollSource(key) }
+        if not commands.lootOpen({ slots = { slot }, won = true }) then
             return
         end
         local held, at = unplaced[key], deps.clock()

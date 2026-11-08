@@ -573,7 +573,7 @@ end
 
 -- The writes store:command accepts. Each is declared by the domain that owns it.
 ---@alias ALCommandName
----| 'lootOpen' # {slots}; the actor carries level and place
+---| 'lootOpen' # {slots, won?}; the actor carries level and place
 ---| 'lootSourceProof' # {slots} read after the window opened
 ---| 'lootReceipt' # {key, quantity}
 ---| 'lootClose' # nil
