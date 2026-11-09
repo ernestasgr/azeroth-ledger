@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.5
+
+- Looting several corpses in quick succession now keeps the creature as each item's Source. Before, it showed as Unknown.
+- An item you win in a group loot roll now keeps its Source even when a loot window couldn't be read in the meantime. Before, it showed as Unknown.
+- Picking up items and other bag changes are about three times faster, so looting hitches less.
+
 ## 1.0.4
 
 - /azledger and /azerothledger now open the ledger too, for when another addon also uses /al.
